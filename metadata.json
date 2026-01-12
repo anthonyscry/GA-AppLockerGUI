@@ -1,0 +1,5 @@
+{
+  "name": "GA-AppLocker Dashboard",
+  "description": "A comprehensive administrative dashboard for the GA-AppLocker toolkit, enabling remote scanning, policy generation, event monitoring, and compliance reporting with AI-driven policy analysis.",
+  "requestFramePermissions": []
+}
