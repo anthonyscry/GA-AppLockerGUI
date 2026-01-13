@@ -231,7 +231,7 @@ const App: React.FC = () => {
 
             <div id="about-description" className="flex-1 overflow-y-auto p-10 space-y-8 scroll-smooth custom-scrollbar">
               <div className="text-center space-y-3">
-                <h4 className="text-3xl font-black text-slate-900 tracking-tight">GA-AppLocker v1.2.7</h4>
+                <h4 className="text-3xl font-black text-slate-900 tracking-tight">GA-AppLocker v1.2.8</h4>
                 <div className="flex items-center justify-center space-x-2 text-slate-400 text-xs font-black uppercase tracking-widest">
                   <span>Created By</span>
                   <span className="text-blue-600">Tony Tran, ISSO</span>

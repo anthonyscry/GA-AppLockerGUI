@@ -122,7 +122,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
                 {domainInfo.isDC ? 'DC Admin Mode' : 'Connected'}
               </span>
             </div>
-            <span className="text-xs text-slate-500">v1.2.7</span>
+            <span className="text-xs text-slate-500">v1.2.8</span>
           </div>
           <div className="text-[10px] text-slate-400 space-y-1">
             <div className="flex items-center justify-between">
