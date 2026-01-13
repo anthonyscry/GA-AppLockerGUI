@@ -27,6 +27,10 @@ export class PolicyRepository implements IPolicyRepository {
       cacheManager.set(cacheKey, result, 300000);
       return result;
     } catch (error) {
+      if (!ipcClient.isAvailable()) {
+        logger.warn('IPC not available (browser mode), returning empty inventory');
+        return [];
+      }
       logger.error('Failed to fetch inventory', error as Error);
       throw new ExternalServiceError('Policy Service', 'Failed to fetch inventory', error as Error);
     }
@@ -48,6 +52,10 @@ export class PolicyRepository implements IPolicyRepository {
       cacheManager.set(cacheKey, result, 600000);
       return result;
     } catch (error) {
+      if (!ipcClient.isAvailable()) {
+        logger.warn('IPC not available (browser mode), returning empty publishers list');
+        return [];
+      }
       logger.error('Failed to fetch trusted publishers', error as Error);
       throw new ExternalServiceError('Policy Service', 'Failed to fetch trusted publishers', error as Error);
     }

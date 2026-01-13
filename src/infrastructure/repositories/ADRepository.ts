@@ -15,6 +15,10 @@ export class ADRepository implements IADRepository {
       const users = await ipcClient.invoke<ADUser[]>(IPCChannels.AD.GET_USERS);
       return users || [];
     } catch (error) {
+      if (!ipcClient.isAvailable()) {
+        logger.warn('IPC not available (browser mode), returning empty users list');
+        return [];
+      }
       logger.error('Failed to fetch AD users', error as Error);
       throw new ExternalServiceError('AD Service', 'Failed to fetch AD users', error as Error);
     }

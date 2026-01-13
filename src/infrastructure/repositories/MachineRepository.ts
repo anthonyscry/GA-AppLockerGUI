@@ -15,9 +15,14 @@ export class MachineRepository implements IMachineRepository {
     try {
       logger.debug('MachineRepository.findAll called');
       const machines = await ipcClient.invoke<MachineScan[]>(IPCChannels.MACHINE.GET_ALL);
-      logger.info(`Retrieved ${machines.length} machines`);
+      logger.info(`Retrieved ${machines?.length || 0} machines`);
       return machines || [];
     } catch (error) {
+      // Gracefully handle browser mode - return empty array instead of throwing
+      if (!ipcClient.isAvailable()) {
+        logger.warn('IPC not available (browser mode), returning empty machines list');
+        return [];
+      }
       logger.error('Failed to fetch machines', error as Error);
       throw new ExternalServiceError('Machine Service', 'Failed to fetch machines', error as Error);
     }
@@ -28,11 +33,18 @@ export class MachineRepository implements IMachineRepository {
       logger.debug(`MachineRepository.findById called with id: ${id}`);
       const machine = await ipcClient.invoke<MachineScan | null>(IPCChannels.MACHINE.GET_BY_ID, id);
       if (!machine) {
-        throw new NotFoundError('Machine', id);
+        if (ipcClient.isAvailable()) {
+          throw new NotFoundError('Machine', id);
+        }
+        return null; // Browser mode - return null instead of throwing
       }
       return machine;
     } catch (error) {
       if (error instanceof NotFoundError) throw error;
+      if (!ipcClient.isAvailable()) {
+        logger.warn('IPC not available (browser mode), returning null');
+        return null;
+      }
       logger.error(`Failed to find machine ${id}`, error as Error);
       throw new ExternalServiceError('Machine Service', `Failed to find machine ${id}`, error as Error);
     }

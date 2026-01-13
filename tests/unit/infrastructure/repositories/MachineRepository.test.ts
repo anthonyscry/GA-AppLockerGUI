@@ -33,8 +33,17 @@ describe('MachineRepository', () => {
       expect(mockIpcClient.invoke).toHaveBeenCalledWith('machine:getAll');
     });
 
-    it('should handle IPC errors', async () => {
+    it('should return empty array when IPC not available (browser mode)', async () => {
       mockIpcClient.invoke.mockRejectedValue(new Error('IPC error'));
+      mockIpcClient.isAvailable = jest.fn().mockReturnValue(false);
+
+      const result = await repository.findAll();
+      expect(result).toEqual([]);
+    });
+
+    it('should throw when IPC is available but fails', async () => {
+      mockIpcClient.invoke.mockRejectedValue(new Error('IPC error'));
+      mockIpcClient.isAvailable = jest.fn().mockReturnValue(true);
 
       await expect(repository.findAll()).rejects.toThrow();
     });

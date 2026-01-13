@@ -15,6 +15,10 @@ export class EventRepository implements IEventRepository {
       const events = await ipcClient.invoke<AppEvent[]>(IPCChannels.EVENT.GET_ALL);
       return events || [];
     } catch (error) {
+      if (!ipcClient.isAvailable()) {
+        logger.warn('IPC not available (browser mode), returning empty events list');
+        return [];
+      }
       logger.error('Failed to fetch events', error as Error);
       throw new ExternalServiceError('Event Service', 'Failed to fetch events', error as Error);
     }
@@ -32,6 +36,10 @@ export class EventRepository implements IEventRepository {
       );
       return stats || { totalBlocked: 0, totalAudit: 0, uniquePaths: 0 };
     } catch (error) {
+      if (!ipcClient.isAvailable()) {
+        logger.warn('IPC not available (browser mode), returning default stats');
+        return { totalBlocked: 0, totalAudit: 0, uniquePaths: 0 };
+      }
       logger.error('Failed to get event stats', error as Error);
       throw new ExternalServiceError('Event Service', 'Failed to get event stats', error as Error);
     }

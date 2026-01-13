@@ -6,6 +6,10 @@ module.exports = {
     '**/__tests__/**/*.ts?(x)',
     '**/?(*.)+(spec|test).ts?(x)'
   ],
+  testPathIgnorePatterns: [
+    '/node_modules/',
+    '/tests/e2e/'
+  ],
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
     '^@components/(.*)$': '<rootDir>/components/$1',

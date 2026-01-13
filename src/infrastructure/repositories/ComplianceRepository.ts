@@ -18,6 +18,10 @@ export class ComplianceRepository implements IComplianceRepository {
         systemSnapshots: 'MISSING',
       };
     } catch (error) {
+      if (!ipcClient.isAvailable()) {
+        logger.warn('IPC not available (browser mode), returning default status');
+        return { status: 'unknown', lastGenerated: null, path: null };
+      }
       logger.error('Failed to get evidence status', error as Error);
       throw new ExternalServiceError('Compliance Service', 'Failed to get evidence status', error as Error);
     }

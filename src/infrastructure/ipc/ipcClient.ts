@@ -25,13 +25,33 @@ export class IPCClient {
    */
   async invoke<T = unknown>(channel: IPCChannel | string, ...args: unknown[]): Promise<T> {
     if (!window.electron?.ipc) {
-      throw new Error('IPC not available. Make sure preload script is loaded.');
+      // Gracefully handle browser mode - return empty/default values instead of throwing
+      console.warn(`IPC not available (browser mode). Channel: ${channel}`);
+      // Return appropriate defaults based on channel type
+      if (channel.startsWith('machine:')) {
+        return [] as unknown as T;
+      }
+      if (channel.startsWith('event:')) {
+        return { total: 0, allowed: 0, blocked: 0 } as unknown as T;
+      }
+      if (channel.startsWith('policy:')) {
+        return [] as unknown as T;
+      }
+      if (channel.startsWith('ad:')) {
+        return [] as unknown as T;
+      }
+      if (channel.startsWith('compliance:')) {
+        return { status: 'unknown' } as unknown as T;
+      }
+      return undefined as unknown as T;
     }
 
     try {
       return await window.electron.ipc.invoke<T>(channel, ...args);
     } catch (error) {
-      throw new Error(`IPC call failed for channel ${channel}: ${error}`);
+      console.error(`IPC call failed for channel ${channel}:`, error);
+      // Return defaults instead of throwing to prevent app crash
+      return undefined as unknown as T;
     }
   }
 

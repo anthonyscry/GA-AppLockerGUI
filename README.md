@@ -138,7 +138,7 @@ For detailed API documentation, see [docs/API.md](./docs/API.md).
 
 - The built application is self-contained and doesn't require Node.js to run
 - All dependencies are bundled with the application
-- The application uses Tailwind CSS via CDN (requires internet connection for styling)
+- The application uses Tailwind CSS bundled locally (fully standalone, no internet required)
 
 ## Troubleshooting
 
