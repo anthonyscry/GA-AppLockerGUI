@@ -138,7 +138,7 @@ function setupIpcHandlers() {
       console.error('[IPC] Policy health check error:', error);
       return {
         success: false,
-        error: error.message
+        error: sanitizeErrorMessage(error)
       };
     }
   });
@@ -177,37 +177,72 @@ function setupIpcHandlers() {
 
   ipcMain.handle('policy:deploy', async (event, policyPath, gpoName, options = {}) => {
     try {
+      // SECURITY: Validate all paths
+      if (!isPathAllowed(policyPath)) {
+        return { success: false, error: 'Policy path not allowed' };
+      }
+      if (options.backupPath && !isPathAllowed(options.backupPath)) {
+        return { success: false, error: 'Backup path not allowed' };
+      }
+
+      // SECURITY: Validate GPO name (alphanumeric, spaces, hyphens, underscores only)
+      const gpoNamePattern = /^[a-zA-Z0-9\s\-_]+$/;
+      if (!gpoName || !gpoNamePattern.test(gpoName)) {
+        return { success: false, error: 'Invalid GPO name format' };
+      }
+
+      // SECURITY: Validate phase against whitelist
+      const validPhases = ['1', '2', '3', '4', 'Phase1', 'Phase2', 'Phase3', 'Phase4'];
+      if (options.phase && !validPhases.includes(options.phase)) {
+        return { success: false, error: 'Invalid phase value' };
+      }
+
+      // SECURITY: Validate enforcement mode against whitelist
+      const validModes = ['AuditOnly', 'Enabled', 'NotConfigured'];
+      if (options.enforcementMode && !validModes.includes(options.enforcementMode)) {
+        return { success: false, error: 'Invalid enforcement mode' };
+      }
+
+      // SECURITY: Validate domain format (alphanumeric, dots, hyphens)
+      const domainPattern = /^[a-zA-Z0-9.\-]+$/;
+      if (options.domain && !domainPattern.test(options.domain)) {
+        return { success: false, error: 'Invalid domain format' };
+      }
+
       const scriptPath = path.join(scriptsDir, 'Deploy-AppLockerPolicy.ps1');
       const args = [
-        '-PolicyPath', policyPath,
-        '-GPOName', gpoName
+        '-PolicyPath', escapePowerShellString(policyPath),
+        '-GPOName', escapePowerShellString(gpoName)
       ];
 
       if (options.backupPath) {
-        args.push('-BackupPath', options.backupPath);
+        args.push('-BackupPath', escapePowerShellString(options.backupPath));
       }
 
       if (options.domain) {
-        args.push('-Domain', options.domain);
+        args.push('-Domain', escapePowerShellString(options.domain));
       }
 
-      // NEW: Support OU linking
+      // SECURITY: Escape each OU path individually before joining
       if (options.ouPaths && Array.isArray(options.ouPaths) && options.ouPaths.length > 0) {
+        const ouPathPattern = /^[a-zA-Z0-9\s,=\\.\-]+$/;
+        for (const ouPath of options.ouPaths) {
+          if (!ouPathPattern.test(ouPath)) {
+            return { success: false, error: 'Invalid OU path format' };
+          }
+        }
         args.push('-OUPath');
-        args.push(options.ouPaths.join(','));
+        args.push(options.ouPaths.map(p => escapePowerShellString(p)).join(','));
       }
 
-      // NEW: Support phase-based deployment
       if (options.phase) {
         args.push('-Phase', options.phase);
       }
 
-      // NEW: Support enforcement mode override
       if (options.enforcementMode) {
         args.push('-EnforcementMode', options.enforcementMode);
       }
 
-      // NEW: Auto-create GPO if needed
       if (options.createGPO) {
         args.push('-CreateGPO');
       }
@@ -234,17 +269,40 @@ function setupIpcHandlers() {
       console.error('[IPC] Policy deployment error:', error);
       return {
         success: false,
-        error: error.message
+        error: sanitizeErrorMessage(error)
       };
     }
   });
 
   ipcMain.handle('policy:generateFromInventory', async (event, inventoryPath, outputPath, options = {}) => {
     try {
+      // SECURITY: Validate all paths
+      if (!isPathAllowed(inventoryPath)) {
+        return { success: false, error: 'Inventory path not allowed' };
+      }
+      if (!isPathAllowed(outputPath)) {
+        return { success: false, error: 'Output path not allowed' };
+      }
+      if (options.existingPolicyPath && !isPathAllowed(options.existingPolicyPath)) {
+        return { success: false, error: 'Existing policy path not allowed' };
+      }
+
+      // SECURITY: Validate ruleType against whitelist
+      const validRuleTypes = ['Publisher', 'Hash', 'Path'];
+      if (options.ruleType && !validRuleTypes.includes(options.ruleType)) {
+        return { success: false, error: 'Invalid rule type' };
+      }
+
+      // SECURITY: Validate collectionType against whitelist
+      const validCollectionTypes = ['Exe', 'Msi', 'Script', 'Appx', 'Dll'];
+      if (options.collectionType && !validCollectionTypes.includes(options.collectionType)) {
+        return { success: false, error: 'Invalid collection type' };
+      }
+
       const scriptPath = path.join(scriptsDir, 'New-RulesFromInventory.ps1');
       const args = [
-        '-InventoryPath', inventoryPath,
-        '-OutputPath', outputPath
+        '-InventoryPath', escapePowerShellString(inventoryPath),
+        '-OutputPath', escapePowerShellString(outputPath)
       ];
 
       if (options.ruleType) {
@@ -257,7 +315,7 @@ function setupIpcHandlers() {
 
       if (options.mergeWithExisting && options.existingPolicyPath) {
         args.push('-MergeWithExisting');
-        args.push('-ExistingPolicyPath', options.existingPolicyPath);
+        args.push('-ExistingPolicyPath', escapePowerShellString(options.existingPolicyPath));
       }
 
       const result = await executePowerShellScript(scriptPath, args, {
@@ -272,7 +330,7 @@ function setupIpcHandlers() {
       console.error('[IPC] Generate from inventory error:', error);
       return {
         success: false,
-        error: error.message
+        error: sanitizeErrorMessage(error)
       };
     }
   });
@@ -280,15 +338,32 @@ function setupIpcHandlers() {
   // Event handlers
   ipcMain.handle('events:collectAuditLogs', async (event, options = {}) => {
     try {
+      // SECURITY: Validate output path if provided
+      if (options.outputPath && !isPathAllowed(options.outputPath)) {
+        return { success: false, error: 'Output path not allowed' };
+      }
+
+      // SECURITY: Validate computer name format (alphanumeric, hyphens, dots)
+      const computerNamePattern = /^[a-zA-Z0-9.\-]+$/;
+      if (options.computerName) {
+        const names = Array.isArray(options.computerName) ? options.computerName : [options.computerName];
+        for (const name of names) {
+          if (!computerNamePattern.test(name)) {
+            return { success: false, error: 'Invalid computer name format' };
+          }
+        }
+      }
+
       const scriptPath = path.join(scriptsDir, 'Get-AppLockerAuditLogs.ps1');
       const args = [];
 
       if (options.computerName) {
         args.push('-ComputerName');
         if (Array.isArray(options.computerName)) {
-          args.push(...options.computerName);
+          // SECURITY: Escape each computer name
+          args.push(...options.computerName.map(n => escapePowerShellString(n)));
         } else {
-          args.push(options.computerName);
+          args.push(escapePowerShellString(options.computerName));
         }
       }
 
@@ -301,7 +376,7 @@ function setupIpcHandlers() {
       }
 
       if (options.outputPath) {
-        args.push('-OutputPath', options.outputPath);
+        args.push('-OutputPath', escapePowerShellString(options.outputPath));
       }
 
       if (options.exportToSIEM) {
@@ -376,7 +451,7 @@ function setupIpcHandlers() {
       console.error('[IPC] Collect audit logs error:', error);
       return {
         success: false,
-        error: error.message
+        error: sanitizeErrorMessage(error)
       };
     }
   });
@@ -384,13 +459,30 @@ function setupIpcHandlers() {
   // Compliance handlers
   ipcMain.handle('compliance:generateReport', async (event, options = {}) => {
     try {
+      // SECURITY: Validate output directory path
+      const outputDir = options.outputDirectory || path.join(process.cwd(), 'compliance');
+      if (!isPathAllowed(outputDir)) {
+        return { success: false, error: 'Output directory not allowed' };
+      }
+
+      // SECURITY: Validate policy path if provided
+      if (options.policyPath && !isPathAllowed(options.policyPath)) {
+        return { success: false, error: 'Policy path not allowed' };
+      }
+
+      // SECURITY: Validate report format against whitelist
+      const validFormats = ['HTML', 'JSON', 'CSV', 'XML'];
+      if (options.reportFormat && !validFormats.includes(options.reportFormat)) {
+        return { success: false, error: 'Invalid report format' };
+      }
+
       const scriptPath = path.join(scriptsDir, 'Get-ComplianceReport.ps1');
       const args = [
-        '-OutputDirectory', options.outputDirectory || path.join(process.cwd(), 'compliance')
+        '-OutputDirectory', escapePowerShellString(outputDir)
       ];
 
       if (options.policyPath) {
-        args.push('-PolicyPath', options.policyPath);
+        args.push('-PolicyPath', escapePowerShellString(options.policyPath));
       }
 
       if (options.reportFormat) {
@@ -408,13 +500,13 @@ function setupIpcHandlers() {
       return {
         success: true,
         output: result.stdout,
-        outputDirectory: options.outputDirectory
+        outputDirectory: outputDir
       };
     } catch (error) {
       console.error('[IPC] Generate compliance report error:', error);
       return {
         success: false,
-        error: error.message
+        error: sanitizeErrorMessage(error)
       };
     }
   });
@@ -439,7 +531,7 @@ function setupIpcHandlers() {
       return {
         success: false,
         principal: 'Unknown\\User',
-        error: error.message
+        error: sanitizeErrorMessage(error)
       };
     }
   });
@@ -510,7 +602,7 @@ function setupIpcHandlers() {
         IsDomainController: false,
         ComputerName: os.hostname(),
         UserName: process.env.USERNAME || 'user',
-        Error: error.message
+        Error: sanitizeErrorMessage(error)
       };
     }
   });
@@ -534,7 +626,7 @@ function setupIpcHandlers() {
       console.error('[IPC] Check AppLocker service error:', error);
       return {
         success: false,
-        error: error.message
+        error: sanitizeErrorMessage(error)
       };
     }
   });
@@ -556,7 +648,7 @@ function setupIpcHandlers() {
       console.error('[IPC] Check PowerShell modules error:', error);
       return {
         success: false,
-        error: error.message
+        error: sanitizeErrorMessage(error)
       };
     }
   });
@@ -564,10 +656,31 @@ function setupIpcHandlers() {
   // Policy merger handler
   ipcMain.handle('policy:mergePolicies', async (event, policyPaths, outputPath, options = {}) => {
     try {
+      // SECURITY: Validate output path
+      if (!isPathAllowed(outputPath)) {
+        return { success: false, error: 'Output path not allowed' };
+      }
+
+      // SECURITY: Validate all policy paths
+      if (!Array.isArray(policyPaths) || policyPaths.length === 0) {
+        return { success: false, error: 'Policy paths array is required' };
+      }
+      for (const pPath of policyPaths) {
+        if (!isPathAllowed(pPath)) {
+          return { success: false, error: 'One or more policy paths not allowed' };
+        }
+      }
+
+      // SECURITY: Validate conflict resolution against whitelist
+      const validResolutions = ['KeepFirst', 'KeepLast', 'MergeAll', 'Newest'];
+      if (options.conflictResolution && !validResolutions.includes(options.conflictResolution)) {
+        return { success: false, error: 'Invalid conflict resolution option' };
+      }
+
       const scriptPath = path.join(scriptsDir, 'Merge-AppLockerPolicies.ps1');
       const args = [
-        '-PolicyPaths', ...policyPaths,
-        '-OutputPath', outputPath
+        '-PolicyPaths', ...policyPaths.map(p => escapePowerShellString(p)),
+        '-OutputPath', escapePowerShellString(outputPath)
       ];
 
       if (options.conflictResolution) {
@@ -587,7 +700,7 @@ function setupIpcHandlers() {
       console.error('[IPC] Policy merge error:', error);
       return {
         success: false,
-        error: error.message
+        error: sanitizeErrorMessage(error)
       };
     }
   });
@@ -595,12 +708,17 @@ function setupIpcHandlers() {
   // Import artifacts handler (for rule generator)
   ipcMain.handle('policy:importArtifacts', async (event, artifactsPath) => {
     try {
+      // SECURITY: Validate artifacts path
+      if (!isPathAllowed(artifactsPath)) {
+        return { success: false, error: 'Artifacts path not allowed', inventory: [] };
+      }
+
       const fs = require('fs');
       const artifacts = JSON.parse(fs.readFileSync(artifactsPath, 'utf8'));
-      
+
       // Convert artifacts to inventory format
       const inventory = [];
-      
+
       if (artifacts.Executables) {
         artifacts.Executables.forEach((exe, index) => {
           inventory.push({
@@ -613,7 +731,7 @@ function setupIpcHandlers() {
           });
         });
       }
-      
+
       if (artifacts.WritablePaths) {
         artifacts.WritablePaths.forEach((exe, index) => {
           inventory.push({
@@ -626,12 +744,12 @@ function setupIpcHandlers() {
           });
         });
       }
-      
+
       // Remove duplicates by path
       const uniqueInventory = inventory.filter((item, index, self) =>
         index === self.findIndex(t => t.path === item.path && t.path !== '')
       );
-      
+
       return {
         success: true,
         inventory: uniqueInventory,
@@ -641,7 +759,7 @@ function setupIpcHandlers() {
       console.error('[IPC] Import artifacts error:', error);
       return {
         success: false,
-        error: error.message,
+        error: sanitizeErrorMessage(error),
         inventory: []
       };
     }
@@ -650,10 +768,44 @@ function setupIpcHandlers() {
   // Comprehensive artifact collection handler
   ipcMain.handle('policy:generateFromArtifacts', async (event, computerName, outputPath, options = {}) => {
     try {
+      // SECURITY: Validate output path
+      if (!isPathAllowed(outputPath)) {
+        return { success: false, error: 'Output path not allowed' };
+      }
+
+      // SECURITY: Validate rule output path if provided
+      if (options.ruleOutputPath && !isPathAllowed(options.ruleOutputPath)) {
+        return { success: false, error: 'Rule output path not allowed' };
+      }
+
+      // SECURITY: Validate existing policy path if provided
+      if (options.existingPolicyPath && !isPathAllowed(options.existingPolicyPath)) {
+        return { success: false, error: 'Existing policy path not allowed' };
+      }
+
+      // SECURITY: Validate computer name format (alphanumeric, hyphens, dots)
+      const computerNamePattern = /^[a-zA-Z0-9.\-]+$/;
+      const safeComputerName = computerName || process.env.COMPUTERNAME || 'localhost';
+      if (!computerNamePattern.test(safeComputerName)) {
+        return { success: false, error: 'Invalid computer name format' };
+      }
+
+      // SECURITY: Validate ruleType against whitelist
+      const validRuleTypes = ['Publisher', 'Hash', 'Path'];
+      if (options.ruleType && !validRuleTypes.includes(options.ruleType)) {
+        return { success: false, error: 'Invalid rule type' };
+      }
+
+      // SECURITY: Validate collectionType against whitelist
+      const validCollectionTypes = ['Exe', 'Msi', 'Script', 'Appx', 'Dll'];
+      if (options.collectionType && !validCollectionTypes.includes(options.collectionType)) {
+        return { success: false, error: 'Invalid collection type' };
+      }
+
       const artifactScriptPath = path.join(scriptsDir, 'Get-ComprehensiveScanArtifacts.ps1');
       const artifactArgs = [
-        '-ComputerName', computerName || process.env.COMPUTERNAME || 'localhost',
-        '-OutputPath', outputPath
+        '-ComputerName', escapePowerShellString(safeComputerName),
+        '-OutputPath', escapePowerShellString(outputPath)
       ];
 
       if (options.includeEventLogs) {
@@ -668,17 +820,28 @@ function setupIpcHandlers() {
         artifactArgs.push('-IncludeSystemPaths');
       }
 
-      // Add credentials if provided
+      // SECURITY: Handle credentials securely - pass via environment variables, not command line
+      // Note: Credentials should not be passed on command line; they are visible in process list
+      // The script should use -Credential parameter with a PSCredential object instead
       if (options.credentials && !options.credentials.useCurrentUser) {
-        if (options.credentials.username) {
-          artifactArgs.push('-Username', options.credentials.username);
-        }
-        if (options.credentials.password) {
-          artifactArgs.push('-Password', options.credentials.password);
-        }
+        // SECURITY: Validate domain format if provided
         if (options.credentials.domain) {
-          artifactArgs.push('-Domain', options.credentials.domain);
+          const domainPattern = /^[a-zA-Z0-9.\-]+$/;
+          if (!domainPattern.test(options.credentials.domain)) {
+            return { success: false, error: 'Invalid domain format' };
+          }
+          artifactArgs.push('-Domain', escapePowerShellString(options.credentials.domain));
         }
+        // SECURITY: Username validation
+        if (options.credentials.username) {
+          const usernamePattern = /^[a-zA-Z0-9._\-@\\]+$/;
+          if (!usernamePattern.test(options.credentials.username)) {
+            return { success: false, error: 'Invalid username format' };
+          }
+          artifactArgs.push('-Username', escapePowerShellString(options.credentials.username));
+        }
+        // Note: Password handling should be done via secure string, not command line
+        // For now, we skip passing password directly - script should prompt or use cached credentials
       }
 
       // First collect artifacts
@@ -690,8 +853,8 @@ function setupIpcHandlers() {
       const ruleScriptPath = path.join(scriptsDir, 'Generate-RulesFromArtifacts.ps1');
       const ruleOutputPath = options.ruleOutputPath || outputPath.replace('.json', '_rules.xml');
       const ruleArgs = [
-        '-ArtifactsPath', outputPath,
-        '-OutputPath', ruleOutputPath
+        '-ArtifactsPath', escapePowerShellString(outputPath),
+        '-OutputPath', escapePowerShellString(ruleOutputPath)
       ];
 
       if (options.ruleType) {
@@ -704,7 +867,7 @@ function setupIpcHandlers() {
 
       if (options.mergeWithExisting && options.existingPolicyPath) {
         ruleArgs.push('-MergeWithExisting');
-        ruleArgs.push('-ExistingPolicyPath', options.existingPolicyPath);
+        ruleArgs.push('-ExistingPolicyPath', escapePowerShellString(options.existingPolicyPath));
       }
 
       const ruleResult = await executePowerShellScript(ruleScriptPath, ruleArgs, {
@@ -722,7 +885,7 @@ function setupIpcHandlers() {
       console.error('[IPC] Generate from artifacts error:', error);
       return {
         success: false,
-        error: error.message
+        error: sanitizeErrorMessage(error)
       };
     }
   });
@@ -826,7 +989,7 @@ function setupIpcHandlers() {
       console.error('[IPC] Publisher grouping error:', error);
       return {
         success: false,
-        error: error.message
+        error: sanitizeErrorMessage(error)
       };
     }
   });
@@ -930,11 +1093,17 @@ function setupIpcHandlers() {
   // Rule validation handler
   ipcMain.handle('policy:validateRules', async (event, policyPath) => {
     try {
+      // SECURITY: Validate policy path
+      if (policyPath && !isPathAllowed(policyPath)) {
+        return { success: false, error: 'Policy path not allowed' };
+      }
+
       const scriptPath = path.join(scriptsDir, 'Test-RuleHealth.ps1');
-      const result = await executePowerShellScript(scriptPath, ['-PolicyPath', policyPath], {
+      const args = policyPath ? ['-PolicyPath', escapePowerShellString(policyPath)] : [];
+      const result = await executePowerShellScript(scriptPath, args, {
         timeout: 120000 // 2 minutes
       });
-      
+
       // Parse validation results
       try {
         const jsonMatch = result.stdout.match(/\{[\s\S]*\}/);
@@ -945,7 +1114,7 @@ function setupIpcHandlers() {
           };
         }
       } catch (e) {}
-      
+
       return {
         success: true,
         output: result.stdout
@@ -954,7 +1123,7 @@ function setupIpcHandlers() {
       console.error('[IPC] Rule validation error:', error);
       return {
         success: false,
-        error: error.message
+        error: sanitizeErrorMessage(error)
       };
     }
   });
@@ -1052,7 +1221,7 @@ function setupIpcHandlers() {
       console.error('[IPC] Template generation error:', error);
       return {
         success: false,
-        error: error.message
+        error: sanitizeErrorMessage(error)
       };
     }
   });
@@ -1089,7 +1258,7 @@ function setupIpcHandlers() {
         canceled: true,
         filePaths: [],
         filePath: null,
-        error: error.message
+        error: sanitizeErrorMessage(error)
       };
     }
   });
@@ -1114,7 +1283,7 @@ function setupIpcHandlers() {
       return {
         canceled: true,
         filePath: null,
-        error: error.message
+        error: sanitizeErrorMessage(error)
       };
     }
   });
@@ -1141,7 +1310,7 @@ function setupIpcHandlers() {
         canceled: true,
         filePaths: [],
         filePath: null,
-        error: error.message
+        error: sanitizeErrorMessage(error)
       };
     }
   });
@@ -1275,7 +1444,7 @@ function setupIpcHandlers() {
       return JSON.parse(result.stdout || '{"success":false}');
     } catch (error) {
       console.error('[IPC] Add to group error:', error);
-      return { success: false, error: error.message };
+      return { success: false, error: sanitizeErrorMessage(error) };
     }
   });
 
@@ -1297,7 +1466,7 @@ function setupIpcHandlers() {
       return JSON.parse(result.stdout || '{"success":false}');
     } catch (error) {
       console.error('[IPC] Remove from group error:', error);
-      return { success: false, error: error.message };
+      return { success: false, error: sanitizeErrorMessage(error) };
     }
   });
 
@@ -1366,7 +1535,7 @@ function setupIpcHandlers() {
       return { status: 'Unknown' };
     } catch (error) {
       console.error('[IPC] Get WinRM GPO status error:', error);
-      return { status: 'Unknown', error: error.message };
+      return { status: 'Unknown', error: sanitizeErrorMessage(error) };
     }
   });
 
@@ -1414,7 +1583,7 @@ function setupIpcHandlers() {
       }
     } catch (error) {
       console.error('[IPC] Toggle WinRM GPO error:', error);
-      return { success: false, error: error.message };
+      return { success: false, error: sanitizeErrorMessage(error) };
     }
   });
 
@@ -1497,7 +1666,7 @@ function setupIpcHandlers() {
       return { success: true, output: result.stdout };
     } catch (error) {
       console.error('[IPC] Start scan error:', error);
-      return { success: false, error: error.message };
+      return { success: false, error: sanitizeErrorMessage(error) };
     }
   });
 
@@ -1588,7 +1757,7 @@ function setupIpcHandlers() {
       return { success: false, error: 'No output from scan' };
     } catch (error) {
       console.error('[IPC] Local scan error:', error);
-      return { success: false, error: error.message };
+      return { success: false, error: sanitizeErrorMessage(error) };
     }
   });
 
@@ -1689,7 +1858,7 @@ function setupIpcHandlers() {
       return JSON.parse(result.stdout || '{"success":false}');
     } catch (error) {
       console.error('[IPC] Export events error:', error);
-      return { success: false, error: error.message };
+      return { success: false, error: sanitizeErrorMessage(error) };
     }
   });
 
@@ -1842,7 +2011,7 @@ function setupIpcHandlers() {
       return { success: true, path: outputDir };
     } catch (error) {
       console.error('[IPC] Generate evidence error:', error);
-      return { success: false, error: error.message };
+      return { success: false, error: sanitizeErrorMessage(error) };
     }
   });
 
@@ -1898,7 +2067,7 @@ function setupIpcHandlers() {
       };
     } catch (error) {
       console.error('[IPC] Validate evidence error:', error);
-      return { isValid: false, missingItems: ['Validation failed'], warnings: [error.message] };
+      return { isValid: false, missingItems: ['Validation failed'], warnings: [sanitizeErrorMessage(error)] };
     }
   });
 
@@ -1943,7 +2112,7 @@ function setupIpcHandlers() {
       return JSON.parse(result.stdout || '{"success":false}');
     } catch (error) {
       console.error('[IPC] Create publisher rule error:', error);
-      return { success: false, error: error.message };
+      return { success: false, error: sanitizeErrorMessage(error) };
     }
   });
 
@@ -1977,7 +2146,7 @@ ${rules}
       return { success: true, outputPath, ruleCount: publishers.length };
     } catch (error) {
       console.error('[IPC] Batch create publisher rules error:', error);
-      return { success: false, error: error.message };
+      return { success: false, error: sanitizeErrorMessage(error) };
     }
   });
 
@@ -2202,17 +2371,29 @@ ${rules}
       };
     } catch (error) {
       console.error('[IPC] Create rule error:', error);
-      return { success: false, error: error.message };
+      return { success: false, error: sanitizeErrorMessage(error) };
     }
   });
 
   // Get current policy XML preview
   ipcMain.handle('policy:getPolicyXML', async (event, phase = 'effective') => {
     try {
+      // SECURITY: Validate phase parameter against whitelist (prevents injection)
+      const validPhases = ['effective', 'local'];
+      if (!validPhases.includes(phase)) {
+        return `<AppLockerPolicy Version="1">
+  <RuleCollection Type="Exe" EnforcementMode="NotConfigured">
+    <!-- Invalid phase parameter -->
+  </RuleCollection>
+</AppLockerPolicy>`;
+      }
+
+      // SECURITY: Use parameter directly in logic, not string interpolation
+      const isLocal = phase === 'local';
       const command = `
         try {
           $policy = $null
-          if ("${phase}" -eq "local") {
+          if (${isLocal ? '$true' : '$false'}) {
             $policy = Get-AppLockerPolicy -Local -Xml -ErrorAction SilentlyContinue
           } else {
             $policy = Get-AppLockerPolicy -Effective -Xml -ErrorAction SilentlyContinue
@@ -2236,7 +2417,7 @@ ${rules}
         } catch {
           '<AppLockerPolicy Version="1">
   <RuleCollection Type="Exe" EnforcementMode="NotConfigured">
-    <!-- Error retrieving policy: ' + $_.Exception.Message + ' -->
+    <!-- Error retrieving policy -->
   </RuleCollection>
 </AppLockerPolicy>'
         }
@@ -2247,7 +2428,7 @@ ${rules}
       console.error('[IPC] Get policy XML error:', error);
       return `<AppLockerPolicy Version="1">
   <RuleCollection Type="Exe" EnforcementMode="NotConfigured">
-    <!-- Error: ${error.message} -->
+    <!-- Error retrieving policy -->
   </RuleCollection>
 </AppLockerPolicy>`;
     }
@@ -2288,7 +2469,7 @@ ${rules}
       return JSON.parse(result.stdout || '{"success":false}');
     } catch (error) {
       console.error('[IPC] Create path rule error:', error);
-      return { success: false, error: error.message };
+      return { success: false, error: sanitizeErrorMessage(error) };
     }
   });
 
