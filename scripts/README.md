@@ -1,6 +1,6 @@
 # GA-AppLocker PowerShell Scripts
 
-**Version:** 1.2.4  
+**Version:** 1.2.10
 **Author:** GA-ASI ISSO Team
 
 This directory contains PowerShell scripts and modules for comprehensive AppLocker policy management in GA-ASI environments.
@@ -433,6 +433,12 @@ For issues or questions:
 
 ## Version History
 
+- **1.2.10** (2026): Production hardening release
+  - Added Enable-WinRMGPO.ps1 for domain-wide WinRM configuration
+  - Added Disable-WinRMGPO.ps1 for WinRM GPO removal
+  - Added Export-ComplianceEvidence.ps1 for comprehensive evidence packages
+  - All scripts now integrated with GUI IPC handlers
+
 - **1.2.4** (2024): Initial release
   - Core module functions
   - Deployment scripts
@@ -442,7 +448,101 @@ For issues or questions:
 
 ---
 
+## New in v1.2.10
+
+### 7. Enable-WinRMGPO.ps1
+
+Creates and enables a Group Policy Object for WinRM configuration across the domain.
+
+**Usage:**
+```powershell
+.\Enable-WinRMGPO.ps1 `
+    -GPOName "WinRM-Configuration" `
+    -TargetOU "OU=Workstations,DC=contoso,DC=com"
+```
+
+**Parameters:**
+- `-GPOName` (Optional): Name for the GPO (default: WinRM-Configuration)
+- `-TargetOU` (Optional): Target OU for GPO linking
+- `-WhatIf` (Switch): Preview changes without applying
+
+**Features:**
+- Creates GPO with WinRM service settings
+- Configures firewall rules for WinRM
+- Links GPO to specified OU
+- Validates domain connectivity
+
+---
+
+### 8. Disable-WinRMGPO.ps1
+
+Disables or removes WinRM Group Policy Object from the domain.
+
+**Usage:**
+```powershell
+.\Disable-WinRMGPO.ps1 `
+    -GPOName "WinRM-Configuration" `
+    -Remove
+```
+
+**Parameters:**
+- `-GPOName` (Optional): Name of the GPO (default: WinRM-Configuration)
+- `-Remove` (Switch): Completely remove the GPO (otherwise just unlinks)
+
+**Features:**
+- Unlinks GPO from all OUs
+- Optionally removes GPO entirely
+- Creates backup before removal
+
+---
+
+### 9. Export-ComplianceEvidence.ps1
+
+Exports comprehensive compliance evidence for audits and regulatory requirements.
+
+**Usage:**
+```powershell
+.\Export-ComplianceEvidence.ps1 `
+    -OutputDirectory "C:\ComplianceEvidence" `
+    -EventLogDays 30 `
+    -IncludeSystemInfo
+```
+
+**Parameters:**
+- `-OutputDirectory` (Optional): Output directory (default: C:\AppLockerEvidence)
+- `-EventLogDays` (Optional): Days of event logs to include (default: 30)
+- `-IncludeSystemInfo` (Switch): Include system configuration snapshot
+
+**Exports:**
+- Current AppLocker policies (Effective and Local)
+- Policy summary JSON
+- Audit event logs (CSV format)
+- Event statistics
+- System snapshot (OS version, modules, service status)
+- Compliance report with score
+- Evidence manifest with SHA256 hashes
+
+**Output Structure:**
+```
+Evidence_YYYY-MM-DD_HHMMSS/
+├── policies/
+│   ├── EffectivePolicy.xml
+│   ├── LocalPolicy.xml
+│   └── PolicySummary.json
+├── audit-logs/
+│   ├── AppLockerEvents.csv
+│   └── EventStatistics.json
+├── snapshots/
+│   └── SystemSnapshot.json
+├── reports/
+│   └── ComplianceReport.json
+├── configuration/
+└── MANIFEST.json
+```
+
+---
+
 **Document Control:**
-- **Version:** 1.2.4
-- **Last Updated:** 2024
+- **Version:** 1.2.10
+- **Last Updated:** January 2026
 - **Owner:** GA-ASI ISSO Team
