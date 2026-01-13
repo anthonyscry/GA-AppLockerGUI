@@ -357,78 +357,76 @@ const ADManagementModule: React.FC = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Target Drop Zone: AppLocker Groups */}
-            <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm flex flex-col h-full relative">
-              <div className="flex items-center justify-between mb-6">
-                <h4 className="font-black text-slate-900 text-[10px] uppercase tracking-[0.2em] flex items-center space-x-2">
-                  <ShieldCheck size={16} className="text-blue-600" />
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col h-full relative">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="font-black text-slate-900 text-[9px] uppercase tracking-[0.15em] flex items-center space-x-2">
+                  <ShieldCheck size={14} className="text-blue-600" />
                   <span>Target Security Groups</span>
                 </h4>
               </div>
-              
-              <div className="space-y-3 flex-1">
+
+              <div className="space-y-2 flex-1">
                 {APPLOCKER_GROUPS.map((group) => (
-                  <div 
+                  <div
                     key={group}
                     onDragOver={(e) => handleDragOver(e, group)}
                     onDragLeave={handleDragLeave}
                     onDrop={(e) => handleDrop(e, group)}
-                    className={`relative p-5 rounded-3xl border-2 transition-all duration-300 group flex items-center justify-between ${
-                      activeDropGroup === group 
-                        ? 'bg-blue-600 border-blue-400 scale-[1.02] shadow-xl shadow-blue-500/30' 
-                        : draggedUser 
+                    className={`relative p-3 rounded-xl border-2 transition-all duration-300 group flex items-center justify-between ${
+                      activeDropGroup === group
+                        ? 'bg-blue-600 border-blue-400 scale-[1.02] shadow-lg shadow-blue-500/30'
+                        : draggedUser
                           ? 'bg-slate-50 border-dashed border-blue-200 border-2'
                           : 'bg-slate-50 border-slate-50 hover:border-blue-100 hover:bg-blue-50/30'
                     }`}
                   >
-                    <div className="flex items-center space-x-3">
-                      <div className={`p-2 rounded-xl transition-colors ${
+                    <div className="flex items-center space-x-2">
+                      <div className={`p-1.5 rounded-lg transition-colors ${
                         activeDropGroup === group ? 'bg-white text-blue-600' : 'bg-white text-slate-400 border border-slate-100'
                       }`}>
-                        <PlusCircle size={18} />
+                        <PlusCircle size={14} />
                       </div>
-                      <span className={`text-xs font-black uppercase tracking-tight transition-colors ${
+                      <span className={`text-[10px] font-black uppercase tracking-tight transition-colors ${
                         activeDropGroup === group ? 'text-white' : 'text-slate-700'
                       }`}>
                         {group}
                       </span>
                     </div>
                     {activeDropGroup === group && (
-                      <div className="flex items-center space-x-2 text-white animate-in slide-in-from-right-2">
-                        <span className="text-[9px] font-black tracking-widest uppercase">Drop Now</span>
-                      </div>
+                      <span className="text-[8px] font-black tracking-widest uppercase text-white">Drop</span>
                     )}
                   </div>
                 ))}
               </div>
 
               {draggedUser && !activeDropGroup && (
-                <div className="mt-6 p-4 bg-blue-50 border border-blue-100 rounded-2xl flex items-center justify-center space-x-3 text-blue-600 animate-pulse">
-                  <UserPlus size={18} />
-                  <p className="text-[10px] font-black uppercase tracking-widest">Dragging: {draggedUser.samAccountName}</p>
+                <div className="mt-3 p-2 bg-blue-50 border border-blue-100 rounded-xl flex items-center justify-center space-x-2 text-blue-600 animate-pulse">
+                  <UserPlus size={14} />
+                  <p className="text-[9px] font-black uppercase tracking-widest">Dragging: {draggedUser.samAccountName}</p>
                 </div>
               )}
             </div>
 
             {/* Selected User Details / Membership View */}
-            <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm flex flex-col h-full">
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col h-full">
               {selectedUser ? (
                 <>
-                  <h4 className="font-black text-slate-900 text-[10px] uppercase tracking-[0.2em] mb-6 flex items-center space-x-2">
-                    <CheckCircle2 size={16} className="text-green-600" />
+                  <h4 className="font-black text-slate-900 text-[9px] uppercase tracking-[0.15em] mb-3 flex items-center space-x-2">
+                    <CheckCircle2 size={14} className="text-green-600" />
                     <span>Existing Access Token</span>
                   </h4>
-                  <div className="space-y-2 flex-1 overflow-y-auto max-h-[360px] pr-2 custom-scrollbar">
+                  <div className="space-y-1.5 flex-1 overflow-y-auto max-h-[240px] pr-1 custom-scrollbar">
                     {selectedUser.groups.map((group, i) => (
-                      <div key={i} className="flex items-center justify-between p-4 bg-slate-50 border border-slate-100 rounded-2xl group hover:border-slate-200 transition-colors">
-                        <span className="text-xs font-bold text-slate-700 truncate max-w-[200px]">{group}</span>
-                        <span className="text-[9px] font-black bg-white border border-slate-100 px-3 py-1 rounded-full text-slate-400 uppercase tracking-widest">Active</span>
+                      <div key={i} className="flex items-center justify-between p-2 bg-slate-50 border border-slate-100 rounded-lg group hover:border-slate-200 transition-colors">
+                        <span className="text-[10px] font-bold text-slate-700 truncate max-w-[180px]">{group}</span>
+                        <span className="text-[8px] font-black bg-white border border-slate-100 px-2 py-0.5 rounded-full text-slate-400 uppercase">Active</span>
                       </div>
                     ))}
                   </div>
-                  <div className="mt-8 pt-8 border-t border-slate-100">
-                    <button 
+                  <div className="mt-4 pt-3 border-t border-slate-100">
+                    <button
                       onClick={async () => {
                         if (!selectedUser) return;
                         try {
@@ -468,23 +466,23 @@ const ADManagementModule: React.FC = () => {
                           alert(`Failed to export audit profile: ${error instanceof Error ? error.message : 'Unknown error'}`);
                         }
                       }}
-                      className="w-full py-4 bg-slate-900 text-white rounded-[1.25rem] text-[10px] font-black uppercase tracking-[0.2em] hover:bg-slate-800 transition-all shadow-xl shadow-slate-900/10 flex items-center justify-center space-x-2 group min-h-[44px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                      className="w-full py-2.5 bg-slate-900 text-white rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-lg flex items-center justify-center space-x-2 min-h-[36px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
                       aria-label="Export audit profile for selected user"
                     >
-                      <FileText size={16} />
-                      <span>Export Audit Profile</span>
+                      <FileText size={14} />
+                      <span>Export Profile</span>
                     </button>
                   </div>
                 </>
               ) : (
-                <div className="flex-1 flex flex-col items-center justify-center text-slate-300 space-y-6">
-                  <div className="p-8 bg-slate-50 rounded-full border-2 border-dashed border-slate-200">
-                    <Users size={64} className="opacity-20" />
+                <div className="flex-1 flex flex-col items-center justify-center text-slate-300 space-y-4 py-4">
+                  <div className="p-4 bg-slate-50 rounded-full border-2 border-dashed border-slate-200">
+                    <Users size={32} className="opacity-20" />
                   </div>
-                  <div className="text-center px-8">
-                    <p className="text-sm font-black text-slate-400 uppercase tracking-[0.2em] mb-2">No Active Selection</p>
-                    <p className="text-xs text-slate-400 font-medium leading-relaxed">
-                      Select a user from the directory to view memberships or drag any user record to provision new rights.
+                  <div className="text-center px-4">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">No Selection</p>
+                    <p className="text-[9px] text-slate-400 font-medium leading-relaxed">
+                      Select a user to view memberships or drag to provision rights.
                     </p>
                   </div>
                 </div>

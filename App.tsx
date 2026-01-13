@@ -10,6 +10,7 @@ import ComplianceModule from './components/ComplianceModule';
 import SoftwareComparisonModule from './components/InventoryCompareModule';
 import { HelpCircle, User, X, Globe, Terminal, FileText, Activity, Monitor, AlertCircle } from 'lucide-react';
 import { NAVIGATION } from './constants';
+import gaLogo from './assets/ga-logo.svg';
 
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>(AppView.DASHBOARD);
@@ -207,7 +208,7 @@ const App: React.FC = () => {
                 <X size={24} aria-hidden="true" />
               </button>
               
-              <img src="/assets/ga-logo.svg" alt="GA Logo" className="w-16 h-16 mb-4" />
+              <img src={gaLogo} alt="GA Logo" className="w-16 h-16 mb-4" />
               <h3 id="about-title" className="text-2xl font-black tracking-tighter uppercase italic">GENERAL ATOMICS</h3>
               <p className="text-xs font-black text-blue-300 uppercase tracking-[0.4em] mt-1">AERONAUTICAL</p>
             </div>
@@ -334,24 +335,24 @@ const App: React.FC = () => {
                 </h5>
                 <div className="space-y-2 text-xs">
                   <div className="flex justify-between p-2 bg-slate-50 rounded-lg">
-                    <span className="font-bold">AppLocker-WS-Audit/Enforce</span>
-                    <span className="text-slate-500">Workstations</span>
-                  </div>
-                  <div className="flex justify-between p-2 bg-slate-50 rounded-lg">
-                    <span className="font-bold">AppLocker-SRV-Audit/Enforce</span>
-                    <span className="text-slate-500">Servers</span>
-                  </div>
-                  <div className="flex justify-between p-2 bg-slate-50 rounded-lg">
                     <span className="font-bold">AppLocker-Admins</span>
-                    <span className="text-slate-500">IT Administrators</span>
+                    <span className="text-slate-500">Full bypass for IT admins</span>
                   </div>
                   <div className="flex justify-between p-2 bg-slate-50 rounded-lg">
                     <span className="font-bold">AppLocker-Installers</span>
-                    <span className="text-slate-500">Software Installers</span>
+                    <span className="text-slate-500">Software installation rights</span>
                   </div>
                   <div className="flex justify-between p-2 bg-slate-50 rounded-lg">
-                    <span className="font-bold">AppLocker-StandardUsers</span>
-                    <span className="text-slate-500">Regular Users</span>
+                    <span className="font-bold">AppLocker-Developers</span>
+                    <span className="text-slate-500">Elevated script/app permissions</span>
+                  </div>
+                  <div className="flex justify-between p-2 bg-slate-50 rounded-lg">
+                    <span className="font-bold">AppLocker-Standard-Users</span>
+                    <span className="text-slate-500">Default restrictions</span>
+                  </div>
+                  <div className="flex justify-between p-2 bg-slate-50 rounded-lg">
+                    <span className="font-bold">AppLocker-Audit-Only</span>
+                    <span className="text-slate-500">No enforcement (logging only)</span>
                   </div>
                 </div>
               </div>

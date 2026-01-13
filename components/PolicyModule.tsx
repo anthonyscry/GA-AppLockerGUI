@@ -1403,19 +1403,19 @@ const PolicyModule: React.FC = () => {
               {/* Sidebar: App/Publisher List */}
               <div className="w-full md:w-1/2 border-r border-slate-100 flex flex-col bg-slate-50/30">
                 <div className="p-6 space-y-4">
-                  <div className="flex p-1 bg-slate-100 rounded-xl">
-                    <button 
+                  <div className="flex p-0.5 bg-slate-100 rounded-lg">
+                    <button
                       onClick={() => { setGeneratorTab('scanned'); resetGenerator(); }}
-                      className={`flex-1 py-2.5 min-h-[44px] text-xs font-black uppercase tracking-widest rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${generatorTab === 'scanned' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}
+                      className={`flex-1 py-1.5 min-h-[32px] text-[9px] font-black uppercase tracking-wide rounded-md transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 ${generatorTab === 'scanned' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}
                       aria-label="View scanned applications"
                       aria-pressed={generatorTab === 'scanned'}
-                    >Scanned Apps {combinedInventory.length > 0 && `(${combinedInventory.length})`}</button>
-                    <button 
+                    >Scanned {combinedInventory.length > 0 && `(${combinedInventory.length})`}</button>
+                    <button
                       onClick={() => { setGeneratorTab('trusted'); resetGenerator(); }}
-                      className={`flex-1 py-2.5 min-h-[44px] text-xs font-black uppercase tracking-widest rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${generatorTab === 'trusted' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}
+                      className={`flex-1 py-1.5 min-h-[32px] text-[9px] font-black uppercase tracking-wide rounded-md transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 ${generatorTab === 'trusted' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}
                       aria-label="View trusted vendors"
                       aria-pressed={generatorTab === 'trusted'}
-                    >Trusted Vendors</button>
+                    >Vendors</button>
                   </div>
 
                   {/* Import Artifacts Button */}
@@ -1534,108 +1534,6 @@ const PolicyModule: React.FC = () => {
                       aria-label={generatorTab === 'scanned' ? "Search scanned applications" : "Search trusted vendors"}
                     />
                   </div>
-
-                  {/* Import Artifacts Button - Only show in scanned tab */}
-                  {generatorTab === 'scanned' && (
-                    <label className="block">
-                      <input
-                        type="file"
-                        id="import-artifacts-scanned"
-                        accept=".csv,.json"
-                        aria-label="Import scan artifacts for scanned applications tab"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) {
-                            const reader = new FileReader();
-                            reader.onload = (event) => {
-                              try {
-                                const text = event.target?.result as string;
-                                let items: InventoryItem[] = [];
-                                
-                                if (file.name.endsWith('.json')) {
-                                  const data = JSON.parse(text);
-                                  // Handle comprehensive scan artifacts format
-                                  if (data.Executables) {
-                                    items = data.Executables.map((exe: any, index: number) => ({
-                                      id: `imported-${Date.now()}-${index}`,
-                                      name: exe.Name || exe.name || 'Unknown',
-                                      publisher: exe.Publisher || exe.publisher || 'Unknown',
-                                      path: exe.Path || exe.path || '',
-                                      version: exe.Version || exe.version || '',
-                                      type: (exe.Type || exe.type || 'EXE') as InventoryItem['type']
-                                    }));
-                                  } else if (Array.isArray(data)) {
-                                    items = data.map((item: any, index: number) => ({
-                                      id: `imported-${Date.now()}-${index}`,
-                                      name: item.Name || item.name || 'Unknown',
-                                      publisher: item.Publisher || item.publisher || 'Unknown',
-                                      path: item.Path || item.path || '',
-                                      version: item.Version || item.version || '',
-                                      type: (item.Type || item.type || 'EXE') as InventoryItem['type']
-                                    }));
-                                  }
-                                } else {
-                                  // CSV format
-                                  const lines = text.split('\n').filter(l => l.trim());
-                                  if (lines.length > 0) {
-                                    const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-                                    items = lines.slice(1).map((line, index) => {
-                                      const values = line.split(',').map(v => v.trim());
-                                      return {
-                                        id: `imported-${Date.now()}-${index}`,
-                                        name: values[headers.indexOf('name')] || values[0] || 'Unknown',
-                                        publisher: values[headers.indexOf('publisher')] || values[1] || 'Unknown',
-                                        path: values[headers.indexOf('path')] || values[2] || '',
-                                        version: values[headers.indexOf('version')] || values[3] || '',
-                                        type: (values[headers.indexOf('type')] || values[4] || 'EXE') as InventoryItem['type']
-                                      };
-                                    });
-                                  }
-                                }
-                                
-                                // Remove duplicates by path
-                                const uniqueItems = items.filter((item, index, self) =>
-                                  index === self.findIndex(t => t.path === item.path && t.path !== '')
-                                );
-                                
-                                if (uniqueItems.length > 0) {
-                                  setImportedArtifacts([...importedArtifacts, ...uniqueItems]);
-                                  setImportedFrom(file.name);
-                                  alert(`Successfully imported ${uniqueItems.length} items from ${file.name}`);
-                                } else {
-                                  alert('No valid items found in file.');
-                                }
-                              } catch (error: any) {
-                                console.error('File import error:', error);
-                                alert(`Error parsing file: ${error?.message || 'Please ensure it is valid CSV or JSON.'}`);
-                              }
-                            };
-                            reader.readAsText(file);
-                          }
-                        }}
-                        className="hidden"
-                      />
-                      <div className="border-2 border-dashed border-blue-300 rounded-xl p-3 text-center cursor-pointer hover:border-blue-500 transition-colors bg-blue-50/50 min-h-[80px] flex flex-col items-center justify-center focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2">
-                        <Import size={16} className="mx-auto mb-1 text-blue-600" aria-hidden="true" />
-                        <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest">Import Scan Artifacts</p>
-                        <p className="text-[9px] text-blue-500 mt-0.5">CSV, JSON, or Comprehensive Scan</p>
-                      </div>
-                    </label>
-                  )}
-                  
-                  {importedArtifacts.length > 0 && generatorTab === 'scanned' && (
-                    <div className="bg-blue-50 border border-blue-200 rounded-xl p-2">
-                      <p className="text-[10px] font-black text-blue-900 uppercase tracking-widest">
-                        {importedArtifacts.length} items imported from {importedFrom}
-                      </p>
-                      <button
-                        onClick={() => { setImportedArtifacts([]); setImportedFrom(''); }}
-                        className="text-[9px] text-blue-600 hover:text-blue-800 mt-1"
-                      >
-                        Clear imported
-                      </button>
-                    </div>
-                  )}
 
                   {generatorTab === 'trusted' && (
                     <div className="flex items-center space-x-2 overflow-x-auto pb-1 custom-scrollbar">
@@ -1847,70 +1745,67 @@ const PolicyModule: React.FC = () => {
 
       {/* Tools Tab Content */}
       {activeTab === 'tools' && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
             <button
               onClick={() => setShowOUDeploy(true)}
-              className="bg-emerald-50 border border-emerald-200 p-6 rounded-2xl text-left hover:shadow-md transition-all group"
+              className="bg-emerald-50 border border-emerald-200 p-3 rounded-xl text-left hover:shadow-md transition-all group"
             >
-              <div className="p-3 bg-emerald-600 text-white rounded-xl w-fit mb-3 group-hover:scale-105 transition-transform">
-                <Upload size={24} />
+              <div className="p-2 bg-emerald-600 text-white rounded-lg w-fit mb-2 group-hover:scale-105 transition-transform">
+                <Upload size={16} />
               </div>
-              <h3 className="font-bold text-slate-900 mb-1">Deploy Policy</h3>
-              <p className="text-xs text-slate-500">Deploy GPO and link to OUs</p>
+              <h3 className="text-xs font-bold text-slate-900 mb-0.5">Deploy</h3>
+              <p className="text-[9px] text-slate-500">GPO to OUs</p>
             </button>
             <button
               onClick={() => setShowMerger(true)}
-              className="bg-purple-50 border border-purple-200 p-6 rounded-2xl text-left hover:shadow-md transition-all group"
+              className="bg-purple-50 border border-purple-200 p-3 rounded-xl text-left hover:shadow-md transition-all group"
             >
-              <div className="p-3 bg-purple-600 text-white rounded-xl w-fit mb-3 group-hover:scale-105 transition-transform">
-                <Archive size={24} />
+              <div className="p-2 bg-purple-600 text-white rounded-lg w-fit mb-2 group-hover:scale-105 transition-transform">
+                <Archive size={16} />
               </div>
-              <h3 className="font-bold text-slate-900 mb-1">Merge Policies</h3>
-              <p className="text-xs text-slate-500">Combine multiple XML policies</p>
+              <h3 className="text-xs font-bold text-slate-900 mb-0.5">Merge</h3>
+              <p className="text-[9px] text-slate-500">Combine XML</p>
             </button>
             <button
               onClick={() => setShowTemplates(true)}
-              className="bg-cyan-50 border border-cyan-200 p-6 rounded-2xl text-left hover:shadow-md transition-all group"
+              className="bg-cyan-50 border border-cyan-200 p-3 rounded-xl text-left hover:shadow-md transition-all group"
             >
-              <div className="p-3 bg-cyan-600 text-white rounded-xl w-fit mb-3 group-hover:scale-105 transition-transform">
-                <FileCode size={24} />
+              <div className="p-2 bg-cyan-600 text-white rounded-lg w-fit mb-2 group-hover:scale-105 transition-transform">
+                <FileCode size={16} />
               </div>
-              <h3 className="font-bold text-slate-900 mb-1">Templates</h3>
-              <p className="text-xs text-slate-500">Pre-built rule templates</p>
+              <h3 className="text-xs font-bold text-slate-900 mb-0.5">Templates</h3>
+              <p className="text-[9px] text-slate-500">Pre-built rules</p>
             </button>
             <button
               onClick={() => setShowOUPolicyGen(true)}
-              className="bg-teal-50 border border-teal-200 p-6 rounded-2xl text-left hover:shadow-md transition-all group"
+              className="bg-teal-50 border border-teal-200 p-3 rounded-xl text-left hover:shadow-md transition-all group"
             >
-              <div className="p-3 bg-teal-600 text-white rounded-xl w-fit mb-3 group-hover:scale-105 transition-transform">
-                <FolderTree size={24} />
+              <div className="p-2 bg-teal-600 text-white rounded-lg w-fit mb-2 group-hover:scale-105 transition-transform">
+                <FolderTree size={16} />
               </div>
-              <h3 className="font-bold text-slate-900 mb-1">OU-Based Generation</h3>
-              <p className="text-xs text-slate-500">Auto-generate by machine type</p>
+              <h3 className="text-xs font-bold text-slate-900 mb-0.5">OU-Based</h3>
+              <p className="text-[9px] text-slate-500">Auto-generate</p>
             </button>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <button
               onClick={() => setShowComprehensiveGen(true)}
-              className="bg-green-50 border border-green-200 p-6 rounded-2xl text-left hover:shadow-md transition-all group"
+              className="bg-green-50 border border-green-200 p-3 rounded-xl text-left hover:shadow-md transition-all group"
             >
-              <div className="p-3 bg-green-600 text-white rounded-xl w-fit mb-3 group-hover:scale-105 transition-transform">
-                <Activity size={24} />
+              <div className="p-2 bg-green-600 text-white rounded-lg w-fit mb-2 group-hover:scale-105 transition-transform">
+                <Activity size={16} />
               </div>
-              <h3 className="font-bold text-slate-900 mb-1">Comprehensive Scan</h3>
-              <p className="text-xs text-slate-500">Full system scan with all artifacts</p>
+              <h3 className="text-xs font-bold text-slate-900 mb-0.5">Full Scan</h3>
+              <p className="text-[9px] text-slate-500">All artifacts</p>
             </button>
             <button
               onClick={() => setShowIncrementalUpdate(true)}
-              className="bg-amber-50 border border-amber-200 p-6 rounded-2xl text-left hover:shadow-md transition-all group"
+              className="bg-amber-50 border border-amber-200 p-3 rounded-xl text-left hover:shadow-md transition-all group"
             >
-              <div className="p-3 bg-amber-600 text-white rounded-xl w-fit mb-3 group-hover:scale-105 transition-transform">
-                <Plus size={24} />
+              <div className="p-2 bg-amber-600 text-white rounded-lg w-fit mb-2 group-hover:scale-105 transition-transform">
+                <Plus size={16} />
               </div>
-              <h3 className="font-bold text-slate-900 mb-1">Incremental Update</h3>
-              <p className="text-xs text-slate-500">Add new rules to existing policy</p>
+              <h3 className="text-xs font-bold text-slate-900 mb-0.5">Incremental</h3>
+              <p className="text-[9px] text-slate-500">Add new rules</p>
             </button>
           </div>
         </div>

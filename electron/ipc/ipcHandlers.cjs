@@ -1923,7 +1923,7 @@ function setupIpcHandlers() {
         }
       `;
 
-      const result = await executePowerShellCommand(command, { timeout: 120000 });
+      const result = await executePowerShellCommand(command, { timeout: 300000 }); // 5 minutes for full scan
 
       if (result.stdout) {
         return JSON.parse(result.stdout);
