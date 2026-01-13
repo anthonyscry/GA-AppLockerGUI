@@ -1694,6 +1694,99 @@ function setupIpcHandlers() {
   });
 
   // ============================================
+  // EVENT BACKUP HANDLER
+  // ============================================
+  /**
+   * Backup AppLocker events to an EVTX file.
+   *
+   * @channel events:backup
+   * @param {Object} options - Backup options
+   * @param {string} options.systemName - Name of the system (for remote) or local
+   * @param {string} options.outputPath - Full path for the output EVTX file
+   * @param {boolean} options.createFolderIfMissing - Create parent folder if it doesn't exist
+   * @returns {Object} Result with success status
+   *
+   * @since v1.2.10
+   * @see EventsModule.tsx - handleBackupEvents()
+   */
+  ipcMain.handle('events:backup', async (event, options = {}) => {
+    try {
+      const { systemName, outputPath, createFolderIfMissing } = options;
+
+      if (!outputPath) {
+        return { success: false, error: 'Output path is required' };
+      }
+
+      // Ensure the output path is allowed
+      if (!isPathAllowed(outputPath)) {
+        return { success: false, error: 'Output path not allowed' };
+      }
+
+      const safeOutputPath = escapePowerShellString(outputPath);
+      const safeSystemName = escapePowerShellString(systemName || '');
+
+      const command = `
+        try {
+          # Create output directory if needed
+          $outputDir = Split-Path -Parent "${safeOutputPath}"
+          if (${createFolderIfMissing ? '$true' : '$false'} -and -not (Test-Path $outputDir)) {
+            New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
+          }
+
+          # Export AppLocker events to EVTX format
+          $logNames = @(
+            'Microsoft-Windows-AppLocker/EXE and DLL',
+            'Microsoft-Windows-AppLocker/MSI and Script',
+            'Microsoft-Windows-AppLocker/Packaged app-Deployment',
+            'Microsoft-Windows-AppLocker/Packaged app-Execution'
+          )
+
+          $tempEvtx = [System.IO.Path]::GetTempFileName() + '.evtx'
+
+          foreach ($logName in $logNames) {
+            try {
+              $log = Get-WinEvent -LogName $logName -MaxEvents 1 -ErrorAction SilentlyContinue
+              if ($log) {
+                # Export the log using wevtutil
+                wevtutil epl "$logName" "${safeOutputPath}" /ow:true 2>$null
+                break
+              }
+            } catch {
+              # Try next log
+            }
+          }
+
+          if (Test-Path "${safeOutputPath}") {
+            @{
+              success = $true
+              outputPath = "${safeOutputPath}"
+              systemName = "${safeSystemName}"
+              timestamp = (Get-Date).ToString('o')
+            } | ConvertTo-Json -Compress
+          } else {
+            @{
+              success = $false
+              error = "No AppLocker events found to backup"
+            } | ConvertTo-Json -Compress
+          }
+        } catch {
+          @{ success = $false; error = $_.Exception.Message } | ConvertTo-Json -Compress
+        }
+      `;
+
+      const result = await executePowerShellCommand(command, { timeout: 60000 });
+
+      if (result.stdout) {
+        return JSON.parse(result.stdout);
+      }
+      return { success: false, error: 'No output from backup command' };
+    } catch (error) {
+      console.error('[IPC] Event backup error:', error);
+      return { success: false, error: sanitizeErrorMessage(error) };
+    }
+  });
+
+  // ============================================
   // COMPLIANCE HANDLERS
   // ============================================
 
