@@ -15,7 +15,7 @@ $startTime = Get-Date
 Write-Host ""
 Write-Host "╔═══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
 Write-Host "║  GA-AppLocker Docker Integration Test Suite                   ║" -ForegroundColor Cyan
-Write-Host "║  Version: 1.2.7                                               ║" -ForegroundColor Cyan
+Write-Host "║  Version: 1.2.8                                               ║" -ForegroundColor Cyan
 Write-Host "╚═══════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
 Write-Host ""
 

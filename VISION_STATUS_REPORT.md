@@ -297,4 +297,4 @@ Deploy-AppLockerPolicy -PolicyPath $path `
 ---
 
 *Last Updated: 2026-01-13*
-*Version: 1.2.7*
+*Version: 1.2.8*

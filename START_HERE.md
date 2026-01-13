@@ -1,6 +1,6 @@
 # 🚀 GA-AppLocker Dashboard - Quick Start
 
-## ✅ App Status: READY TO RUN (v1.2.7)
+## ✅ App Status: READY TO RUN (v1.2.8)
 
 All features are implemented and the app is ready to use!
 
@@ -9,7 +9,7 @@ All features are implemented and the app is ready to use!
 ### Step 1: Download & Run (Easiest)
 
 1. Download the portable EXE from GitHub Releases:
-   - `GA-AppLocker Dashboard-1.2.7-x64.exe`
+   - `GA-AppLocker Dashboard-1.2.8-x64.exe`
 2. Run on a **Domain Controller** as a **DC Admin**
 3. The app will auto-detect your domain
 
@@ -31,7 +31,7 @@ All features are implemented and the app is ready to use!
    ```bash
    npm run electron:build:portable
    ```
-   Creates: `release/GA-AppLocker Dashboard-1.2.7-x64.exe`
+   Creates: `release/GA-AppLocker Dashboard-1.2.8-x64.exe`
 
 2. **Or create Windows installer:**
    ```bash
@@ -142,6 +142,6 @@ npm test                         # Run unit tests
 
 ---
 
-**Version:** 1.2.7  
+**Version:** 1.2.8  
 **Status:** ✅ Vision 100% Complete  
 **Last Updated:** 2026-01-13
