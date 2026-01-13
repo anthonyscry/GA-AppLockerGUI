@@ -2,8 +2,8 @@
 
 ## 🎯 Current Status: VISION 100% COMPLETE
 
-**Last Updated:** 2026-01-13  
-**Version:** 1.2.8  
+**Last Updated:** 2026-01-13
+**Version:** 1.2.10
 **Status:** ✅ **ALL FEATURES IMPLEMENTED - READY FOR PRODUCTION**
 
 ---
@@ -18,12 +18,33 @@
 | Vision Component | Status | Implementation |
 |-----------------|--------|----------------|
 | Scan AD for hosts | ✅ 100% | Domain auto-detect, OU filtering, WinRM GPO |
-| Scan hosts for artifacts | ✅ 100% | Comprehensive scan via WinRM |
+| Scan hosts for artifacts | ✅ 100% | Comprehensive scan via WinRM + Local scan |
 | Ingest artifacts seamlessly | ✅ 100% | CSV/JSON/Scan import with deduplication |
 | Auto-create rules (best practices) | ✅ 100% | Publisher → Hash priority |
 | Merge by machine type | ✅ 100% | OU-based grouping (WS/Server/DC) |
 | Create policy | ✅ 100% | XML generation with validation |
 | Apply to OUs by phases | ✅ 100% | Deploy to OU with auto-linking |
+
+---
+
+## 🆕 Recent Changes (v1.2.10)
+
+### New Features
+- **Local Scan** - Scan the local machine without WinRM (via `scan:local` IPC)
+- **Machine Selection** - Checkbox selection for targeted batch scanning
+- **Event Backup** - Backup AppLocker events with month folder organization
+- **Relative Paths** - All artifacts saved relative to app location (portable)
+
+### Bug Fixes
+- **GPO Modal** - Fixed modal cutoff by using fixed positioning instead of absolute
+- **Rule Health Score** - Shows "N/A" when no rules configured instead of 100/100
+- **Connection Status** - Shows Domain/Host format (domain\hostname or workgroup)
+
+### UI Improvements
+- Reduced app window size (1000x700 from 1200x800)
+- Rules Builder as inline tab instead of modal (fixes scrolling)
+- New 4-pointed diamond app icon (GA-ASI branding)
+- Enhanced Help section with deployment phases and Event IDs
 
 ---
 
@@ -55,6 +76,12 @@ getMachineTypeFromOU(ou: string): MachineType
 - Auto-set enforcement mode
 - Backup existing policies
 
+### 5. Local Scanning
+- Scan local machine without WinRM setup
+- Query registry for installed applications (64-bit and 32-bit)
+- Count executables in system directories
+- No remote credentials required
+
 ---
 
 ## 🏗️ Project Structure
@@ -69,13 +96,13 @@ src/
 ```
 
 ### Key Components
-- **Sidebar:** Navigation with domain info display
-- **Dashboard:** Real-time stats and charts
-- **ScanModule:** Remote scanning with OU grouping
-- **PolicyModule:** Policy Lab with all features
-- **EventsModule:** Event monitoring with filtering
+- **Sidebar:** Navigation with domain info display (Domain/Host format)
+- **Dashboard:** Real-time stats and charts, rule health score with N/A handling
+- **ScanModule:** Remote + Local scanning with machine selection
+- **PolicyModule:** Policy Lab with tabs (Overview, Rule Generator, Tools)
+- **EventsModule:** Event monitoring with backup feature
 - **ADManagementModule:** User/group management with OU filter
-- **ComplianceModule:** NIST compliance evidence
+- **ComplianceModule:** NIST compliance evidence (.\compliance folder)
 
 ---
 
@@ -99,6 +126,9 @@ src/
 - `system:getDomainInfo` - Get domain info from DC
 - `system:checkAppLockerService` - Check service status
 
+### Scan
+- `scan:local` - **NEW** Local machine scan (no WinRM required)
+
 ### Policy
 - `policy:deploy` - Deploy with OU linking and phases
 - `policy:runHealthCheck` - Validate rules
@@ -120,6 +150,27 @@ src/
 - `ad:getGroups` - Get security groups
 - `ad:addToGroup` - Add user to group
 
+### Compliance
+- `compliance:generateEvidence` - Generate evidence package (to .\compliance)
+- `compliance:getEvidenceStatus` - Check evidence status
+- `compliance:getHistoricalReports` - Get past reports
+
+---
+
+## 📂 Artifact Paths (Relative)
+
+All artifacts are saved relative to where the app runs from:
+
+| Artifact Type | Default Path |
+|--------------|--------------|
+| Scan Results | `.\scans\` |
+| Policies | `.\policies\` |
+| Merged Policies | `.\policies\merged\` |
+| Templates | `.\policies\templates\` |
+| OU-Based Policies | `.\policies\ou-based\` |
+| Compliance Evidence | `.\compliance\` |
+| Event Backups | `.\backups\events\YYYY-MM\` |
+
 ---
 
 ## 📦 Build & Run
@@ -133,7 +184,7 @@ npm run electron:dev     # Start Electron
 ### Production
 ```bash
 npm run electron:build:portable  # Build EXE
-# Output: release/GA-AppLocker Dashboard-1.2.8-x64.exe
+# Output: release/GA-AppLocker Dashboard-1.2.10-x64.exe
 ```
 
 ### Testing
@@ -155,53 +206,60 @@ Build:       ✅ Successful
 ## 📝 Documentation Files
 
 - `README.md` - Project overview
+- `claude.md` - AI assistant handoff (this file)
+- `CHANGES.md` - Changelog
+- `RELEASE_NOTES_v1.2.10.md` - Current release notes
 - `START_HERE.md` - Quick start guide
-- `VISION_STATUS_REPORT.md` - Vision implementation status
 - `docs/API.md` - API documentation
-- `docs/AUTOMATION_FEATURES_PROPOSAL.md` - Feature proposals
 
 ---
 
 ## 🎨 UI Features
 
 ### Sidebar
-- Domain name (auto-detected)
+- Domain/Host display (domain\hostname or workgroup)
 - User info (DOMAIN\username)
 - DC Admin Mode indicator
-- Version display
+- Version display (v1.2.10)
 
 ### Remote Scan
+- **Local Scan button** - Scan without WinRM
 - OU-based grouping summary cards
-- Machine type badges
-- Auto-detected credentials
-- WinRM GPO management
+- Machine selection checkboxes
+- WinRM GPO management (fixed modal)
+- Credentials panel
 
-### Policy Lab
-- Rule Generator with import
-- OU Policies (grouped generation)
-- **Deploy to OU** (GPO + linking)
-- Publisher Grouping
-- Duplicate Detection
-- Template Library
+### Policy Lab (Tabbed Interface)
+- **Overview Tab** - Policy phases, health score
+- **Rule Generator Tab** - Import, search, create rules
+- **Tools Tab** - Deploy, Merge, Templates, OU-Based Generation
 
 ### Event Monitor
 - Filter by Blocked/Audit/Allowed
 - Export to CSV
-- Clickable stat cards
+- **Backup Events** - With month folder organization
 
-### AD Manager
-- OU filter dropdown
-- Wildcard search (`*` support)
-- Drag-drop to groups
+### Compliance
+- Evidence package generation (.\compliance)
+- Historical reports
+- Validation checks
 
 ---
 
 ## 🔍 Quick Troubleshooting
 
+### Local Scan Fails
+- Ensure running as admin on Windows
+- Check PowerShell execution policy
+- Verify registry access permissions
+
 ### Domain Not Detected
 - Run on Domain Controller
 - Run as DC Admin
 - Check AD PowerShell module
+
+### GPO Modal Cut Off
+- Fixed in v1.2.10 - now uses fixed positioning
 
 ### Build Fails
 ```bash
@@ -209,10 +267,6 @@ rm -rf node_modules package-lock.json
 npm install
 npm run build
 ```
-
-### IPC Not Working
-- Must run in Electron
-- Check preload.cjs loaded
 
 ---
 
@@ -232,12 +286,13 @@ git push origin main             # Push to GitHub
 - Scripts: `scripts/`
 - Build: `dist/`
 - Release: `release/`
+- Artifacts: `.\scans\`, `.\policies\`, `.\compliance\`, `.\backups\`
 
 ---
 
-**Status:** ✅ **VISION 100% COMPLETE**  
-**All Tests:** 35/35 Passing  
-**Build:** Successful  
+**Status:** ✅ **VISION 100% COMPLETE**
+**All Tests:** 35/35 Passing
+**Build:** Successful
 **GitHub:** https://github.com/anthonyscry/GA-AppLockerGUI
 
 ---

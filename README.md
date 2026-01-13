@@ -10,12 +10,16 @@ A comprehensive administrative dashboard for the GA-AppLocker toolkit, enabling 
 
 - **Dashboard** - Overview of managed systems, blocked apps, and rule health
 - **Remote Scan** - Collect software inventory via WinRM from AD-managed computers
-- **Policy Lab** - Design, merge, and validate AppLocker XML policies
+- **Local Scan** - Scan the current machine without WinRM setup (v1.2.10)
+- **Policy Lab** - Design, merge, and validate AppLocker XML policies (tabbed interface)
 - **Event Monitor** - Real-time AppLocker audit event ingestion (8003/8004)
+- **Event Backup** - Backup AppLocker events with month folder organization (v1.2.10)
 - **AD Manager** - Drag-and-drop user management for AppLocker security groups
 - **Compliance** - Generate NIST compliance evidence packages and regulatory reports
 - **OU-Based Grouping** - Auto-categorize machines by OU (Workstation/Server/DC)
 - **Deploy to OU** - One-click GPO deployment with OU auto-linking
+- **Machine Selection** - Checkbox selection for targeted batch scanning (v1.2.10)
+- **Portable App** - All artifacts saved relative to app location (v1.2.10)
 
 ## Quick Start
 
@@ -175,7 +179,35 @@ For detailed API documentation, see [docs/API.md](./docs/API.md).
 - **Author**: Tony Tran, ISSO, GA-ASI
 - **Built with**: React, TypeScript, Electron, Vite, Tailwind CSS
 - **Architecture**: Clean Architecture with Dependency Injection
-- **Window Size**: 1400x900 (minimum 1200x700)
+- **Window Size**: 1000x700 (minimum 800x550)
+- **App Icon**: 4-pointed diamond (GA-ASI branding)
+
+## Recent Changes (v1.2.10)
+
+### New Features
+- **Local Scan** - Scan local machine without WinRM (queries registry + file system)
+- **Machine Selection** - Checkbox-based selection for targeted batch scanning
+- **Event Backup** - Backup AppLocker events to `.\backups\events\YYYY-MM\` with unique filenames
+- **Relative Paths** - All artifacts saved relative to app location for portability
+
+### Bug Fixes
+- **GPO Modal** - Fixed modal cutoff by using fixed positioning
+- **Rule Health Score** - Shows "N/A" when no rules configured
+- **Connection Status** - Shows Domain/Host format (domain\hostname or workgroup)
+
+### UI Improvements
+- Reduced app window size (1000x700 from 1200x800)
+- Rules Builder as inline tab instead of modal (fixes scrolling)
+- New 4-pointed diamond app icon
+- Enhanced Help section with deployment phases and Event IDs
+
+### Artifact Paths
+| Artifact | Default Path |
+|----------|--------------|
+| Scan Results | `.\scans\` |
+| Policies | `.\policies\` |
+| Compliance | `.\compliance\` |
+| Event Backups | `.\backups\events\` |
 
 ## Notes
 

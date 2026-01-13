@@ -53,7 +53,16 @@ const ScanModule: React.FC = () => {
 
   // Local scan state
   const [isLocalScanning, setIsLocalScanning] = useState(false);
-  
+
+  // Available OUs from AD
+  const [availableOUs, setAvailableOUs] = useState<Array<{
+    path: string;
+    name: string;
+    computerCount: number;
+    type: string;
+  }>>([]);
+  const [ousLoading, setOusLoading] = useState(false);
+
   // Auto-detect domain on mount
   React.useEffect(() => {
     const detectDomain = async () => {
@@ -74,6 +83,27 @@ const ScanModule: React.FC = () => {
       }
     };
     detectDomain();
+  }, []);
+
+  // Fetch available OUs on mount
+  React.useEffect(() => {
+    const fetchOUs = async () => {
+      setOusLoading(true);
+      try {
+        const electron = (window as any).electron;
+        if (electron?.ipc) {
+          const result = await electron.ipc.invoke('ad:getOUsWithComputers');
+          if (result.success && Array.isArray(result.ous)) {
+            setAvailableOUs(result.ous);
+          }
+        }
+      } catch (error) {
+        console.warn('Could not fetch OUs:', error);
+      } finally {
+        setOusLoading(false);
+      }
+    };
+    fetchOUs();
   }, []);
 
   // Fetch machines
@@ -457,37 +487,6 @@ const ScanModule: React.FC = () => {
           </div>
         </div>
 
-        {/* GPO Confirmation Dialog Overlay */}
-        {showGpoConfirm && (
-          <div className="absolute inset-0 z-20 bg-slate-900/95 backdrop-blur-sm flex items-center justify-center p-6 animate-in fade-in duration-200">
-            <div className="max-w-md w-full text-center space-y-4">
-              <ShieldAlert size={48} className="text-amber-500 mx-auto" />
-              <div className="space-y-2">
-                <h4 className="text-white font-bold text-lg tracking-tight">Confirm GPO Change</h4>
-                <p className="text-slate-400 text-sm leading-relaxed font-medium">
-                  You are about to {gpoStatus === 'Enabled' ? 'disable' : 'enable'} WinRM domain-wide.
-                  This will affect the network and may take time to fully propagate via GPUpdate.
-                </p>
-              </div>
-              <div className="flex items-center justify-center space-x-3 pt-2">
-                <button 
-                  onClick={() => setShowGpoConfirm(false)}
-                  className="px-6 py-2.5 min-h-[44px] rounded-xl text-slate-400 font-bold text-xs uppercase tracking-widest hover:text-white transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                  aria-label="Cancel GPO change"
-                >
-                  Cancel
-                </button>
-                <button 
-                  onClick={toggleWinRMGPO}
-                  className="px-6 py-2.5 min-h-[44px] bg-blue-600 text-white rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-blue-700 shadow-xl shadow-blue-500/20 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                  aria-label="Confirm and proceed with GPO change"
-                >
-                  Confirm & Proceed
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
 
         <div className="absolute -right-16 -bottom-16 opacity-[0.03] text-white">
           <Globe size={240} />
@@ -510,16 +509,25 @@ const ScanModule: React.FC = () => {
           />
         </div>
 
-        {/* OU Filter */}
+        {/* OU Filter Dropdown */}
         <div className="md:col-span-3 relative group">
-          <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors" size={16} />
-          <input 
-            type="text" 
+          <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10 pointer-events-none" size={16} />
+          <select
+            id="ou-filter"
             value={ouPath}
             onChange={(e) => setOuPath(e.target.value)}
-            placeholder="OU Path (e.g. Workstations)..." 
-            className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-xs font-bold"
-          />
+            className="w-full appearance-none pl-9 pr-8 py-2.5 min-h-[44px] bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:border-blue-500 transition-all text-xs font-bold cursor-pointer"
+            aria-label="Filter machines by Organizational Unit"
+            disabled={ousLoading}
+          >
+            <option value="">All OUs {ousLoading ? '(Loading...)' : `(${availableOUs.reduce((sum, ou) => sum + ou.computerCount, 0)} computers)`}</option>
+            {availableOUs.map((ou, index) => (
+              <option key={index} value={ou.path}>
+                {ou.name} ({ou.computerCount}) - {ou.type}
+              </option>
+            ))}
+          </select>
+          <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={14} />
         </div>
 
         {/* Status Dropdown */}
@@ -793,6 +801,55 @@ const ScanModule: React.FC = () => {
           <Server size={300} />
         </div>
       </div>
+
+      {/*
+        GPO Confirmation Modal
+        ----------------------
+        Uses fixed positioning (z-50) to ensure the modal displays above all other content
+        and is not clipped by parent containers with overflow:hidden.
+
+        Previous implementation used absolute positioning within the WinRM card which caused
+        the modal content to be cut off when the card had limited height.
+
+        Design:
+        - Full-screen backdrop with blur effect (bg-slate-900/80 backdrop-blur-sm)
+        - Centered modal card with dark theme to match the WinRM management card
+        - animate-in fade-in for smooth appearance
+        - Accessible with proper aria-labels and focus management
+
+        @since v1.2.10 - Fixed from absolute to fixed positioning
+        @see toggleWinRMGPO() for the action handler
+      */}
+      {showGpoConfirm && (
+        <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-6 animate-in fade-in duration-200">
+          <div className="bg-slate-800 rounded-2xl p-8 max-w-md w-full text-center space-y-6 shadow-2xl border border-slate-700">
+            <ShieldAlert size={48} className="text-amber-500 mx-auto" />
+            <div className="space-y-2">
+              <h4 className="text-white font-bold text-xl tracking-tight">Confirm GPO Change</h4>
+              <p className="text-slate-400 text-sm leading-relaxed font-medium">
+                You are about to {gpoStatus === 'Enabled' ? 'disable' : 'enable'} WinRM domain-wide.
+                This will affect the network and may take time to fully propagate via GPUpdate.
+              </p>
+            </div>
+            <div className="flex items-center justify-center space-x-3 pt-2">
+              <button
+                onClick={() => setShowGpoConfirm(false)}
+                className="px-6 py-3 min-h-[44px] rounded-xl text-slate-400 font-bold text-xs uppercase tracking-widest hover:text-white hover:bg-slate-700 transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-slate-800"
+                aria-label="Cancel GPO change"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={toggleWinRMGPO}
+                className="px-6 py-3 min-h-[44px] bg-blue-600 text-white rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-blue-700 shadow-xl shadow-blue-500/20 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-slate-800"
+                aria-label="Confirm and proceed with GPO change"
+              >
+                Confirm & Proceed
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

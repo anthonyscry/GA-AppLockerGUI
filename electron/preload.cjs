@@ -21,6 +21,8 @@ contextBridge.exposeInMainWorld('electron', {
         'machine:getAll',
         'machine:getById',
         'machine:startScan',
+        // Scan channels
+        'scan:local',
         // Policy channels
         'policy:getInventory',
         'policy:getTrustedPublishers',
@@ -49,6 +51,7 @@ contextBridge.exposeInMainWorld('electron', {
         'event:getStats',
         'event:exportCSV',
         'events:collectAuditLogs',
+        'events:backup',
         // AD channels
         'ad:getUsers',
         'ad:getUserById',
@@ -57,6 +60,7 @@ contextBridge.exposeInMainWorld('electron', {
         'ad:getGroups',
         'ad:getWinRMGPOStatus',
         'ad:toggleWinRMGPO',
+        'ad:getOUsWithComputers',
         // Compliance channels
         'compliance:getEvidenceStatus',
         'compliance:generateEvidence',
