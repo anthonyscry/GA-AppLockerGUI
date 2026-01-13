@@ -51,9 +51,6 @@ const ScanModule: React.FC = () => {
   // Selected machines for targeted scanning
   const [selectedMachines, setSelectedMachines] = useState<Set<string>>(new Set());
 
-  // Local scan state
-  const [isLocalScanning, setIsLocalScanning] = useState(false);
-
   // Available OUs from AD
   const [availableOUs, setAvailableOUs] = useState<Array<{
     path: string;
@@ -160,32 +157,6 @@ const ScanModule: React.FC = () => {
       alert(`Failed to start scan: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }, [machine, refetchMachines, useCurrentUser, scanUsername, scanPassword, domainInfo.domain, ouPath, selectedMachines]);
-
-  // Handle local machine scan
-  const handleLocalScan = useCallback(async () => {
-    setIsLocalScanning(true);
-    try {
-      const electron = (window as any).electron;
-      if (electron?.ipc) {
-        const result = await electron.ipc.invoke('scan:local', {
-          credentials: { useCurrentUser: true }
-        });
-        if (result.success) {
-          alert(`Local scan complete!\n\nApplications found: ${result.appCount || 0}\nExecutables: ${result.exeCount || 0}`);
-          await refetchMachines();
-        } else {
-          alert(`Local scan failed: ${result.error || 'Unknown error'}`);
-        }
-      } else {
-        alert('Local scanning requires the Electron app');
-      }
-    } catch (error) {
-      console.error('Local scan failed:', error);
-      alert(`Local scan failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    } finally {
-      setIsLocalScanning(false);
-    }
-  }, [refetchMachines]);
 
   // Toggle machine selection
   const toggleMachineSelection = useCallback((machineId: string) => {
@@ -297,17 +268,12 @@ const ScanModule: React.FC = () => {
         </div>
         <div className="flex space-x-3">
           <button
-            onClick={handleLocalScan}
-            disabled={isLocalScanning}
-            className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl transition-all font-bold text-sm min-h-[44px] focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            aria-label="Scan local machine"
+            onClick={refetchMachines}
+            className="flex items-center space-x-2 bg-slate-600 hover:bg-slate-700 text-white px-4 py-2.5 rounded-xl transition-all font-bold text-sm min-h-[44px] focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2"
+            aria-label="Detect systems from Active Directory"
           >
-            {isLocalScanning ? (
-              <Loader2 size={18} className="animate-spin" aria-hidden="true" />
-            ) : (
-              <Server size={18} aria-hidden="true" />
-            )}
-            <span>{isLocalScanning ? 'Scanning...' : 'Local Scan'}</span>
+            <RefreshCw size={18} aria-hidden="true" />
+            <span>Detect Systems</span>
           </button>
           <button
             onClick={() => setShowCredentials(!showCredentials)}
@@ -320,14 +286,6 @@ const ScanModule: React.FC = () => {
           >
             <Key size={18} aria-hidden="true" />
             <span>Credentials</span>
-          </button>
-          <button
-            onClick={handleScan}
-            className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl transition-all font-bold shadow-lg shadow-blue-500/20 text-sm min-h-[44px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-            aria-label={selectedMachines.size > 0 ? `Scan ${selectedMachines.size} selected machines` : "Scan all machines"}
-          >
-            <RefreshCw size={18} aria-hidden="true" />
-            <span>{selectedMachines.size > 0 ? `Scan Selected (${selectedMachines.size})` : 'Scan All'}</span>
           </button>
         </div>
       </div>
@@ -827,6 +785,30 @@ const ScanModule: React.FC = () => {
                 Confirm & Proceed
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sticky Bottom Scan Bar */}
+      {(selectedMachines.size > 0 || filteredMachines.length > 0) && (
+        <div className="fixed bottom-0 left-64 right-0 bg-white border-t border-slate-200 shadow-lg p-4 z-40">
+          <div className="max-w-7xl mx-auto flex items-center justify-between">
+            <div className="text-sm text-slate-600">
+              {selectedMachines.size > 0 ? (
+                <span className="font-bold">{selectedMachines.size} machine(s) selected for scanning</span>
+              ) : (
+                <span>{filteredMachines.length} machine(s) available</span>
+              )}
+            </div>
+            <button
+              onClick={handleScan}
+              disabled={filteredMachines.length === 0}
+              className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl transition-all font-bold shadow-lg shadow-blue-500/20 text-sm min-h-[44px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              aria-label={selectedMachines.size > 0 ? `Scan ${selectedMachines.size} selected machines` : "Scan all machines"}
+            >
+              <RefreshCw size={18} aria-hidden="true" />
+              <span>{selectedMachines.size > 0 ? `Scan Selected (${selectedMachines.size})` : 'Scan All for Artifacts'}</span>
+            </button>
           </div>
         </div>
       )}
