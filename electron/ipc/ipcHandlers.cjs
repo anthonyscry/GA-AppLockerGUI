@@ -1501,7 +1501,42 @@ function setupIpcHandlers() {
     }
   });
 
-  // Local scan handler - scans the local machine for installed applications
+  // ============================================
+  // LOCAL SCAN HANDLER
+  // ============================================
+  /**
+   * Scans the local machine for installed applications and executables.
+   *
+   * @channel scan:local
+   * @param {Object} options - Scan options (currently unused, reserved for future use)
+   * @param {boolean} options.credentials.useCurrentUser - Whether to use current user context
+   * @returns {Object} Scan results
+   * @returns {boolean} returns.success - Whether the scan completed successfully
+   * @returns {number} returns.appCount - Number of unique installed applications found
+   * @returns {number} returns.exeCount - Number of executable files found in system paths
+   * @returns {string} returns.computerName - Name of the scanned computer
+   * @returns {string} returns.scanTime - ISO timestamp of when scan completed
+   * @returns {string} [returns.error] - Error message if scan failed
+   *
+   * @description
+   * This handler performs a local inventory scan by:
+   * 1. Querying the Windows Registry for installed 64-bit applications
+   * 2. Querying the Windows Registry for installed 32-bit applications (WOW6432Node)
+   * 3. Counting executable files in Program Files, Program Files (x86), and Windows directories
+   *
+   * The scan runs with a 2-minute timeout to allow for thorough file system traversal.
+   * Results are returned as JSON for display in the ScanModule UI.
+   *
+   * @example
+   * // Invoke from renderer process:
+   * const result = await electron.ipc.invoke('scan:local', { credentials: { useCurrentUser: true } });
+   * if (result.success) {
+   *   console.log(`Found ${result.appCount} apps and ${result.exeCount} executables`);
+   * }
+   *
+   * @since v1.2.10
+   * @see ScanModule.tsx - handleLocalScan()
+   */
   ipcMain.handle('scan:local', async (event, options = {}) => {
     try {
       const command = `

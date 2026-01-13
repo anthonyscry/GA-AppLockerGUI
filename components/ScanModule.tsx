@@ -763,7 +763,24 @@ const ScanModule: React.FC = () => {
         </div>
       </div>
 
-      {/* GPO Confirmation Modal - Fixed position for full visibility */}
+      {/*
+        GPO Confirmation Modal
+        ----------------------
+        Uses fixed positioning (z-50) to ensure the modal displays above all other content
+        and is not clipped by parent containers with overflow:hidden.
+
+        Previous implementation used absolute positioning within the WinRM card which caused
+        the modal content to be cut off when the card had limited height.
+
+        Design:
+        - Full-screen backdrop with blur effect (bg-slate-900/80 backdrop-blur-sm)
+        - Centered modal card with dark theme to match the WinRM management card
+        - animate-in fade-in for smooth appearance
+        - Accessible with proper aria-labels and focus management
+
+        @since v1.2.10 - Fixed from absolute to fixed positioning
+        @see toggleWinRMGPO() for the action handler
+      */}
       {showGpoConfirm && (
         <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-6 animate-in fade-in duration-200">
           <div className="bg-slate-800 rounded-2xl p-8 max-w-md w-full text-center space-y-6 shadow-2xl border border-slate-700">

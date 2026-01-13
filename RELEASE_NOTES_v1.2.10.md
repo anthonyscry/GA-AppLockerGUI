@@ -23,6 +23,60 @@ Version 1.2.10 represents a major architectural improvement focusing on producti
 
 ## New Features
 
+### 0. Local Scanning & UI Improvements (Latest)
+**Added:** January 13, 2026
+
+#### Local Machine Scan
+**Handler:** `scan:local` in `electron/ipc/ipcHandlers.cjs`
+
+Enables scanning the local machine without WinRM setup:
+- Queries Windows Registry for installed 64-bit applications
+- Queries WOW6432Node for 32-bit applications on 64-bit Windows
+- Counts executables in Program Files, Program Files (x86), and Windows directories
+- Returns app count, exe count, computer name, and timestamp
+
+**Usage:**
+```javascript
+const result = await electron.ipc.invoke('scan:local', { credentials: { useCurrentUser: true } });
+// Returns: { success: true, appCount: 150, exeCount: 5000, computerName: "PC01", scanTime: "..." }
+```
+
+#### Machine Selection for Batch Scanning
+**Component:** `components/ScanModule.tsx`
+
+- Checkbox selection for individual machines in the scan table
+- "Scan Selected (N)" button when machines selected, otherwise "Scan All"
+- Toggle select/deselect all machines
+
+#### Event Backup Feature
+**Component:** `components/EventsModule.tsx`
+
+- Backup AppLocker events to local storage
+- Organized by month folder: `.\backups\events\YYYY-MM\`
+- Unique filenames: `hostname-YYYY-MM-DD-HHMMSS.evtx`
+- No overwrites - each backup is uniquely timestamped
+
+#### Relative Artifact Paths
+All artifacts now save relative to app location for portability:
+
+| Artifact Type | Default Path |
+|--------------|--------------|
+| Scan Results | `.\scans\` |
+| Policies | `.\policies\` |
+| Merged Policies | `.\policies\merged\` |
+| Templates | `.\policies\templates\` |
+| OU-Based Policies | `.\policies\ou-based\` |
+| Compliance Evidence | `.\compliance\` |
+| Event Backups | `.\backups\events\YYYY-MM\` |
+
+#### UI Fixes
+- **GPO Modal:** Changed from absolute to fixed positioning to prevent cutoff
+- **Rule Health Score:** Shows "N/A" when no rules configured (not 100/100)
+- **Connection Status:** Shows Domain/Host format (domain\hostname or workgroup)
+- **Window Size:** Reduced to 1000x700 (min 800x550)
+- **Rules Builder:** Converted from modal to inline tab (fixes scrolling)
+- **App Icon:** New 4-pointed diamond logo (GA-ASI branding)
+
 ### 1. GitHub Actions CI/CD Pipeline
 **File:** `.github/workflows/build.yml`
 
@@ -117,7 +171,7 @@ Test (ubuntu) → Build (windows) → Release (ubuntu, tags only)
 | `events:exportCSV` | Real |
 | `events:getByDateRange` | Real |
 
-#### Machine/Scan Handlers (5)
+#### Machine/Scan Handlers (6)
 | Handler | Status |
 |---------|--------|
 | `machine:getAll` | Real |
@@ -125,6 +179,7 @@ Test (ubuntu) → Build (windows) → Release (ubuntu, tags only)
 | `machine:startScan` | Real |
 | `machine:getScanStatus` | Real |
 | `machine:cancelScan` | Real |
+| `scan:local` | Real (NEW) |
 
 #### AD Handlers (6)
 | Handler | Status |
