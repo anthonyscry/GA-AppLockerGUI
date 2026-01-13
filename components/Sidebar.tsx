@@ -14,6 +14,8 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
     domain: 'Detecting...',
     isDC: false,
     hostname: '',
+    workgroup: '',
+    isDomainJoined: false,
   });
 
   React.useEffect(() => {
@@ -25,11 +27,15 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
           // Try to get detailed domain info from PowerShell
           const info = await electron.ipc.invoke('system:getDomainInfo');
           if (info) {
+            const isDomainJoined = !!(info.DomainName || info.DomainNetBIOS) &&
+              (info.DomainName || info.DomainNetBIOS) !== 'WORKGROUP';
             setDomainInfo({
-              principal: `${info.UserDomain || info.DomainNetBIOS}\\${info.UserName}`,
-              domain: info.DomainName || info.DomainNetBIOS || 'Unknown',
+              principal: `${info.UserDomain || info.DomainNetBIOS || 'LOCAL'}\\${info.UserName}`,
+              domain: info.DomainName || info.DomainNetBIOS || '',
               isDC: info.IsDomainController || false,
               hostname: info.ComputerName || '',
+              workgroup: info.Workgroup || 'WORKGROUP',
+              isDomainJoined,
             });
             return;
           }
@@ -37,32 +43,41 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
           // Fallback to basic user info
           const user = await electron.ipc.invoke('system:getUserInfo');
           if (user) {
+            const isDomainJoined = user.domain && user.domain !== 'WORKGROUP';
             setDomainInfo({
               principal: user.principal || 'Unknown',
-              domain: user.domain || 'WORKGROUP',
+              domain: user.domain || '',
               isDC: false,
               hostname: user.hostname || '',
+              workgroup: user.workgroup || 'WORKGROUP',
+              isDomainJoined: !!isDomainJoined,
             });
             return;
           }
         }
         
         // Fallback: Try environment variables
-        const domain = process.env.USERDOMAIN || 'WORKGROUP';
+        const domain = process.env.USERDOMAIN || '';
         const username = process.env.USERNAME || 'user';
+        const hostname = process.env.COMPUTERNAME || '';
+        const isDomainJoined = domain && domain !== 'WORKGROUP' && domain !== hostname;
         setDomainInfo({
-          principal: `${domain}\\${username}`,
-          domain: domain,
+          principal: `${domain || 'LOCAL'}\\${username}`,
+          domain: isDomainJoined ? domain : '',
           isDC: false,
-          hostname: process.env.COMPUTERNAME || '',
+          hostname: hostname,
+          workgroup: isDomainJoined ? '' : (domain || 'WORKGROUP'),
+          isDomainJoined: !!isDomainJoined,
         });
       } catch (error) {
         console.warn('Could not fetch domain info:', error);
         setDomainInfo({
           principal: 'Local\\User',
-          domain: 'WORKGROUP',
+          domain: '',
           isDC: false,
           hostname: '',
+          workgroup: 'WORKGROUP',
+          isDomainJoined: false,
         });
       }
     };
@@ -111,7 +126,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
         <div className="p-2 rounded-lg border border-slate-700/50 bg-slate-900/30">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center space-x-2">
-              <div 
+              <div
                 className={`w-2 h-2 rounded-full shadow-[0_0_8px_rgba(34,197,94,0.8)] animate-pulse ${
                   domainInfo.isDC ? 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.8)]' : 'bg-green-500'
                 }`}
@@ -119,16 +134,22 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
                 role="status"
               />
               <span className="text-xs font-bold text-slate-300">
-                {domainInfo.isDC ? 'DC Admin Mode' : 'Connected'}
+                {domainInfo.isDC ? 'DC Admin Mode' : 'Online'}
               </span>
             </div>
             <span className="text-xs text-slate-500">v1.2.10</span>
           </div>
           <div className="text-[10px] text-slate-400 space-y-1">
             <div className="flex items-center justify-between">
-              <span>Domain:</span>
-              <span className="font-bold text-blue-400 truncate max-w-[120px]" title={domainInfo.domain}>
-                {domainInfo.domain}
+              <span>Domain/Host:</span>
+              <span className="font-bold text-blue-400 truncate max-w-[110px]" title={
+                domainInfo.isDomainJoined
+                  ? `${domainInfo.domain}\\${domainInfo.hostname}`
+                  : domainInfo.workgroup || domainInfo.hostname
+              }>
+                {domainInfo.isDomainJoined
+                  ? `${domainInfo.domain}\\${domainInfo.hostname}`
+                  : domainInfo.workgroup || domainInfo.hostname || 'LOCAL'}
               </span>
             </div>
             <div className="flex items-center justify-between">
@@ -137,10 +158,10 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
                 {domainInfo.principal}
               </span>
             </div>
-            {domainInfo.isDC && domainInfo.hostname && (
+            {domainInfo.isDC && (
               <div className="flex items-center justify-between">
-                <span>Host:</span>
-                <span className="font-mono text-amber-400 text-[9px]">{domainInfo.hostname}</span>
+                <span>Role:</span>
+                <span className="font-mono text-amber-400 text-[9px]">Domain Controller</span>
               </div>
             )}
           </div>

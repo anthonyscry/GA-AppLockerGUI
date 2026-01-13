@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { ClipboardCheck, Download, ShieldCheck, HelpCircle, Loader2, FolderOpen } from 'lucide-react';
+import { ClipboardCheck, Download, ShieldCheck, HelpCircle, Loader2, FolderOpen, CheckCircle, X, FileText, Calendar, Server } from 'lucide-react';
 import { useAppServices } from '../src/presentation/contexts/AppContext';
 import { useAsync } from '../src/presentation/hooks/useAsync';
 import { LoadingState } from './ui/LoadingState';
@@ -10,12 +10,22 @@ import { showOpenDirectoryDialog } from '../src/infrastructure/ipc/fileDialog';
 const ComplianceModule: React.FC = () => {
   const { compliance } = useAppServices();
   const [isGenerating, setIsGenerating] = useState(false);
-  
+  const [generationResult, setGenerationResult] = useState<{
+    success: boolean;
+    outputPath: string;
+    timestamp: string;
+    details?: {
+      policiesIncluded: number;
+      eventsIncluded: number;
+      machinesScanned: number;
+    }
+  } | null>(null);
+
   // Fetch evidence status
   const { data: evidenceStatus, loading: statusLoading, error: statusError, refetch: refetchStatus } = useAsync(
     () => compliance.getEvidenceStatus()
   );
-  
+
   // Fetch historical reports
   const { data: historicalReports, loading: reportsLoading, error: reportsError } = useAsync(
     () => compliance.getHistoricalReports()
@@ -23,13 +33,32 @@ const ComplianceModule: React.FC = () => {
 
   const handleGenerateEvidence = async () => {
     setIsGenerating(true);
+    setGenerationResult(null);
     try {
-      const outputPath = await compliance.generateEvidencePackage();
-      alert(`Evidence package generated successfully!\n\nOutput: ${outputPath}`);
+      const result = await compliance.generateEvidencePackage();
+
+      // Handle different response formats
+      const outputPath = typeof result === 'string' ? result : result?.outputPath || result?.path || 'Unknown location';
+      const details = typeof result === 'object' ? result : null;
+
+      setGenerationResult({
+        success: true,
+        outputPath: outputPath,
+        timestamp: new Date().toLocaleString(),
+        details: details ? {
+          policiesIncluded: details.policiesIncluded || details.policies || 0,
+          eventsIncluded: details.eventsIncluded || details.events || 0,
+          machinesScanned: details.machinesScanned || details.machines || 0
+        } : undefined
+      });
       await refetchStatus();
     } catch (error) {
       console.error('Failed to generate evidence package:', error);
-      alert(`Failed to generate evidence package: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setGenerationResult({
+        success: false,
+        outputPath: '',
+        timestamp: new Date().toLocaleString()
+      });
     } finally {
       setIsGenerating(false);
     }
@@ -78,6 +107,62 @@ const ComplianceModule: React.FC = () => {
           )}
         </button>
       </div>
+
+      {/* Generation Result Display */}
+      {generationResult && (
+        <div className={`p-4 rounded-xl border ${
+          generationResult.success
+            ? 'bg-green-50 border-green-200'
+            : 'bg-red-50 border-red-200'
+        }`}>
+          <div className="flex items-start justify-between">
+            <div className="flex items-start space-x-3">
+              {generationResult.success ? (
+                <CheckCircle className="text-green-600 mt-0.5" size={20} />
+              ) : (
+                <X className="text-red-600 mt-0.5" size={20} />
+              )}
+              <div>
+                <h4 className={`font-bold ${generationResult.success ? 'text-green-800' : 'text-red-800'}`}>
+                  {generationResult.success ? 'Evidence Package Generated Successfully' : 'Generation Failed'}
+                </h4>
+                {generationResult.success && (
+                  <>
+                    <p className="text-sm text-green-700 mt-1">
+                      <span className="font-medium">Output:</span> {generationResult.outputPath}
+                    </p>
+                    <p className="text-xs text-green-600 mt-1">
+                      <span className="font-medium">Generated:</span> {generationResult.timestamp}
+                    </p>
+                    {generationResult.details && (
+                      <div className="flex items-center space-x-4 mt-3 pt-3 border-t border-green-200">
+                        <div className="flex items-center space-x-1 text-xs text-green-700">
+                          <FileText size={12} />
+                          <span>{generationResult.details.policiesIncluded} policies</span>
+                        </div>
+                        <div className="flex items-center space-x-1 text-xs text-green-700">
+                          <Calendar size={12} />
+                          <span>{generationResult.details.eventsIncluded} events</span>
+                        </div>
+                        <div className="flex items-center space-x-1 text-xs text-green-700">
+                          <Server size={12} />
+                          <span>{generationResult.details.machinesScanned} machines</span>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+            <button
+              onClick={() => setGenerationResult(null)}
+              className="p-1 hover:bg-green-100 rounded text-green-600"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-1 gap-6">
         <div className="bg-slate-900 p-6 rounded-2xl shadow-xl border border-slate-800 flex flex-col justify-between">
@@ -190,7 +275,7 @@ const ComplianceModule: React.FC = () => {
                 onClick={async () => {
                   const dirPath = await showOpenDirectoryDialog({
                     title: 'Select Compliance Reports Directory',
-                    defaultPath: 'C:\\Compliance'
+                    defaultPath: '.\\compliance'
                   });
                   if (dirPath) {
                     alert(`Selected directory: ${dirPath}\n\nHistorical reports will be loaded from this location.`);
