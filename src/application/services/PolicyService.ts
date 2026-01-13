@@ -128,18 +128,20 @@ export class PolicyService {
    */
   generateRuleXML(options: RuleCreationOptions): string {
     const { action, ruleType, subject } = options;
-    const subjectName = 'name' in subject ? subject.name : subject.name;
-    const publisherName = 'publisher' in subject
-      ? subject.publisher
-      : subject.publisherName;
+    // Use 'path' to distinguish InventoryItem from TrustedPublisher
+    const isInventoryItem = 'path' in subject;
+    const subjectName = subject.name;
+    const publisherName = isInventoryItem
+      ? (subject as InventoryItem).publisher
+      : (subject as TrustedPublisher).publisherName;
 
     // Validate inputs
     if (!isValidRuleInput(subjectName)) {
-      logger.error('Invalid subject name in rule generation', { subjectName });
+      logger.error('Invalid subject name in rule generation');
       throw new Error('Invalid subject name: contains prohibited characters');
     }
     if (publisherName && !isValidRuleInput(publisherName)) {
-      logger.error('Invalid publisher name in rule generation', { publisherName });
+      logger.error('Invalid publisher name in rule generation');
       throw new Error('Invalid publisher name: contains prohibited characters');
     }
 
@@ -175,7 +177,7 @@ export class PolicyService {
   async createRule(options: RuleCreationOptions): Promise<PolicyRule> {
     logger.info('Creating policy rule', { action: options.action, type: options.ruleType });
 
-    const ruleName = 'name' in options.subject ? options.subject.name : options.subject.name;
+    const ruleName = options.subject.name;
 
     // Validate inputs
     if (!isValidRuleInput(ruleName)) {
@@ -201,7 +203,7 @@ export class PolicyService {
       id: generateSecureId(),
       name: ruleName,
       type: options.ruleType,
-      category: 'name' in options.subject ? options.subject.type : 'EXE',
+      category: 'path' in options.subject ? (options.subject as InventoryItem).type : 'EXE',
       status: options.action,
       user: options.targetGroup,
     };

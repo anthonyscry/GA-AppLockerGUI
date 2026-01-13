@@ -117,7 +117,7 @@ export interface AppEvent {
   machine: string;
   path: string;
   publisher: string;
-  eventId: 8003 | 8004;
+  eventId: 8001 | 8002 | 8003 | 8004;
   action: string;
 }
 

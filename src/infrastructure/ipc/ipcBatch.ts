@@ -71,7 +71,7 @@ export class IPCBatchManager {
     // But we can optimize by grouping similar requests
     const grouped = this.groupByChannel(batch);
 
-    for (const [channel, requests] of Object.entries(grouped)) {
+    for (const [_channel, requests] of Object.entries(grouped)) {
       // Process requests for this channel
       for (const request of requests) {
         try {
