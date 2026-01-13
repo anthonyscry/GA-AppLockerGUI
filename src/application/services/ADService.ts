@@ -20,7 +20,7 @@ export class ADService {
   /**
    * Filter users based on criteria
    */
-  async filterUsers(users: ADUser[], filter: UserFilter): Promise<ADUser[]> {
+  async filterUsers(_users: ADUser[], filter: UserFilter): Promise<ADUser[]> {
     return this.repository.findByFilter(filter);
   }
 

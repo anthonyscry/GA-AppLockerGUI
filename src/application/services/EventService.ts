@@ -27,7 +27,7 @@ export class EventService {
   /**
    * Filter events based on criteria
    */
-  async filterEvents(events: AppEvent[], filter: EventFilter): Promise<AppEvent[]> {
+  async filterEvents(_events: AppEvent[], filter: EventFilter): Promise<AppEvent[]> {
     return this.repository.findByFilter(filter);
   }
 

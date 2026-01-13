@@ -37,7 +37,7 @@ export class MachineService {
   /**
    * Filter machines based on criteria
    */
-  async filterMachines(machines: MachineScan[], filter: MachineFilter): Promise<MachineScan[]> {
+  async filterMachines(_machines: MachineScan[], filter: MachineFilter): Promise<MachineScan[]> {
     this.validator.validateFilter(filter);
     return this.repository.findByFilter(filter);
   }

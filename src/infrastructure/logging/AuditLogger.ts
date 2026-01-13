@@ -3,7 +3,7 @@
  * Tracks sensitive operations for compliance and security auditing
  */
 
-import { Logger, LogLevel } from './Logger';
+import { Logger } from './Logger';
 
 export enum AuditAction {
   // Policy Operations
@@ -177,16 +177,19 @@ export class AuditLogger {
     }
 
     // Log to standard logger
-    const logLevel = success ? LogLevel.INFO : LogLevel.ERROR;
-    const logMethod = success ? 'info' : 'error';
-
-    this.logger[logMethod](`[AUDIT] ${action}`, {
+    const auditContext = {
       auditId: entry.id,
       severity: entry.severity,
       user: entry.user,
       success,
       ...entry.details,
-    });
+    };
+
+    if (success) {
+      this.logger.info(`[AUDIT] ${action}`, auditContext);
+    } else {
+      this.logger.error(`[AUDIT] ${action}`, undefined, auditContext);
+    }
 
     return entry;
   }
@@ -334,7 +337,7 @@ export const audit = {
   scanCompleted: (targets: string[], resultsCount: number, duration: number) =>
     auditLogger.log(AuditAction.SCAN_COMPLETED, { targetCount: targets.length, resultsCount, durationMs: duration }),
 
-  dataExported: (exportType: string, recordCount: number, filePath: string) =>
+  dataExported: (exportType: string, recordCount: number, _filePath: string) =>
     auditLogger.log(AuditAction.EXPORT_DATA, { exportType, recordCount, filePath: '[REDACTED]' }),
 
   appStarted: () =>

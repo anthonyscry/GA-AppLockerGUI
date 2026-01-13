@@ -81,7 +81,10 @@ export function setupMachineHandlers(): void {
     try {
       const scanScriptPath = path.join(scriptsDir, 'Start-BatchScan.ps1');
       const args: string[] = [];
-      const env: Record<string, string> = { ...process.env };
+      // Filter out undefined values from process.env
+      const env: Record<string, string> = Object.fromEntries(
+        Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)
+      );
 
       // Validate and add target OUs if specified
       if (options.targetOUs && options.targetOUs.length > 0) {
@@ -136,7 +139,7 @@ export function setupMachineHandlers(): void {
       }
 
       // Execute batch scan with custom environment
-      const result = await executePowerShellScript(scanScriptPath, args, {
+      await executePowerShellScript(scanScriptPath, args, {
         timeout: options.timeout || 600000, // 10 minutes default
         env: env
       });

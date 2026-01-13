@@ -27,7 +27,7 @@ export function setupPolicyHandlers(): void {
     return rule;
   });
 
-  ipcMain.handle(IPCChannels.POLICY.RUN_HEALTH_CHECK, async (_event, phase: PolicyPhase): Promise<{ critical: number; warning: number; info: number; score: number }> => {
+  ipcMain.handle(IPCChannels.POLICY.RUN_HEALTH_CHECK, async (_event, _phase: PolicyPhase): Promise<{ critical: number; warning: number; info: number; score: number }> => {
     // Simulated health check results
     const critical = 0;
     const warning = 2;

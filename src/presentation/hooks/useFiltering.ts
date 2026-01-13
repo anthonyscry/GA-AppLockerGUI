@@ -25,7 +25,8 @@ export function useFiltering<T, F extends Record<string, any>>(
   const [filters, setFilters] = useState<Partial<F>>(initialFilters);
 
   const filteredData = useMemo(() => {
-    return data.filter(item => filterFn(item, { ...filters, searchQuery } as F));
+    const combinedFilters = { ...filters, searchQuery } as unknown as F;
+    return data.filter(item => filterFn(item, combinedFilters));
   }, [data, filters, searchQuery, filterFn]);
 
   const updateFilter = useCallback((key: keyof F, value: any) => {
