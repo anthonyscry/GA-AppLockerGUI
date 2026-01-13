@@ -19,7 +19,8 @@ function executePowerShellScript(scriptPath, args = [], options = {}) {
     const {
       timeout = 300000, // 5 minutes default timeout
       workingDirectory = process.cwd(),
-      encoding = 'utf8'
+      encoding = 'utf8',
+      env = process.env // Support custom environment variables
     } = options;
 
     // Resolve script path
@@ -51,7 +52,8 @@ function executePowerShellScript(scriptPath, args = [], options = {}) {
       cwd: workingDirectory,
       encoding: encoding,
       shell: false,
-      windowsVerbatimArguments: true
+      windowsVerbatimArguments: true,
+      env: env // Pass custom environment variables
     });
 
     let stdout = '';
@@ -198,13 +200,50 @@ function getScriptsDirectory() {
 }
 
 /**
+ * Escape PowerShell special characters to prevent injection
+ * @param {string} input - String to escape
+ * @returns {string} Escaped string safe for PowerShell
+ */
+function escapePowerShellString(input) {
+  if (typeof input !== 'string') return '';
+  // Escape backticks, single quotes, double quotes, dollar signs
+  return input
+    .replace(/`/g, '``')
+    .replace(/"/g, '`"')
+    .replace(/\$/g, '`$')
+    .replace(/'/g, "''");
+}
+
+/**
+ * Validate module name to prevent injection attacks
+ * @param {string} moduleName - Module name to validate
+ * @returns {boolean} True if module name is valid
+ */
+function isValidModuleName(moduleName) {
+  // Module names should only contain alphanumeric characters, dots, hyphens, and underscores
+  const validPattern = /^[a-zA-Z0-9._-]+$/;
+  return typeof moduleName === 'string' &&
+         moduleName.length > 0 &&
+         moduleName.length <= 256 &&
+         validPattern.test(moduleName);
+}
+
+/**
  * Check if PowerShell module is available
  * @param {string} moduleName - Module name to check
  * @returns {Promise<boolean>} True if module is available
  */
 async function checkPowerShellModule(moduleName) {
   try {
-    const command = `if (Get-Module -ListAvailable -Name "${moduleName}") { exit 0 } else { exit 1 }`;
+    // Validate module name to prevent command injection
+    if (!isValidModuleName(moduleName)) {
+      console.warn(`[PowerShell] Invalid module name rejected: ${moduleName}`);
+      return false;
+    }
+
+    // Use escaped string in command
+    const escapedModuleName = escapePowerShellString(moduleName);
+    const command = `if (Get-Module -ListAvailable -Name "${escapedModuleName}") { exit 0 } else { exit 1 }`;
     await executePowerShellCommand(command, { timeout: 10000 });
     return true;
   } catch {
@@ -216,5 +255,7 @@ module.exports = {
   executePowerShellScript,
   executePowerShellCommand,
   getScriptsDirectory,
-  checkPowerShellModule
+  checkPowerShellModule,
+  escapePowerShellString,
+  isValidModuleName
 };

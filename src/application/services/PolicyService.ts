@@ -9,6 +9,65 @@ import { RuleTemplate } from '../../shared/types/template';
 import { DEFAULT_TEMPLATES, TEMPLATE_CATEGORIES } from '../../infrastructure/templates/defaultTemplates';
 import { logger } from '../../infrastructure/logging/Logger';
 
+/**
+ * Generate a cryptographically secure unique ID
+ * Uses crypto API when available, with fallback for test environments
+ */
+function generateSecureId(): string {
+  // Use Web Crypto API in browser/Electron renderer
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  // Fallback for Node.js environment
+  if (typeof require !== 'undefined') {
+    try {
+      const cryptoModule = require('crypto');
+      return cryptoModule.randomUUID();
+    } catch {
+      // Final fallback - use crypto.getRandomValues if available
+      if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+        const array = new Uint8Array(16);
+        crypto.getRandomValues(array);
+        return Array.from(array, (byte) => byte.toString(16).padStart(2, '0')).join('');
+      }
+    }
+  }
+  // Absolute fallback (should never reach here in production)
+  logger.warn('Using fallback ID generation - crypto API not available');
+  return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+}
+
+/**
+ * Escape special XML characters to prevent XML injection
+ * @param input String to escape
+ * @returns XML-safe string
+ */
+function escapeXml(input: string): string {
+  if (typeof input !== 'string') return '';
+  return input
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
+ * Validate that a string is safe for use in policy rules
+ * @param input String to validate
+ * @returns true if string is valid
+ */
+function isValidRuleInput(input: string): boolean {
+  if (typeof input !== 'string' || input.length === 0 || input.length > 1024) {
+    return false;
+  }
+  // Reject strings with control characters or null bytes
+  if (/[\x00-\x1f\x7f]/.test(input)) {
+    return false;
+  }
+  return true;
+}
+
 export interface HealthCheckResult {
   critical: number;
   warning: number;
@@ -65,43 +124,88 @@ export class PolicyService {
 
   /**
    * Generate AppLocker XML rule
+   * Uses secure ID generation and XML escaping to prevent injection attacks
    */
   generateRuleXML(options: RuleCreationOptions): string {
     const { action, ruleType, subject } = options;
     const subjectName = 'name' in subject ? subject.name : subject.name;
-    const publisherName = 'publisher' in subject 
-      ? subject.publisher 
+    const publisherName = 'publisher' in subject
+      ? subject.publisher
       : subject.publisherName;
-    
-    const ruleId = Math.random().toString(36).substr(2, 9);
-    const ruleName = subjectName.replace(/\s/g, '-');
-    
+
+    // Validate inputs
+    if (!isValidRuleInput(subjectName)) {
+      logger.error('Invalid subject name in rule generation', { subjectName });
+      throw new Error('Invalid subject name: contains prohibited characters');
+    }
+    if (publisherName && !isValidRuleInput(publisherName)) {
+      logger.error('Invalid publisher name in rule generation', { publisherName });
+      throw new Error('Invalid publisher name: contains prohibited characters');
+    }
+
+    // Generate cryptographically secure ID
+    const ruleId = generateSecureId();
+
+    // Escape XML characters in rule name
+    const ruleName = escapeXml(subjectName.replace(/\s/g, '-'));
+
+    // Validate action is one of allowed values
+    const validActions = ['Allow', 'Deny'];
+    if (!validActions.includes(action)) {
+      throw new Error(`Invalid action: must be one of ${validActions.join(', ')}`);
+    }
+
     if (ruleType === 'Publisher') {
+      // Escape publisher name to prevent XML injection
+      const safePublisherName = escapeXml(publisherName || '');
       return `<FilePublisherRule Id="${ruleId}" Name="${ruleName}" Action="${action}">
   <Conditions>
-    <PublisherCondition PublisherName="${publisherName}" ... />
+    <PublisherCondition PublisherName="${safePublisherName}" ... />
   </Conditions>
 </FilePublisherRule>`;
     }
-    
+
     return '';
   }
 
   /**
    * Create a new policy rule
+   * Uses secure ID generation and input validation
    */
   async createRule(options: RuleCreationOptions): Promise<PolicyRule> {
     logger.info('Creating policy rule', { action: options.action, type: options.ruleType });
-    
+
+    const ruleName = 'name' in options.subject ? options.subject.name : options.subject.name;
+
+    // Validate inputs
+    if (!isValidRuleInput(ruleName)) {
+      throw new Error('Invalid rule name: contains prohibited characters');
+    }
+    if (!isValidRuleInput(options.targetGroup)) {
+      throw new Error('Invalid target group: contains prohibited characters');
+    }
+
+    // Validate action is one of allowed values
+    const validActions = ['Allow', 'Deny'];
+    if (!validActions.includes(options.action)) {
+      throw new Error(`Invalid action: must be one of ${validActions.join(', ')}`);
+    }
+
+    // Validate rule type
+    const validRuleTypes = ['Publisher', 'Path', 'Hash'];
+    if (!validRuleTypes.includes(options.ruleType)) {
+      throw new Error(`Invalid rule type: must be one of ${validRuleTypes.join(', ')}`);
+    }
+
     const rule: PolicyRule = {
-      id: Math.random().toString(36).substr(2, 9),
-      name: 'name' in options.subject ? options.subject.name : options.subject.name,
+      id: generateSecureId(),
+      name: ruleName,
       type: options.ruleType,
       category: 'name' in options.subject ? options.subject.type : 'EXE',
       status: options.action,
       user: options.targetGroup,
     };
-    
+
     return this.repository.createRule(rule);
   }
 

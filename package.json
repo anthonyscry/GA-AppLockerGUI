@@ -1,7 +1,7 @@
 {
   "name": "ga-applocker-dashboard",
   "private": true,
-  "version": "1.2.8",
+  "version": "1.2.9",
   "description": "GA-AppLocker Dashboard - Comprehensive administrative interface for AppLocker policy management",
   "author": "Tony Tran, ISSO, GA-ASI",
   "main": "electron/main.cjs",

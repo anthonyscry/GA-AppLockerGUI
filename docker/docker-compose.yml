@@ -9,11 +9,11 @@ services:
     networks:
       - applocker-network
     environment:
-      - DOMAIN_NAME=applocker.local
-      - DOMAIN_NETBIOS=APPLOCKER
-      - DOMAIN_ADMIN_PASSWORD=SecurePass123!
-      - DNS_FORWARDER=8.8.8.8
-      - SAFE_MODE_PASSWORD=SafeMode123!
+      - DOMAIN_NAME=${DOMAIN_NAME:-applocker.local}
+      - DOMAIN_NETBIOS=${DOMAIN_NETBIOS:-APPLOCKER}
+      - DOMAIN_ADMIN_PASSWORD=${DOMAIN_ADMIN_PASSWORD:?DOMAIN_ADMIN_PASSWORD is required - see .env.example}
+      - DNS_FORWARDER=${DNS_FORWARDER:-8.8.8.8}
+      - SAFE_MODE_PASSWORD=${SAFE_MODE_PASSWORD:?SAFE_MODE_PASSWORD is required - see .env.example}
     volumes:
       - dc-data:/var/lib/samba
       - dc-config:/etc/samba
@@ -44,9 +44,9 @@ services:
     networks:
       - applocker-network
     environment:
-      - DOMAIN_NAME=applocker.local
+      - DOMAIN_NAME=${DOMAIN_NAME:-applocker.local}
       - DOMAIN_ADMIN_USER=Administrator
-      - DOMAIN_ADMIN_PASSWORD=SecurePass123!
+      - DOMAIN_ADMIN_PASSWORD=${DOMAIN_ADMIN_PASSWORD:?DOMAIN_ADMIN_PASSWORD is required - see .env.example}
       - DNS_SERVER=domain-controller
     depends_on:
       - domain-controller
@@ -70,10 +70,10 @@ services:
     networks:
       - applocker-network
     environment:
-      - NODE_ENV=development
-      - DOMAIN_NAME=applocker.local
+      - NODE_ENV=${NODE_ENV:-development}
+      - DOMAIN_NAME=${DOMAIN_NAME:-applocker.local}
       - DOMAIN_ADMIN_USER=Administrator
-      - DOMAIN_ADMIN_PASSWORD=SecurePass123!
+      - DOMAIN_ADMIN_PASSWORD=${DOMAIN_ADMIN_PASSWORD:?DOMAIN_ADMIN_PASSWORD is required - see .env.example}
       - DNS_SERVER=domain-controller
     depends_on:
       - domain-controller

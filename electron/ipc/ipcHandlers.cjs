@@ -8,10 +8,94 @@ const {
   executePowerShellScript,
   executePowerShellCommand,
   getScriptsDirectory,
-  checkPowerShellModule
+  checkPowerShellModule,
+  escapePowerShellString
 } = require('./powerShellHandler.cjs');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
+
+/**
+ * Allowed enforcement modes for policy generation (whitelist)
+ */
+const ALLOWED_ENFORCEMENT_MODES = ['AuditOnly', 'Enabled', 'NotConfigured'];
+
+/**
+ * Allowed rule actions (whitelist)
+ */
+const ALLOWED_RULE_ACTIONS = ['Allow', 'Deny'];
+
+/**
+ * Allowed collection types (whitelist)
+ */
+const ALLOWED_COLLECTION_TYPES = ['Exe', 'Msi', 'Script', 'Dll', 'Appx'];
+
+/**
+ * Validate that a path is within allowed directories
+ * Prevents path traversal attacks
+ */
+function isPathAllowed(filePath, allowedRoots = null) {
+  if (typeof filePath !== 'string' || filePath.length === 0) {
+    return false;
+  }
+
+  // Normalize the path to resolve .. and . components
+  const normalizedPath = path.resolve(filePath);
+
+  // Check for null bytes (path injection)
+  if (filePath.includes('\0')) {
+    return false;
+  }
+
+  // Default allowed roots
+  const defaultAllowedRoots = [
+    process.cwd(),
+    require('os').tmpdir(),
+    require('os').homedir(),
+    path.join(require('os').homedir(), 'Documents'),
+    path.join(require('os').homedir(), 'AppData'),
+    'C:\\AppLockerBackups',
+    'C:\\AppLocker'
+  ];
+
+  const roots = allowedRoots || defaultAllowedRoots;
+
+  // Check if path is under any allowed root
+  return roots.some(root => {
+    const normalizedRoot = path.resolve(root);
+    return normalizedPath.startsWith(normalizedRoot);
+  });
+}
+
+/**
+ * Validate string against allowed values (enum validation)
+ */
+function validateEnum(value, allowedValues, fieldName) {
+  if (!allowedValues.includes(value)) {
+    throw new Error(`Invalid ${fieldName}: must be one of ${allowedValues.join(', ')}`);
+  }
+  return value;
+}
+
+/**
+ * Generate a secure random filename for temp files
+ */
+function generateSecureTempFilename(prefix = 'temp', extension = '.json') {
+  const randomBytes = crypto.randomBytes(16).toString('hex');
+  return `${prefix}-${randomBytes}${extension}`;
+}
+
+/**
+ * Sanitize error message for client response
+ * Removes sensitive path information
+ */
+function sanitizeErrorMessage(error) {
+  if (!error) return 'Unknown error occurred';
+  const message = error.message || String(error);
+  // Remove full file paths
+  return message.replace(/[A-Z]:\\[^:]+/gi, '[PATH]')
+                .replace(/\/[^:]+\/[^:]+/g, '[PATH]');
+}
 
 /**
  * Setup IPC handlers for AppLocker operations
@@ -63,10 +147,14 @@ function setupIpcHandlers() {
     try {
       // Import the module first
       const modulePath = path.join(scriptsDir, 'GA-AppLocker.psm1');
-      
+
+      // Validate enforcement mode against whitelist to prevent injection
+      const enforcementMode = options.enforcementMode || 'AuditOnly';
+      validateEnum(enforcementMode, ALLOWED_ENFORCEMENT_MODES, 'enforcementMode');
+
       const command = `
-        Import-Module "${modulePath}" -Force -ErrorAction Stop;
-        $policy = New-GAAppLockerBaselinePolicy -EnforcementMode "${options.enforcementMode || 'AuditOnly'}";
+        Import-Module "${escapePowerShellString(modulePath)}" -Force -ErrorAction Stop;
+        $policy = New-GAAppLockerBaselinePolicy -EnforcementMode "${enforcementMode}";
         $policy | Get-AppLockerPolicy -Xml | Out-String
       `;
 
@@ -82,7 +170,7 @@ function setupIpcHandlers() {
       console.error('[IPC] Generate baseline error:', error);
       return {
         success: false,
-        error: error.message
+        error: sanitizeErrorMessage(error)
       };
     }
   });
@@ -229,15 +317,46 @@ function setupIpcHandlers() {
       if (options.outputPath && fs.existsSync(options.outputPath)) {
         try {
           const csvContent = fs.readFileSync(options.outputPath, 'utf8');
-          // Simple CSV parsing (in production, use a CSV library)
+          // Secure CSV parsing with validation
           const lines = csvContent.split('\n').filter(l => l.trim());
           if (lines.length > 1) {
-            const headers = lines[0].split(',');
+            const headers = lines[0].split(',').map(h => h.trim());
+
+            // SECURITY: Validate headers to prevent prototype pollution
+            const forbiddenHeaders = ['__proto__', 'constructor', 'prototype'];
+            const sanitizedHeaders = headers.map(header => {
+              if (forbiddenHeaders.includes(header.toLowerCase())) {
+                console.warn(`[IPC] Blocked potentially dangerous CSV header: ${header}`);
+                return `_blocked_${header}`;
+              }
+              // Only allow alphanumeric, spaces, underscores, hyphens
+              if (!/^[a-zA-Z0-9\s_-]+$/.test(header)) {
+                return header.replace(/[^a-zA-Z0-9\s_-]/g, '_');
+              }
+              return header;
+            });
+
             events = lines.slice(1).map(line => {
-              const values = line.split(',');
-              const event = {};
-              headers.forEach((header, index) => {
-                event[header.trim()] = values[index]?.trim() || '';
+              // Handle quoted values in CSV (basic support)
+              const values = [];
+              let current = '';
+              let inQuotes = false;
+              for (const char of line) {
+                if (char === '"') {
+                  inQuotes = !inQuotes;
+                } else if (char === ',' && !inQuotes) {
+                  values.push(current.trim());
+                  current = '';
+                } else {
+                  current += char;
+                }
+              }
+              values.push(current.trim());
+
+              // Build event object with sanitized headers
+              const event = Object.create(null); // No prototype chain
+              sanitizedHeaders.forEach((header, index) => {
+                event[header] = values[index]?.trim() || '';
               });
               return event;
             });
@@ -610,37 +729,61 @@ function setupIpcHandlers() {
 
   // Batch rule generation handler
   ipcMain.handle('policy:batchGenerateRules', async (event, inventoryItems, outputPath, options = {}) => {
+    let tempJsonPath = null;
     try {
-      const scriptPath = path.join(scriptsDir, 'Generate-BatchRules.ps1');
-      const tempJsonPath = path.join(require('os').tmpdir(), `batch-inventory-${Date.now()}.json`);
-      
-      // Write inventory to temp JSON
-      fs.writeFileSync(tempJsonPath, JSON.stringify(inventoryItems), 'utf8');
-      
-      // Build PowerShell command with parameters
-      let psCommand = `$items = Get-Content '${tempJsonPath}' -Raw | ConvertFrom-Json; & '${scriptPath}' -InventoryItems $items -OutputPath '${outputPath}'`;
-      
-      if (options.ruleAction) {
-        psCommand += ` -RuleAction '${options.ruleAction}'`;
+      // Validate output path
+      if (!isPathAllowed(outputPath)) {
+        throw new Error('Output path is not in an allowed directory');
       }
-      if (options.targetGroup) {
-        psCommand += ` -TargetGroup '${options.targetGroup}'`;
+
+      const scriptPath = path.join(scriptsDir, 'Generate-BatchRules.ps1');
+      // Use secure random filename to prevent prediction
+      tempJsonPath = path.join(require('os').tmpdir(), generateSecureTempFilename('batch-inventory'));
+
+      // Validate and sanitize options against whitelists
+      const safeOptions = {};
+      if (options.ruleAction) {
+        safeOptions.ruleAction = validateEnum(options.ruleAction, ALLOWED_RULE_ACTIONS, 'ruleAction');
       }
       if (options.collectionType) {
-        psCommand += ` -CollectionType '${options.collectionType}'`;
+        safeOptions.collectionType = validateEnum(options.collectionType, ALLOWED_COLLECTION_TYPES, 'collectionType');
+      }
+      // Sanitize target group - alphanumeric, spaces, hyphens, underscores only
+      if (options.targetGroup) {
+        if (!/^[a-zA-Z0-9\s\-_]+$/.test(options.targetGroup)) {
+          throw new Error('Invalid target group name: contains prohibited characters');
+        }
+        safeOptions.targetGroup = options.targetGroup;
+      }
+
+      // Write inventory to temp JSON
+      fs.writeFileSync(tempJsonPath, JSON.stringify(inventoryItems), 'utf8');
+
+      // Build safe argument array (not string concatenation)
+      const args = [
+        '-File', scriptPath,
+        '-InventoryPath', tempJsonPath,
+        '-OutputPath', outputPath
+      ];
+
+      if (safeOptions.ruleAction) {
+        args.push('-RuleAction', safeOptions.ruleAction);
+      }
+      if (safeOptions.targetGroup) {
+        args.push('-TargetGroup', safeOptions.targetGroup);
+      }
+      if (safeOptions.collectionType) {
+        args.push('-CollectionType', safeOptions.collectionType);
       }
       if (options.groupByPublisher !== false) {
-        psCommand += ' -GroupByPublisher';
+        args.push('-GroupByPublisher');
       }
-      
-      // Execute via PowerShell command
-      const result = await executePowerShellCommand(psCommand, {
+
+      // Execute via PowerShell script with argument array (safer)
+      const result = await executePowerShellScript(scriptPath, args.slice(2), {
         timeout: 600000 // 10 minutes
       });
-      
-      // Clean up temp file
-      try { fs.unlinkSync(tempJsonPath); } catch (e) {}
-      
+
       return {
         success: true,
         output: result.stdout,
@@ -650,8 +793,13 @@ function setupIpcHandlers() {
       console.error('[IPC] Batch generation error:', error);
       return {
         success: false,
-        error: error.message
+        error: sanitizeErrorMessage(error)
       };
+    } finally {
+      // Always clean up temp file
+      if (tempJsonPath) {
+        try { fs.unlinkSync(tempJsonPath); } catch (e) {}
+      }
     }
   });
 
@@ -685,27 +833,36 @@ function setupIpcHandlers() {
 
   // Duplicate detection handler
   ipcMain.handle('policy:detectDuplicates', async (event, inventoryItems, policyPath, outputPath) => {
+    let tempJsonPath = null;
     try {
+      // Validate output path
+      if (!isPathAllowed(outputPath)) {
+        throw new Error('Output path is not in an allowed directory');
+      }
+      // Validate policy path if provided
+      if (policyPath && !isPathAllowed(policyPath)) {
+        throw new Error('Policy path is not in an allowed directory');
+      }
+
       const scriptPath = path.join(scriptsDir, 'Detect-DuplicateRules.ps1');
-      const tempJsonPath = path.join(require('os').tmpdir(), `duplicate-check-${Date.now()}.json`);
-      
+      tempJsonPath = path.join(require('os').tmpdir(), generateSecureTempFilename('duplicate-check'));
+
       fs.writeFileSync(tempJsonPath, JSON.stringify(inventoryItems), 'utf8');
-      
+
+      // Use argument array instead of string interpolation
       const args = [
-        '-InventoryItems', `(Get-Content '${tempJsonPath}' | ConvertFrom-Json)`,
+        '-InventoryPath', tempJsonPath,
         '-OutputPath', outputPath
       ];
-      
+
       if (policyPath) {
         args.push('-PolicyPath', policyPath);
       }
-      
+
       const result = await executePowerShellScript(scriptPath, args, {
         timeout: 300000 // 5 minutes
       });
-      
-      try { fs.unlinkSync(tempJsonPath); } catch (e) {}
-      
+
       return {
         success: true,
         output: result.stdout,
@@ -715,31 +872,43 @@ function setupIpcHandlers() {
       console.error('[IPC] Duplicate detection error:', error);
       return {
         success: false,
-        error: error.message
+        error: sanitizeErrorMessage(error)
       };
+    } finally {
+      if (tempJsonPath) {
+        try { fs.unlinkSync(tempJsonPath); } catch (e) {}
+      }
     }
   });
 
   // Incremental update handler
   ipcMain.handle('policy:getIncrementalUpdate', async (event, newInventory, existingPolicyPath, outputPath) => {
+    let tempJsonPath = null;
     try {
+      // Validate paths
+      if (!isPathAllowed(existingPolicyPath)) {
+        throw new Error('Existing policy path is not in an allowed directory');
+      }
+      if (!isPathAllowed(outputPath)) {
+        throw new Error('Output path is not in an allowed directory');
+      }
+
       const scriptPath = path.join(scriptsDir, 'Get-IncrementalPolicyUpdate.ps1');
-      const tempJsonPath = path.join(require('os').tmpdir(), `incremental-${Date.now()}.json`);
-      
+      tempJsonPath = path.join(require('os').tmpdir(), generateSecureTempFilename('incremental'));
+
       fs.writeFileSync(tempJsonPath, JSON.stringify(newInventory), 'utf8');
-      
+
+      // Use argument array instead of string interpolation
       const args = [
-        '-NewInventory', `(Get-Content '${tempJsonPath}' | ConvertFrom-Json)`,
+        '-NewInventoryPath', tempJsonPath,
         '-ExistingPolicyPath', existingPolicyPath,
         '-OutputPath', outputPath
       ];
-      
+
       const result = await executePowerShellScript(scriptPath, args, {
         timeout: 300000 // 5 minutes
       });
-      
-      try { fs.unlinkSync(tempJsonPath); } catch (e) {}
-      
+
       return {
         success: true,
         output: result.stdout,
@@ -749,8 +918,12 @@ function setupIpcHandlers() {
       console.error('[IPC] Incremental update error:', error);
       return {
         success: false,
-        error: error.message
+        error: sanitizeErrorMessage(error)
       };
+    } finally {
+      if (tempJsonPath) {
+        try { fs.unlinkSync(tempJsonPath); } catch (e) {}
+      }
     }
   });
 
@@ -976,6 +1149,35 @@ function setupIpcHandlers() {
   // File system handlers
   ipcMain.handle('fs:writeFile', async (event, filePath, content) => {
     try {
+      // Validate file path is in allowed directory
+      if (!isPathAllowed(filePath)) {
+        console.warn('[IPC] Blocked write to disallowed path:', filePath);
+        return {
+          success: false,
+          error: 'File path is not in an allowed directory. Files can only be written to user documents, temp, or designated output directories.'
+        };
+      }
+
+      // Validate file extension (only allow safe extensions)
+      const allowedExtensions = ['.xml', '.json', '.csv', '.txt', '.log', '.ps1', '.html', '.md'];
+      const ext = path.extname(filePath).toLowerCase();
+      if (!allowedExtensions.includes(ext)) {
+        console.warn('[IPC] Blocked write with disallowed extension:', ext);
+        return {
+          success: false,
+          error: `File extension '${ext}' is not allowed. Allowed: ${allowedExtensions.join(', ')}`
+        };
+      }
+
+      // Limit file size to prevent denial of service
+      const maxFileSize = 50 * 1024 * 1024; // 50 MB
+      if (content && content.length > maxFileSize) {
+        return {
+          success: false,
+          error: 'File content exceeds maximum allowed size (50 MB)'
+        };
+      }
+
       const dir = path.dirname(filePath);
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
@@ -989,7 +1191,7 @@ function setupIpcHandlers() {
       console.error('[IPC] Write file error:', error);
       return {
         success: false,
-        error: error.message
+        error: sanitizeErrorMessage(error)
       };
     }
   });
