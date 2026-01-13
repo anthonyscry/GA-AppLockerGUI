@@ -22,6 +22,11 @@
 
 .PARAMETER Password
     Password for remote scanning (optional if using current user).
+    SECURITY NOTE: Prefer using -PasswordEnvVar instead to avoid passwords in process listings.
+
+.PARAMETER PasswordEnvVar
+    Name of environment variable containing the password. More secure than -Password
+    as it avoids exposing credentials in process command line arguments.
 
 .PARAMETER Domain
     Domain name for credentials (optional).
@@ -58,7 +63,10 @@ param(
     
     [Parameter(Mandatory = $false)]
     [string]$Password,
-    
+
+    [Parameter(Mandatory = $false)]
+    [string]$PasswordEnvVar,
+
     [Parameter(Mandatory = $false)]
     [string]$Domain,
     
@@ -91,8 +99,23 @@ function Write-Log {
 
 # Create credential object if provided
 $Credential = $null
-if (-not $UseCurrentUser -and $Username -and $Password) {
-    $SecurePassword = ConvertTo-SecureString -String $Password -AsPlainText -Force
+$ActualPassword = $null
+
+# SECURITY: Prefer environment variable for password to avoid command-line exposure
+if ($PasswordEnvVar -and (Test-Path "env:$PasswordEnvVar")) {
+    $ActualPassword = [Environment]::GetEnvironmentVariable($PasswordEnvVar)
+    # Clear the environment variable after reading for security
+    [Environment]::SetEnvironmentVariable($PasswordEnvVar, $null)
+    Write-Log "Password retrieved from environment variable (secure method)" "INFO"
+} elseif ($Password) {
+    $ActualPassword = $Password
+    Write-Log "Using password from command line (less secure - consider using -PasswordEnvVar)" "WARNING"
+}
+
+if (-not $UseCurrentUser -and $Username -and $ActualPassword) {
+    $SecurePassword = ConvertTo-SecureString -String $ActualPassword -AsPlainText -Force
+    # Clear plaintext password from memory
+    $ActualPassword = $null
     if ($Domain) {
         $Credential = New-Object System.Management.Automation.PSCredential("$Domain\$Username", $SecurePassword)
     } else {
