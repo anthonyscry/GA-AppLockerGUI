@@ -95,6 +95,16 @@ const PolicyModule: React.FC = () => {
     if (templateCategory === 'all') return templates;
     return templates.filter(t => t.category.toLowerCase() === templateCategory.toLowerCase());
   }, [templates, templateCategory]);
+
+  // Filtering for generator
+  const [genSearchQuery, setGenSearchQuery] = useState('');
+  const [genCategoryFilter, setGenCategoryFilter] = useState('All');
+
+  // Combined inventory: scanned + imported artifacts (MUST be defined before useEffect that uses it)
+  const combinedInventory = useMemo(() => {
+    const scanned: InventoryItem[] = inventory || [];
+    return [...scanned, ...importedArtifacts];
+  }, [inventory, importedArtifacts]);
   
   // Auto-group by publisher when inventory changes
   React.useEffect(() => {
@@ -110,16 +120,6 @@ const PolicyModule: React.FC = () => {
       setPublisherGroups(groups);
     }
   }, [combinedInventory]);
-
-  // Filtering for generator
-  const [genSearchQuery, setGenSearchQuery] = useState('');
-  const [genCategoryFilter, setGenCategoryFilter] = useState('All');
-
-  // Combined inventory: scanned + imported artifacts
-  const combinedInventory = useMemo(() => {
-    const scanned: InventoryItem[] = inventory || [];
-    return [...scanned, ...importedArtifacts];
-  }, [inventory, importedArtifacts]);
 
   const filteredInventory = useMemo(() => {
     if (!genSearchQuery) return combinedInventory;
