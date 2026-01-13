@@ -46,9 +46,15 @@
       "electron/**/*",
       "config/**/*",
       "assets/**/*",
-      "scripts/**/*",
       "docs/**/*",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "scripts",
+        "to": "scripts",
+        "filter": ["**/*"]
+      }
     ],
     "win": {
       "target": [
