@@ -1496,7 +1496,7 @@ function setupIpcHandlers() {
       // Return default AppLocker groups if AD query fails
       return [
         'AppLocker-Admins',
-        'AppLocker-Exempt-Users',
+        'AppLocker-Installers',
         'AppLocker-Developers',
         'AppLocker-Standard-Users',
         'AppLocker-Audit-Only'
@@ -1504,6 +1504,88 @@ function setupIpcHandlers() {
     } catch (error) {
       console.error('[IPC] Get AD groups error:', error);
       return [];
+    }
+  });
+
+  // Create AppLocker security groups in AD
+  ipcMain.handle('ad:createAppLockerGroups', async (event, { ouPath }) => {
+    try {
+      // Validate ouPath if provided
+      if (ouPath && typeof ouPath === 'string') {
+        // Basic validation for OU path format
+        if (!ouPath.match(/^(OU=|CN=|DC=)/i)) {
+          return { success: false, error: 'Invalid OU path format' };
+        }
+      }
+
+      const escapedOuPath = ouPath ? escapePowerShellString(ouPath) : '';
+
+      const command = `
+        try {
+          $groups = @(
+            @{ Name = 'AppLocker-Admins'; Description = 'Full AppLocker bypass for IT administrators' },
+            @{ Name = 'AppLocker-Installers'; Description = 'Users authorized to install software' },
+            @{ Name = 'AppLocker-Developers'; Description = 'Developers with elevated script/app permissions' },
+            @{ Name = 'AppLocker-Standard-Users'; Description = 'Standard users with default AppLocker restrictions' },
+            @{ Name = 'AppLocker-Audit-Only'; Description = 'Users in audit-only mode (no enforcement)' }
+          )
+
+          $results = @()
+          $targetOU = ${escapedOuPath ? `'${escapedOuPath}'` : '$null'}
+
+          # If no OU specified, use Users container
+          if (-not $targetOU) {
+            $domain = Get-ADDomain
+            $targetOU = "CN=Users," + $domain.DistinguishedName
+          }
+
+          foreach ($group in $groups) {
+            $existing = Get-ADGroup -Filter "Name -eq '$($group.Name)'" -ErrorAction SilentlyContinue
+            if ($existing) {
+              $results += @{
+                name = $group.Name
+                status = 'exists'
+                message = 'Group already exists'
+              }
+            } else {
+              try {
+                New-ADGroup -Name $group.Name -GroupScope Global -GroupCategory Security -Description $group.Description -Path $targetOU -ErrorAction Stop
+                $results += @{
+                  name = $group.Name
+                  status = 'created'
+                  message = 'Group created successfully'
+                }
+              } catch {
+                $results += @{
+                  name = $group.Name
+                  status = 'error'
+                  message = $_.Exception.Message
+                }
+              }
+            }
+          }
+
+          @{ success = $true; results = $results } | ConvertTo-Json -Compress -Depth 3
+        } catch {
+          @{ success = $false; error = $_.Exception.Message } | ConvertTo-Json -Compress
+        }
+      `;
+
+      const result = await executePowerShellCommand(command, { timeout: 60000 });
+
+      if (result.stdout) {
+        try {
+          return JSON.parse(result.stdout);
+        } catch (e) {
+          console.warn('[IPC] Could not parse create groups result:', e);
+          return { success: false, error: 'Failed to parse result' };
+        }
+      }
+
+      return { success: false, error: result.stderr || 'Unknown error' };
+    } catch (error) {
+      console.error('[IPC] Create AppLocker groups error:', error);
+      return { success: false, error: sanitizeErrorMessage(error) };
     }
   });
 
