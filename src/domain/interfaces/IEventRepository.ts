@@ -17,6 +17,6 @@ export interface EventFilter {
 export interface IEventRepository {
   findAll(): Promise<AppEvent[]>;
   findByFilter(filter: EventFilter): Promise<AppEvent[]>;
-  getStats(): Promise<{ totalBlocked: number; totalAudit: number; uniquePaths: number }>;
+  getStats(): Promise<{ totalBlocked: number; totalAudit: number; totalAllowed: number; uniquePaths: number }>;
   exportToCSV(events: AppEvent[]): Promise<string>;
 }

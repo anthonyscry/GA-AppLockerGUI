@@ -29,16 +29,16 @@ export class EventRepository implements IEventRepository {
     return this.filterEvents(all, filter);
   }
 
-  async getStats(): Promise<{ totalBlocked: number; totalAudit: number; uniquePaths: number }> {
+  async getStats(): Promise<{ totalBlocked: number; totalAudit: number; totalAllowed: number; uniquePaths: number }> {
     try {
-      const stats = await ipcClient.invoke<{ totalBlocked: number; totalAudit: number; uniquePaths: number }>(
+      const stats = await ipcClient.invoke<{ totalBlocked: number; totalAudit: number; totalAllowed: number; uniquePaths: number }>(
         IPCChannels.EVENT.GET_STATS
       );
-      return stats || { totalBlocked: 0, totalAudit: 0, uniquePaths: 0 };
+      return stats || { totalBlocked: 0, totalAudit: 0, totalAllowed: 0, uniquePaths: 0 };
     } catch (error) {
       if (!ipcClient.isAvailable()) {
         logger.warn('IPC not available (browser mode), returning default stats');
-        return { totalBlocked: 0, totalAudit: 0, uniquePaths: 0 };
+        return { totalBlocked: 0, totalAudit: 0, totalAllowed: 0, uniquePaths: 0 };
       }
       logger.error('Failed to get event stats', error as Error);
       throw new ExternalServiceError('Event Service', 'Failed to get event stats', error as Error);

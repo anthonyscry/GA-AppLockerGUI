@@ -10,6 +10,7 @@ import { logger } from '../../infrastructure/logging/Logger';
 export interface EventStats {
   totalBlocked: number;
   totalAudit: number;
+  totalAllowed: number;
   uniquePaths: number;
 }
 

@@ -19,6 +19,7 @@ export interface EventFilter {
 export interface EventStats {
   totalBlocked: number;
   totalAudit: number;
+  totalAllowed: number;
   uniquePaths: number;
 }
 
@@ -62,11 +63,13 @@ export class EventService {
     
     const totalBlocked = eventList.filter(e => e.eventId === 8004).length;
     const totalAudit = eventList.filter(e => e.eventId === 8003).length;
+    const totalAllowed = eventList.filter(e => e.eventId === 8001 || e.eventId === 8002).length;
     const uniquePaths = new Set(eventList.map(e => e.path)).size;
     
     return {
       totalBlocked,
       totalAudit,
+      totalAllowed,
       uniquePaths,
     };
   }
