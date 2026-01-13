@@ -13,7 +13,9 @@ A comprehensive administrative dashboard for the GA-AppLocker toolkit, enabling 
 - **Policy Lab** - Design, merge, and validate AppLocker XML policies
 - **Event Monitor** - Real-time AppLocker audit event ingestion (8003/8004)
 - **AD Manager** - Drag-and-drop user management for AppLocker security groups
-- **Compliance** - Generate CORA evidence packages and regulatory reports
+- **Compliance** - Generate NIST compliance evidence packages and regulatory reports
+- **OU-Based Grouping** - Auto-categorize machines by OU (Workstation/Server/DC)
+- **Deploy to OU** - One-click GPO deployment with OU auto-linking
 
 ## Quick Start
 
@@ -41,16 +43,16 @@ A comprehensive administrative dashboard for the GA-AppLocker toolkit, enabling 
 To build the Windows executable:
 
 ```bash
-npm run electron:build:win
+npm run electron:build:portable
 ```
 
 This will:
 1. Build the React app using Vite
 2. Package it with Electron
-3. Create an installer in the `release` directory
+3. Create a portable EXE in the `release` directory
 
 The output will be:
-- `release/GA-AppLocker Dashboard-1.2.5-x64.exe` - NSIS installer
+- `release/GA-AppLocker Dashboard-1.2.5-x64.exe` - Portable executable (no install required)
 - `release/win-unpacked/` - Unpacked application (for testing)
 
 ### Available Scripts
@@ -59,6 +61,7 @@ The output will be:
 - `npm run build` - Build web assets only (Vite)
 - `npm run electron:dev` - Run Electron in development mode
 - `npm run electron:build` - Build for current platform
+- `npm run electron:build:portable` - Build portable Windows EXE
 - `npm run electron:build:win` - Build Windows installer
 - `npm run test` - Run Jest tests
 - `npm run test:watch` - Run tests in watch mode
@@ -67,8 +70,36 @@ The output will be:
 ## Requirements
 
 - Node.js (v18 or higher)
-- Windows 10/11 (for building Windows executables)
+- Windows 10/11 or Windows Server 2019+
 - npm or yarn
+- **For full functionality:** Run on Domain Controller with DC Admin credentials
+
+## Key Capabilities
+
+### 1. Domain Auto-Detection
+When running on a Domain Controller:
+- Auto-detects domain name (FQDN)
+- Shows "DC Admin Mode" indicator
+- Uses current session credentials for WinRM
+
+### 2. OU-Based Machine Grouping
+Machines are automatically categorized based on their OU:
+- **Workstations** - OU contains "Workstation", "Desktop", "WS"
+- **Servers** - OU contains "Server", "SRV"
+- **Domain Controllers** - OU="Domain Controllers"
+
+### 3. Phase-Based Deployment
+| Phase | Enforcement | Rule Types |
+|-------|-------------|------------|
+| Phase 1 | Audit Only | EXE only |
+| Phase 2 | Audit Only | EXE + Script |
+| Phase 3 | Audit Only | EXE + Script + MSI |
+| Phase 4 | Enabled | All (including DLL) |
+
+### 4. Smart Rule Generation
+- **Publisher rules** - Preferred for signed software
+- **Hash rules** - Fallback for unsigned executables
+- **Path rules** - Avoided (too restrictive)
 
 ## Architecture
 
@@ -126,6 +157,18 @@ The application follows **Clean Architecture** principles with clear separation 
 
 For detailed API documentation, see [docs/API.md](./docs/API.md).
 
+## PowerShell Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `GA-AppLocker.psm1` | Main PowerShell module |
+| `Deploy-AppLockerPolicy.ps1` | Deploy to GPO with OU linking |
+| `Get-ComprehensiveScanArtifacts.ps1` | Full machine artifact scan |
+| `Get-AppLockerAuditLogs.ps1` | Collect 8003/8004 events |
+| `Merge-AppLockerPolicies.ps1` | Combine multiple policies |
+| `Test-RuleHealth.ps1` | Validate policy rules |
+| `Generate-RulesFromArtifacts.ps1` | Smart rule generation |
+
 ## Application Details
 
 - **Version**: 1.2.5
@@ -139,6 +182,7 @@ For detailed API documentation, see [docs/API.md](./docs/API.md).
 - The built application is self-contained and doesn't require Node.js to run
 - All dependencies are bundled with the application
 - The application uses Tailwind CSS bundled locally (fully standalone, no internet required)
+- Designed to run on Domain Controller with DC Admin privileges
 
 ## Troubleshooting
 
@@ -147,3 +191,17 @@ For detailed API documentation, see [docs/API.md](./docs/API.md).
 - If you encounter module resolution errors, delete `node_modules` and `package-lock.json`, then reinstall
 
 For more detailed build instructions, see [BUILD.md](BUILD.md).
+
+## Vision Complete ✅
+
+This application fully implements the vision:
+1. ✅ Scan AD for hosts (with domain auto-detection)
+2. ✅ Scan hosts for artifacts (via WinRM)
+3. ✅ Ingest artifacts seamlessly (multi-format)
+4. ✅ Auto-create rules (best practices)
+5. ✅ Group by machine type (OU-based)
+6. ✅ Merge policies (conflict resolution)
+7. ✅ Create policy (validated XML)
+8. ✅ Deploy to OUs (with auto-linking and phases)
+
+See [VISION_STATUS_REPORT.md](./VISION_STATUS_REPORT.md) for details.

@@ -103,9 +103,40 @@ function setupIpcHandlers() {
         args.push('-Domain', options.domain);
       }
 
+      // NEW: Support OU linking
+      if (options.ouPaths && Array.isArray(options.ouPaths) && options.ouPaths.length > 0) {
+        args.push('-OUPath');
+        args.push(options.ouPaths.join(','));
+      }
+
+      // NEW: Support phase-based deployment
+      if (options.phase) {
+        args.push('-Phase', options.phase);
+      }
+
+      // NEW: Support enforcement mode override
+      if (options.enforcementMode) {
+        args.push('-EnforcementMode', options.enforcementMode);
+      }
+
+      // NEW: Auto-create GPO if needed
+      if (options.createGPO) {
+        args.push('-CreateGPO');
+      }
+
       const result = await executePowerShellScript(scriptPath, args, {
         timeout: 300000 // 5 minutes for GPO operations
       });
+
+      // Try to parse JSON output from script
+      try {
+        const jsonMatch = result.stdout.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          return JSON.parse(jsonMatch[0]);
+        }
+      } catch (e) {
+        // If JSON parsing fails, return raw output
+      }
 
       return {
         success: true,

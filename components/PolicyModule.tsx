@@ -21,7 +21,11 @@ import {
   Users,
   Server,
   Layers,
-  FolderTree
+  FolderTree,
+  Upload,
+  Link,
+  Trash2,
+  Loader2
 } from 'lucide-react';
 import { APPLOCKER_GROUPS, COMMON_PUBLISHERS } from '../constants';
 import { useAppServices } from '../src/presentation/contexts/AppContext';
@@ -95,6 +99,17 @@ const PolicyModule: React.FC = () => {
   const [showOUPolicyGen, setShowOUPolicyGen] = useState(false);
   const [ouPolicyOutputDir, setOuPolicyOutputDir] = useState('C:\\Policies\\OU-Based');
   const [selectedMachineTypes, setSelectedMachineTypes] = useState<MachineType[]>(['Workstation', 'Server', 'DomainController']);
+  
+  // OU Deployment State (for linking GPO to OU)
+  const [showOUDeploy, setShowOUDeploy] = useState(false);
+  const [deployGPOName, setDeployGPOName] = useState('');
+  const [deployPolicyPath, setDeployPolicyPath] = useState('');
+  const [deployOUPaths, setDeployOUPaths] = useState<string[]>([]);
+  const [newOUPath, setNewOUPath] = useState('');
+  const [deployPhase, setDeployPhase] = useState<'Phase1' | 'Phase2' | 'Phase3' | 'Phase4'>('Phase1');
+  const [deployEnforcement, setDeployEnforcement] = useState<'AuditOnly' | 'Enabled'>('AuditOnly');
+  const [createGPOIfMissing, setCreateGPOIfMissing] = useState(true);
+  const [isDeploying, setIsDeploying] = useState(false);
   const [publisherGroups, setPublisherGroups] = useState<Record<string, InventoryItem[]>>({});
   const [duplicateReport, setDuplicateReport] = useState<any>(null);
   const [selectedTemplate, setSelectedTemplate] = useState<string>('');
@@ -319,6 +334,14 @@ const PolicyModule: React.FC = () => {
           >
             <FolderTree size={18} />
             <span>OU Policies</span>
+          </button>
+          <button
+            onClick={() => setShowOUDeploy(true)}
+            className="bg-emerald-600 text-white px-5 py-2 rounded-xl font-bold text-sm hover:bg-emerald-700 shadow-lg shadow-emerald-500/20 transition-all flex items-center space-x-2"
+            aria-label="Deploy policy to OU"
+          >
+            <Upload size={18} />
+            <span>Deploy to OU</span>
           </button>
           <button
             onClick={() => setShowTemplates(true)}
@@ -904,6 +927,233 @@ const PolicyModule: React.FC = () => {
               >
                 <Layers size={18} />
                 <span>Generate {selectedMachineTypes.length} Policies</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* OU Deployment Modal - Deploy Policy to GPO and Link to OUs */}
+      {showOUDeploy && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white rounded-3xl w-[800px] max-h-[90vh] shadow-2xl overflow-hidden flex flex-col">
+            <div className="p-6 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 bg-emerald-600 text-white rounded-xl">
+                  <Upload size={24} />
+                </div>
+                <div>
+                  <h3 className="font-black text-slate-900 text-lg uppercase tracking-tight">Deploy Policy to OU</h3>
+                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Deploy GPO and auto-link to Organizational Units</p>
+                </div>
+              </div>
+              <button onClick={() => setShowOUDeploy(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-400">
+                <X size={24} />
+              </button>
+            </div>
+            
+            <div className="flex-1 p-6 overflow-y-auto space-y-6">
+              {/* GPO Name */}
+              <div>
+                <label className="block text-xs font-black text-slate-700 uppercase tracking-widest mb-2">GPO Name</label>
+                <input
+                  type="text"
+                  value={deployGPOName}
+                  onChange={(e) => setDeployGPOName(e.target.value)}
+                  placeholder="e.g., AppLocker-WS-Policy"
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+                />
+                <div className="flex items-center space-x-2 mt-2">
+                  <input
+                    type="checkbox"
+                    id="create-gpo"
+                    checked={createGPOIfMissing}
+                    onChange={(e) => setCreateGPOIfMissing(e.target.checked)}
+                    className="w-4 h-4 text-emerald-600 border-slate-300 rounded"
+                  />
+                  <label htmlFor="create-gpo" className="text-xs text-slate-600 font-medium cursor-pointer">
+                    Create GPO if it doesn't exist
+                  </label>
+                </div>
+              </div>
+              
+              {/* Policy Path */}
+              <div>
+                <label className="block text-xs font-black text-slate-700 uppercase tracking-widest mb-2">Policy XML Path</label>
+                <input
+                  type="text"
+                  value={deployPolicyPath}
+                  onChange={(e) => setDeployPolicyPath(e.target.value)}
+                  placeholder="C:\Policies\AppLocker-Policy.xml"
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+                />
+              </div>
+              
+              {/* OU Paths */}
+              <div>
+                <label className="block text-xs font-black text-slate-700 uppercase tracking-widest mb-2">
+                  Target OUs <span className="text-slate-400 font-normal">(Link GPO to these OUs)</span>
+                </label>
+                
+                {/* Add OU Input */}
+                <div className="flex space-x-2 mb-3">
+                  <input
+                    type="text"
+                    value={newOUPath}
+                    onChange={(e) => setNewOUPath(e.target.value)}
+                    placeholder="OU=Workstations,OU=Computers,DC=domain,DC=com"
+                    className="flex-1 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && newOUPath.trim()) {
+                        setDeployOUPaths([...deployOUPaths, newOUPath.trim()]);
+                        setNewOUPath('');
+                      }
+                    }}
+                  />
+                  <button
+                    onClick={() => {
+                      if (newOUPath.trim()) {
+                        setDeployOUPaths([...deployOUPaths, newOUPath.trim()]);
+                        setNewOUPath('');
+                      }
+                    }}
+                    className="px-4 py-2.5 bg-emerald-600 text-white rounded-lg font-bold text-xs hover:bg-emerald-700 flex items-center space-x-1"
+                  >
+                    <Plus size={14} />
+                    <span>Add OU</span>
+                  </button>
+                </div>
+                
+                {/* OU List */}
+                <div className="space-y-2 max-h-32 overflow-y-auto">
+                  {deployOUPaths.length > 0 ? (
+                    deployOUPaths.map((ou, index) => (
+                      <div key={index} className="flex items-center justify-between px-3 py-2 bg-emerald-50 border border-emerald-100 rounded-lg">
+                        <div className="flex items-center space-x-2">
+                          <Link size={12} className="text-emerald-600" />
+                          <span className="text-xs font-mono text-emerald-800">{ou}</span>
+                        </div>
+                        <button
+                          onClick={() => setDeployOUPaths(deployOUPaths.filter((_, i) => i !== index))}
+                          className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-xs text-slate-400 italic p-2">No OUs added. GPO will be created but not linked.</p>
+                  )}
+                </div>
+              </div>
+              
+              {/* Phase Selection */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-black text-slate-700 uppercase tracking-widest mb-2">Deployment Phase</label>
+                  <select
+                    value={deployPhase}
+                    onChange={(e) => {
+                      const phase = e.target.value as 'Phase1' | 'Phase2' | 'Phase3' | 'Phase4';
+                      setDeployPhase(phase);
+                      // Auto-set enforcement based on phase
+                      setDeployEnforcement(phase === 'Phase4' ? 'Enabled' : 'AuditOnly');
+                    }}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-emerald-500 outline-none"
+                  >
+                    <option value="Phase1">Phase 1 - EXE Only (Audit)</option>
+                    <option value="Phase2">Phase 2 - EXE + Script (Audit)</option>
+                    <option value="Phase3">Phase 3 - EXE + Script + MSI (Audit)</option>
+                    <option value="Phase4">Phase 4 - All including DLL (Enforce)</option>
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-xs font-black text-slate-700 uppercase tracking-widest mb-2">Enforcement Mode</label>
+                  <select
+                    value={deployEnforcement}
+                    onChange={(e) => setDeployEnforcement(e.target.value as 'AuditOnly' | 'Enabled')}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-emerald-500 outline-none"
+                  >
+                    <option value="AuditOnly">Audit Only (Recommended for Testing)</option>
+                    <option value="Enabled">Enabled (Enforce Rules)</option>
+                  </select>
+                </div>
+              </div>
+              
+              {/* Warning for Enforce mode */}
+              {deployEnforcement === 'Enabled' && (
+                <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-start space-x-3">
+                  <AlertTriangle className="text-amber-600 shrink-0 mt-0.5" size={20} />
+                  <div>
+                    <p className="text-sm font-bold text-amber-800">Warning: Enforce Mode Selected</p>
+                    <p className="text-xs text-amber-700 mt-1">
+                      Rules will block applications that don't match. Ensure you've thoroughly tested in Audit mode first.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            <div className="p-6 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
+              <div className="text-sm text-slate-600">
+                <span className="font-bold">{deployOUPaths.length}</span> OU(s) selected for linking
+              </div>
+              <button
+                onClick={async () => {
+                  if (!deployGPOName.trim()) {
+                    alert('Please enter a GPO name');
+                    return;
+                  }
+                  if (!deployPolicyPath.trim()) {
+                    alert('Please enter the policy XML path');
+                    return;
+                  }
+                  
+                  setIsDeploying(true);
+                  try {
+                    const electron = (window as any).electron;
+                    if (electron?.ipc) {
+                      const result = await electron.ipc.invoke('policy:deploy', deployPolicyPath, deployGPOName, {
+                        ouPaths: deployOUPaths,
+                        phase: deployPhase,
+                        enforcementMode: deployEnforcement,
+                        createGPO: createGPOIfMissing,
+                      });
+                      
+                      if (result.Success || result.success) {
+                        alert(`✅ Policy deployed successfully!\n\nGPO: ${deployGPOName}\nOUs Linked: ${deployOUPaths.length}\nPhase: ${deployPhase}\nMode: ${deployEnforcement}`);
+                        setShowOUDeploy(false);
+                        // Reset form
+                        setDeployGPOName('');
+                        setDeployPolicyPath('');
+                        setDeployOUPaths([]);
+                      } else {
+                        alert(`❌ Deployment failed:\n${result.Error || result.error || 'Unknown error'}`);
+                      }
+                    } else {
+                      alert('Electron IPC not available. This feature requires running in the Electron app.');
+                    }
+                  } catch (error: any) {
+                    alert(`Deployment error: ${error?.message || error}`);
+                  } finally {
+                    setIsDeploying(false);
+                  }
+                }}
+                disabled={isDeploying || !deployGPOName.trim() || !deployPolicyPath.trim()}
+                className="bg-emerald-600 text-white px-6 py-3 rounded-xl font-bold text-sm hover:bg-emerald-700 shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+              >
+                {isDeploying ? (
+                  <>
+                    <Loader2 size={18} className="animate-spin" />
+                    <span>Deploying...</span>
+                  </>
+                ) : (
+                  <>
+                    <Upload size={18} />
+                    <span>Deploy Policy</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

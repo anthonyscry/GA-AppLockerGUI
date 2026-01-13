@@ -1,114 +1,147 @@
 # 🚀 GA-AppLocker Dashboard - Quick Start
 
-## ✅ App Status: READY TO RUN
+## ✅ App Status: READY TO RUN (v1.2.5)
 
-All critical issues have been fixed and the app is ready to use!
+All features are implemented and the app is ready to use!
 
 ## 🏃 Quick Start
 
-### Step 1: Verify Setup (Optional but Recommended)
+### Step 1: Download & Run (Easiest)
 
-Run the verification script to ensure everything is ready:
-```bash
-node scripts/verify-startup.js
-```
+1. Download the portable EXE from GitHub Releases:
+   - `GA-AppLocker Dashboard-1.2.5-x64.exe`
+2. Run on a **Domain Controller** as a **DC Admin**
+3. The app will auto-detect your domain
 
-### Step 2: Development Mode (Recommended)
+### Step 2: Development Mode
 
 1. **Start the Vite dev server:**
    ```bash
    npm run dev
    ```
-   This starts the React app on http://localhost:3000
 
 2. **In a separate terminal, start Electron:**
    ```bash
    npm run electron:dev
    ```
-   This opens the Electron window with the app.
 
 ### Production Build
 
-1. **Build the app:**
-   ```bash
-   npm run build
-   ```
-
-2. **Run the built app:**
-   ```bash
-   npm run electron:test
-   ```
-
-3. **Create standalone Windows EXE (portable):**
+1. **Build portable EXE (recommended):**
    ```bash
    npm run electron:build:portable
    ```
-   This creates a single portable executable: `release/GA-AppLocker Dashboard-1.2.4-x64.exe`
-   
-   **Or create Windows installer:**
+   Creates: `release/GA-AppLocker Dashboard-1.2.5-x64.exe`
+
+2. **Or create Windows installer:**
    ```bash
    npm run electron:build:win
    ```
 
-## ✅ What Was Fixed
+## ✅ Complete Features
 
-### Type Import Issues
-- ✅ Fixed inconsistent type imports across all components
-- ✅ Standardized on `src/shared/types` for all type definitions
-- ✅ Updated: `App.tsx`, `Sidebar.tsx`, `PolicyModule.tsx`, `ADManagementModule.tsx`, `constants.tsx`
+### Core Workflow
+- ✅ **Dashboard** - Overview of managed systems with real data
+- ✅ **Remote Scan** - Collect software inventory via WinRM
+- ✅ **Policy Lab** - Design and validate AppLocker policies
+- ✅ **Event Monitor** - Real-time 8003/8004 event ingestion
+- ✅ **AD Manager** - Manage AppLocker security groups
+- ✅ **Compliance** - Generate NIST compliance evidence
 
-### IPC Handler Fixes
-- ✅ Added safety check for ipcMain availability in IPC handlers
-- ✅ Prevents errors when testing outside Electron environment
-- ✅ Graceful degradation when Electron APIs aren't available
+### Advanced Features
+- ✅ **Domain Auto-Detection** - Auto-detects domain from DC
+- ✅ **OU-Based Grouping** - Machines categorized by OU (Workstation/Server/DC)
+- ✅ **Deploy to OU** - One-click GPO deployment with OU linking
+- ✅ **Phase-Based Enforcement** - Audit (Phase 1-3) → Enforce (Phase 4)
+- ✅ **Smart Rule Priority** - Publisher → Hash (Path avoided)
+- ✅ **Wildcard Search** - Use `*` for flexible filtering
 
-### Build System
-- ✅ Verified Vite build works correctly
-- ✅ All dependencies installed and working
-- ✅ TypeScript compilation successful
+## 🎯 Typical Workflow
 
-### Architecture
-- ✅ Dependency injection container properly configured
-- ✅ IPC handlers set up correctly
-- ✅ Error boundaries in place
-- ✅ Logging infrastructure ready
+1. **Open Dashboard** - View system overview
+2. **Go to Remote Scan** - Domain auto-detected, scan machines
+3. **Open Policy Lab** → **Rule Generator** - Import scan artifacts
+4. **Click "OU Policies"** - Generate policies per machine type
+5. **Click "Deploy to OU"** - Deploy GPO and link to OUs
+6. **Monitor Events** - Watch 8003/8004 logs
+7. **Generate Compliance** - Create NIST evidence packages
 
-## 📋 Next Steps
+## 📋 Requirements
 
-1. **Test the app:**
-   - Run `npm run dev` in one terminal
-   - Run `npm run electron:dev` in another terminal
-   - The app should open and display the dashboard
+- Windows 10/11 or Windows Server 2019+
+- **Best:** Run on Domain Controller
+- **Credentials:** DC Admin for full functionality
+- PowerShell 5.1 or 7.x
+- WinRM configured for remote scanning
 
-2. **If you encounter issues:**
-   - Check the console for errors
-   - Verify PowerShell modules are installed (for AppLocker features)
-   - Check Windows Event Logs for AppLocker events
+## 🔐 Credential Requirements
 
-3. **For production:**
-   - **Standalone EXE (portable):** `npm run electron:build:portable`
-     - Creates: `release/GA-AppLocker Dashboard-1.2.4-x64.exe`
-     - No installation required - just run the EXE
-   - **Windows Installer:** `npm run electron:build:win`
-     - Creates installer in the `release/` directory
+| Action | Credential Needed |
+|--------|-------------------|
+| Scan Workstations | Domain Admin |
+| Scan Servers | Domain Admin |
+| Scan DCs | DC Admin |
+| Deploy GPO | Domain Admin |
+| Link to OU | Domain Admin |
 
-## 🎯 Features Available
+**Tip:** Run the app as a DC Admin for full access.
 
-- ✅ Dashboard - Overview of managed systems
-- ✅ Remote Scan - Collect software inventory via WinRM
-- ✅ Policy Lab - Design and validate AppLocker policies
-- ✅ Event Monitor - Real-time AppLocker audit events
-- ✅ AD Manager - Manage AppLocker security groups
-- ✅ Compliance - Generate CORA evidence packages
+## 📝 Key Files
 
-## 📝 Notes
+### Entry Points
+- `index.tsx` - React app entry
+- `App.tsx` - Main app component
+- `electron/main.cjs` - Electron main process
 
-- The app requires Windows 10/11 for AppLocker features
-- PowerShell 5.1 or 7.x required
-- WinRM must be configured for remote scanning
-- Active Directory integration requires appropriate permissions
+### PowerShell Scripts (in `scripts/`)
+- `GA-AppLocker.psm1` - Main module
+- `Deploy-AppLockerPolicy.ps1` - GPO deployment with OU linking
+- `Get-ComprehensiveScanArtifacts.ps1` - Artifact collection
+- `Merge-AppLockerPolicies.ps1` - Policy merging
+
+## 🆘 Troubleshooting
+
+### Build Fails
+```bash
+# Clean and reinstall
+rm -rf node_modules package-lock.json
+npm install
+```
+
+### UI Not Styled
+- Tailwind CSS is bundled locally
+- Check `dist/assets/index-*.css` exists
+
+### IPC Not Working
+- Must run in Electron (not browser)
+- Check `electron/preload.cjs` is loaded
+
+### Domain Not Detected
+- Ensure running on Domain Controller
+- Run as DC Admin
+- Check AD PowerShell module is available
+
+## 📞 Quick Reference
+
+### Run Commands
+```bash
+npm run dev                      # Start Vite dev server
+npm run electron:dev             # Run Electron app
+npm run build                    # Build web assets
+npm run electron:build:portable  # Build portable EXE
+npm test                         # Run unit tests
+```
+
+### Key Directories
+- `src/` - Source code (Clean Architecture)
+- `components/` - React components
+- `electron/` - Electron main process
+- `scripts/` - PowerShell scripts
+- `dist/` - Build output
+- `release/` - Packaged EXE
 
 ---
 
-**Version:** 1.2.4  
-**Status:** ✅ Ready for Development & Testing
+**Version:** 1.2.5  
+**Status:** ✅ Vision 100% Complete  
+**Last Updated:** 2026-01-13
