@@ -34,13 +34,41 @@ const ScanModule: React.FC = () => {
   const [gpoStatus, setGpoStatus] = useState<'Enabled' | 'Disabled' | 'Processing'>('Enabled');
   const [showGpoConfirm, setShowGpoConfirm] = useState(false);
   
+  // Domain Info (auto-detected from DC)
+  const [domainInfo, setDomainInfo] = useState({
+    domain: '',
+    isDC: false,
+    currentUser: '',
+  });
+  
   // Credential State
   const [showCredentials, setShowCredentials] = useState(false);
   const [useCurrentUser, setUseCurrentUser] = useState(true);
   const [scanUsername, setScanUsername] = useState('');
   const [scanPassword, setScanPassword] = useState('');
-  const [scanDomain, setScanDomain] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  
+  // Auto-detect domain on mount
+  React.useEffect(() => {
+    const detectDomain = async () => {
+      try {
+        const electron = (window as any).electron;
+        if (electron?.ipc) {
+          const info = await electron.ipc.invoke('system:getDomainInfo');
+          if (info) {
+            setDomainInfo({
+              domain: info.DomainName || info.DomainNetBIOS || 'WORKGROUP',
+              isDC: info.IsDomainController || false,
+              currentUser: `${info.UserDomain || info.DomainNetBIOS}\\${info.UserName}`,
+            });
+          }
+        }
+      } catch (error) {
+        console.warn('Could not detect domain:', error);
+      }
+    };
+    detectDomain();
+  }, []);
 
   // Fetch machines
   const { data: machines, loading: machinesLoading, error: machinesError, refetch: refetchMachines } = useAsync(
@@ -68,7 +96,7 @@ const ScanModule: React.FC = () => {
         scanOptions.credentials = {
           username: scanUsername,
           password: scanPassword,
-          domain: scanDomain || undefined,
+          domain: domainInfo.domain, // Use auto-detected domain
           useCurrentUser: false
         };
       } else {
@@ -88,7 +116,7 @@ const ScanModule: React.FC = () => {
       console.error('Failed to start scan:', error);
       alert(`Failed to start scan: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-  }, [machine, refetchMachines, useCurrentUser, scanUsername, scanPassword, scanDomain, ouPath]);
+  }, [machine, refetchMachines, useCurrentUser, scanUsername, scanPassword, domainInfo.domain, ouPath]);
 
   const toggleWinRMGPO = useCallback(async () => {
     try {
@@ -204,6 +232,11 @@ const ScanModule: React.FC = () => {
             <div className="flex items-center space-x-2">
               <Key className="text-blue-600" size={20} aria-hidden="true" />
               <h3 className="font-bold text-slate-900">Scan Credentials</h3>
+              {domainInfo.isDC && (
+                <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-[9px] font-black uppercase rounded">
+                  DC Admin Mode
+                </span>
+              )}
             </div>
             <button
               onClick={() => setShowCredentials(false)}
@@ -212,6 +245,20 @@ const ScanModule: React.FC = () => {
             >
               <X size={18} />
             </button>
+          </div>
+          
+          {/* Auto-detected Domain Info */}
+          <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-100">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-1">Auto-Detected Domain</p>
+                <p className="text-lg font-black text-blue-900">{domainInfo.domain || 'Detecting...'}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Current Session</p>
+                <p className="text-sm font-medium text-slate-700">{domainInfo.currentUser || 'Loading...'}</p>
+              </div>
+            </div>
           </div>
           
           <div className="space-y-4">
@@ -224,29 +271,15 @@ const ScanModule: React.FC = () => {
                 className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-2 focus:ring-blue-500"
               />
               <label htmlFor="use-current-user" className="text-sm font-medium text-slate-700 cursor-pointer">
-                Use current Windows credentials
+                Use current session credentials (recommended for DC Admin)
               </label>
             </div>
             
             {!useCurrentUser && (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2 border-t border-slate-200">
-                <div>
-                  <label htmlFor="scan-domain" className="block text-xs font-bold text-slate-600 uppercase tracking-widest mb-2">
-                    Domain
-                  </label>
-                  <input
-                    type="text"
-                    id="scan-domain"
-                    value={scanDomain}
-                    onChange={(e) => setScanDomain(e.target.value)}
-                    placeholder="DOMAIN or leave empty"
-                    className="w-full px-3 py-2.5 min-h-[44px] bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:border-blue-500 text-sm font-medium"
-                  />
-                </div>
-                
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-slate-200">
                 <div>
                   <label htmlFor="scan-username" className="block text-xs font-bold text-slate-600 uppercase tracking-widest mb-2">
-                    Username
+                    Admin Username
                   </label>
                   <div className="relative">
                     <User className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
@@ -255,10 +288,11 @@ const ScanModule: React.FC = () => {
                       id="scan-username"
                       value={scanUsername}
                       onChange={(e) => setScanUsername(e.target.value)}
-                      placeholder="username or DOMAIN\\username"
+                      placeholder={`${domainInfo.domain}\\administrator`}
                       className="w-full pl-9 pr-3 py-2.5 min-h-[44px] bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:border-blue-500 text-sm font-medium"
                     />
                   </div>
+                  <p className="text-[10px] text-slate-400 mt-1">Domain: {domainInfo.domain} (auto-detected)</p>
                 </div>
                 
                 <div>
@@ -272,7 +306,7 @@ const ScanModule: React.FC = () => {
                       id="scan-password"
                       value={scanPassword}
                       onChange={(e) => setScanPassword(e.target.value)}
-                      placeholder="Password"
+                      placeholder="Admin password"
                       className="w-full pl-9 pr-10 py-2.5 min-h-[44px] bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:border-blue-500 text-sm font-medium"
                     />
                     <button
@@ -291,8 +325,8 @@ const ScanModule: React.FC = () => {
             <div className="pt-2 border-t border-slate-200">
               <p className="text-xs text-slate-500">
                 {useCurrentUser 
-                  ? "Scans will use your current Windows credentials for WinRM connections."
-                  : "Provide domain credentials for remote scanning. Credentials are used securely and not stored."}
+                  ? `Using current session: ${domainInfo.currentUser || 'detecting...'}. Ensure you're logged in as a Domain Admin or have delegated WinRM permissions.`
+                  : `Enter Domain Admin credentials for ${domainInfo.domain}. Credentials are used securely via WinRM and not stored.`}
               </p>
             </div>
           </div>

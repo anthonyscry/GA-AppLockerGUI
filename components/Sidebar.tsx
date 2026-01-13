@@ -9,46 +9,65 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
-  const [userInfo, setUserInfo] = React.useState({
+  const [domainInfo, setDomainInfo] = React.useState({
     principal: 'Loading...',
-    branch: 'main',
+    domain: 'Detecting...',
+    isDC: false,
+    hostname: '',
   });
 
   React.useEffect(() => {
-    // Get actual logged-in user from Electron/Windows
-    const fetchUserInfo = async () => {
+    // Get domain info from DC (auto-detect)
+    const fetchDomainInfo = async () => {
       try {
         const electron = (window as any).electron;
         if (electron?.ipc) {
-          // Try to get user info from Electron IPC
+          // Try to get detailed domain info from PowerShell
+          const info = await electron.ipc.invoke('system:getDomainInfo');
+          if (info) {
+            setDomainInfo({
+              principal: `${info.UserDomain || info.DomainNetBIOS}\\${info.UserName}`,
+              domain: info.DomainName || info.DomainNetBIOS || 'Unknown',
+              isDC: info.IsDomainController || false,
+              hostname: info.ComputerName || '',
+            });
+            return;
+          }
+          
+          // Fallback to basic user info
           const user = await electron.ipc.invoke('system:getUserInfo');
           if (user) {
-            setUserInfo({
-              principal: user.principal || user.username || 'Unknown',
-              branch: user.branch || 'main',
+            setDomainInfo({
+              principal: user.principal || 'Unknown',
+              domain: user.domain || 'WORKGROUP',
+              isDC: false,
+              hostname: user.hostname || '',
             });
             return;
           }
         }
         
-        // Fallback: Try environment variables or defaults
-        const domain = process.env.USERDOMAIN || process.env.COMPUTERNAME || 'WORKGROUP';
+        // Fallback: Try environment variables
+        const domain = process.env.USERDOMAIN || 'WORKGROUP';
         const username = process.env.USERNAME || 'user';
-        setUserInfo({
+        setDomainInfo({
           principal: `${domain}\\${username}`,
-          branch: process.env.GIT_BRANCH || 'main',
+          domain: domain,
+          isDC: false,
+          hostname: process.env.COMPUTERNAME || '',
         });
       } catch (error) {
-        console.warn('Could not fetch user info:', error);
-        // Final fallback
-        setUserInfo({
+        console.warn('Could not fetch domain info:', error);
+        setDomainInfo({
           principal: 'Local\\User',
-          branch: 'main',
+          domain: 'WORKGROUP',
+          isDC: false,
+          hostname: '',
         });
       }
     };
     
-    fetchUserInfo();
+    fetchDomainInfo();
   }, []);
 
   return (
@@ -93,17 +112,37 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center space-x-2">
               <div 
-                className="w-2 h-2 bg-green-500 rounded-full shadow-[0_0_8px_rgba(34,197,94,0.8)] animate-pulse" 
-                aria-label="System online"
+                className={`w-2 h-2 rounded-full shadow-[0_0_8px_rgba(34,197,94,0.8)] animate-pulse ${
+                  domainInfo.isDC ? 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.8)]' : 'bg-green-500'
+                }`}
+                aria-label={domainInfo.isDC ? "Running on Domain Controller" : "System online"}
                 role="status"
               />
-              <span className="text-xs font-bold text-slate-300">System Ready</span>
+              <span className="text-xs font-bold text-slate-300">
+                {domainInfo.isDC ? 'DC Admin Mode' : 'Connected'}
+              </span>
             </div>
             <span className="text-xs text-slate-500">v1.2.5</span>
           </div>
           <div className="text-[10px] text-slate-400 space-y-1">
-            <div>Branch: {userInfo.branch}</div>
-            <div>User: {userInfo.principal}</div>
+            <div className="flex items-center justify-between">
+              <span>Domain:</span>
+              <span className="font-bold text-blue-400 truncate max-w-[120px]" title={domainInfo.domain}>
+                {domainInfo.domain}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>User:</span>
+              <span className="font-medium text-slate-300 truncate max-w-[120px]" title={domainInfo.principal}>
+                {domainInfo.principal}
+              </span>
+            </div>
+            {domainInfo.isDC && domainInfo.hostname && (
+              <div className="flex items-center justify-between">
+                <span>Host:</span>
+                <span className="font-mono text-amber-400 text-[9px]">{domainInfo.hostname}</span>
+              </div>
+            )}
           </div>
         </div>
       </div>

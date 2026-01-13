@@ -275,7 +275,7 @@ function setupIpcHandlers() {
       const os = require('os');
       const domain = process.env.USERDOMAIN || process.env.COMPUTERNAME || os.hostname() || 'WORKGROUP';
       const username = process.env.USERNAME || os.userInfo().username || 'user';
-      
+
       return {
         success: true,
         principal: `${domain}\\${username}`,
@@ -290,6 +290,77 @@ function setupIpcHandlers() {
         success: false,
         principal: 'Unknown\\User',
         error: error.message
+      };
+    }
+  });
+
+  // Get detailed domain information (auto-detect from DC)
+  ipcMain.handle('system:getDomainInfo', async (event) => {
+    try {
+      const os = require('os');
+      
+      // Try to get domain info via PowerShell (works best on DC)
+      const domainInfoCommand = `
+        try {
+          $domain = [System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()
+          $forest = [System.DirectoryServices.ActiveDirectory.Forest]::GetCurrentForest()
+          $computerSystem = Get-WmiObject Win32_ComputerSystem
+          $isDC = ($computerSystem.DomainRole -ge 4)
+          
+          @{
+            Success = $true
+            DomainName = $domain.Name
+            DomainNetBIOS = $env:USERDOMAIN
+            ForestName = $forest.Name
+            DomainControllers = @($domain.DomainControllers | Select-Object -ExpandProperty Name)
+            CurrentDC = $env:LOGONSERVER -replace '\\\\\\\\', ''
+            IsDomainController = $isDC
+            ComputerName = $env:COMPUTERNAME
+            UserName = $env:USERNAME
+            UserDomain = $env:USERDOMAIN
+            FQDN = "$env:COMPUTERNAME.$($domain.Name)"
+          } | ConvertTo-Json -Compress
+        } catch {
+          @{
+            Success = $false
+            Error = $_.Exception.Message
+            DomainName = $env:USERDOMAIN
+            DomainNetBIOS = $env:USERDOMAIN
+            IsDomainController = $false
+            ComputerName = $env:COMPUTERNAME
+            UserName = $env:USERNAME
+          } | ConvertTo-Json -Compress
+        }
+      `;
+      
+      const result = await executePowerShellCommand(domainInfoCommand, { timeout: 10000 });
+      
+      if (result.stdout) {
+        const domainInfo = JSON.parse(result.stdout.trim());
+        return domainInfo;
+      }
+      
+      // Fallback if PowerShell fails
+      return {
+        Success: false,
+        DomainName: process.env.USERDOMAIN || os.hostname(),
+        DomainNetBIOS: process.env.USERDOMAIN || os.hostname(),
+        IsDomainController: false,
+        ComputerName: os.hostname(),
+        UserName: process.env.USERNAME || os.userInfo().username,
+        Error: 'Could not query Active Directory'
+      };
+    } catch (error) {
+      console.error('[IPC] Get domain info error:', error);
+      const os = require('os');
+      return {
+        Success: false,
+        DomainName: process.env.USERDOMAIN || 'WORKGROUP',
+        DomainNetBIOS: process.env.USERDOMAIN || 'WORKGROUP',
+        IsDomainController: false,
+        ComputerName: os.hostname(),
+        UserName: process.env.USERNAME || 'user',
+        Error: error.message
       };
     }
   });
