@@ -5,12 +5,15 @@
  */
 
 // Mock machines - in production, this would come from PowerShell/AD queries
+// OU paths are used for auto-grouping (Workstation/Server/DC)
 const MOCK_MACHINES = [
-  { id: '1', hostname: 'WKST-QA-01', lastScan: '2024-05-15 09:30', status: 'Online', riskLevel: 'Low', appCount: 142 },
-  { id: '2', hostname: 'WKST-QA-02', lastScan: '2024-05-15 10:15', status: 'Online', riskLevel: 'Medium', appCount: 215 },
-  { id: '3', hostname: 'SRV-PROD-SQL', lastScan: '2024-05-14 23:00', status: 'Offline', riskLevel: 'Low', appCount: 45 },
-  { id: '4', hostname: 'WKST-DEV-09', lastScan: '2024-05-16 08:45', status: 'Scanning', riskLevel: 'High', appCount: 567 },
-  { id: '5', hostname: 'WKST-SALES-01', lastScan: '2024-05-10 14:20', status: 'Online', riskLevel: 'Low', appCount: 89 },
+  { id: '1', hostname: 'WKST-QA-01', lastScan: '2024-05-15 09:30', status: 'Online', riskLevel: 'Low', appCount: 142, ou: 'OU=QA,OU=Workstations,DC=GA-ASI,DC=CORP' },
+  { id: '2', hostname: 'WKST-QA-02', lastScan: '2024-05-15 10:15', status: 'Online', riskLevel: 'Medium', appCount: 215, ou: 'OU=QA,OU=Workstations,DC=GA-ASI,DC=CORP' },
+  { id: '3', hostname: 'SRV-PROD-SQL', lastScan: '2024-05-14 23:00', status: 'Offline', riskLevel: 'Low', appCount: 45, ou: 'OU=SQL,OU=Servers,DC=GA-ASI,DC=CORP' },
+  { id: '4', hostname: 'WKST-DEV-09', lastScan: '2024-05-16 08:45', status: 'Scanning', riskLevel: 'High', appCount: 567, ou: 'OU=Development,OU=Workstations,DC=GA-ASI,DC=CORP' },
+  { id: '5', hostname: 'WKST-SALES-01', lastScan: '2024-05-10 14:20', status: 'Online', riskLevel: 'Low', appCount: 89, ou: 'OU=Sales,OU=Workstations,DC=GA-ASI,DC=CORP' },
+  { id: '6', hostname: 'SRV-APP-01', lastScan: '2024-05-16 06:00', status: 'Online', riskLevel: 'Low', appCount: 78, ou: 'OU=Application,OU=Servers,DC=GA-ASI,DC=CORP' },
+  { id: '7', hostname: 'DC-PRIMARY', lastScan: '2024-05-16 00:00', status: 'Online', riskLevel: 'Low', appCount: 32, ou: 'OU=Domain Controllers,DC=GA-ASI,DC=CORP' },
 ];
 
 const MOCK_INVENTORY = [

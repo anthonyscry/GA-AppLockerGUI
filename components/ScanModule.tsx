@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { useAppServices } from '../src/presentation/contexts/AppContext';
 import { useAsync } from '../src/presentation/hooks/useAsync';
-import { MachineScan } from '../src/shared/types';
+import { MachineScan, getMachineTypeFromOU, groupMachinesByOU } from '../src/shared/types';
 import { MachineFilter } from '../src/domain/interfaces/IMachineRepository';
 import { NotFoundError, ExternalServiceError } from '../src/domain/errors';
 
@@ -124,6 +124,12 @@ const ScanModule: React.FC = () => {
   };
 
   const hasActiveFilters = statusFilter !== 'All' || riskFilter !== 'All' || searchQuery !== '' || ouPath !== '';
+
+  // Auto-group machines by OU-derived type
+  const machineGroups = useMemo(() => {
+    if (!machines) return { workstations: [], servers: [], domainControllers: [], unknown: [] };
+    return groupMachinesByOU(machines);
+  }, [machines]);
 
   if (machinesLoading) {
     return (
@@ -453,6 +459,66 @@ const ScanModule: React.FC = () => {
         </div>
       </div>
 
+      {/* OU-Based Auto-Grouping Summary */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <div className="p-2 bg-blue-50 rounded-lg text-blue-600">
+                <Server size={16} />
+              </div>
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Workstations</p>
+                <p className="text-xl font-black text-slate-900">{machineGroups.workstations.length}</p>
+              </div>
+            </div>
+            <span className="text-[9px] font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded">WS Policy</span>
+          </div>
+        </div>
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <div className="p-2 bg-purple-50 rounded-lg text-purple-600">
+                <Server size={16} />
+              </div>
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Servers</p>
+                <p className="text-xl font-black text-slate-900">{machineGroups.servers.length}</p>
+              </div>
+            </div>
+            <span className="text-[9px] font-bold text-purple-600 bg-purple-50 px-2 py-1 rounded">SRV Policy</span>
+          </div>
+        </div>
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <div className="p-2 bg-amber-50 rounded-lg text-amber-600">
+                <ShieldCheck size={16} />
+              </div>
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Domain Controllers</p>
+                <p className="text-xl font-black text-slate-900">{machineGroups.domainControllers.length}</p>
+              </div>
+            </div>
+            <span className="text-[9px] font-bold text-amber-600 bg-amber-50 px-2 py-1 rounded">DC Policy</span>
+          </div>
+        </div>
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <div className="p-2 bg-slate-50 rounded-lg text-slate-600">
+                <Server size={16} />
+              </div>
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Unclassified</p>
+                <p className="text-xl font-black text-slate-900">{machineGroups.unknown.length}</p>
+              </div>
+            </div>
+            <span className="text-[9px] font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded">Review</span>
+          </div>
+        </div>
+      </div>
+
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         <table className="w-full text-left">
           <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 text-[11px] uppercase tracking-widest font-black">
@@ -475,9 +541,19 @@ const ScanModule: React.FC = () => {
                         <Server size={18} />
                       </div>
                       <div>
-                        <p className="font-bold text-slate-900 leading-none mb-1">{machine.hostname}</p>
-                        <p className="text-[9px] text-slate-400 uppercase font-black tracking-widest truncate max-w-[180px]">
-                          OU=Workstations,DC=GA-ASI,DC=CORP
+                        <div className="flex items-center space-x-2 mb-1">
+                          <p className="font-bold text-slate-900 leading-none">{machine.hostname}</p>
+                          <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider ${
+                            getMachineTypeFromOU(machine.ou) === 'Workstation' ? 'bg-blue-100 text-blue-700' :
+                            getMachineTypeFromOU(machine.ou) === 'Server' ? 'bg-purple-100 text-purple-700' :
+                            getMachineTypeFromOU(machine.ou) === 'DomainController' ? 'bg-amber-100 text-amber-700' :
+                            'bg-slate-100 text-slate-600'
+                          }`}>
+                            {getMachineTypeFromOU(machine.ou)}
+                          </span>
+                        </div>
+                        <p className="text-[9px] text-slate-400 uppercase font-black tracking-widest truncate max-w-[220px]" title={machine.ou}>
+                          {machine.ou || 'OU not available'}
                         </p>
                       </div>
                     </div>

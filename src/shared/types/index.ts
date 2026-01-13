@@ -27,6 +27,62 @@ export interface MachineScan {
   status: 'Online' | 'Offline' | 'Scanning';
   riskLevel: 'Low' | 'Medium' | 'High';
   appCount: number;
+  ou?: string;  // Organizational Unit path (e.g., "OU=Workstations,OU=Computers,DC=domain,DC=com")
+}
+
+// Machine type derived from OU path
+export type MachineType = 'Workstation' | 'Server' | 'DomainController' | 'Unknown';
+
+// Helper to derive machine type from OU path
+export function getMachineTypeFromOU(ou: string | undefined): MachineType {
+  if (!ou) return 'Unknown';
+  const ouLower = ou.toLowerCase();
+  
+  // Domain Controllers are in a special OU
+  if (ouLower.includes('domain controllers')) return 'DomainController';
+  
+  // Common naming conventions for servers
+  if (ouLower.includes('server') || ouLower.includes('srv')) return 'Server';
+  
+  // Common naming conventions for workstations
+  if (ouLower.includes('workstation') || ouLower.includes('computer') || 
+      ouLower.includes('desktop') || ouLower.includes('laptop') ||
+      ouLower.includes('wkst') || ouLower.includes('ws')) return 'Workstation';
+  
+  return 'Unknown';
+}
+
+// Group machines by their OU-derived type
+export interface MachinesByType {
+  workstations: MachineScan[];
+  servers: MachineScan[];
+  domainControllers: MachineScan[];
+  unknown: MachineScan[];
+}
+
+export function groupMachinesByOU(machines: MachineScan[]): MachinesByType {
+  return machines.reduce((acc, machine) => {
+    const type = getMachineTypeFromOU(machine.ou);
+    switch (type) {
+      case 'Workstation':
+        acc.workstations.push(machine);
+        break;
+      case 'Server':
+        acc.servers.push(machine);
+        break;
+      case 'DomainController':
+        acc.domainControllers.push(machine);
+        break;
+      default:
+        acc.unknown.push(machine);
+    }
+    return acc;
+  }, {
+    workstations: [] as MachineScan[],
+    servers: [] as MachineScan[],
+    domainControllers: [] as MachineScan[],
+    unknown: [] as MachineScan[]
+  });
 }
 
 export interface InventoryItem {

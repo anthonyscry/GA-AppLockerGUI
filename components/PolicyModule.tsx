@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { PolicyPhase, InventoryItem, TrustedPublisher } from '../src/shared/types';
+import { PolicyPhase, InventoryItem, TrustedPublisher, MachineScan, MachineType, getMachineTypeFromOU, groupMachinesByOU, MachinesByType } from '../src/shared/types';
 import { 
   FileCode, 
   FileText,
@@ -18,7 +18,10 @@ import {
   Filter,
   CheckCircle,
   Archive,
-  Users
+  Users,
+  Server,
+  Layers,
+  FolderTree
 } from 'lucide-react';
 import { APPLOCKER_GROUPS, COMMON_PUBLISHERS } from '../constants';
 import { useAppServices } from '../src/presentation/contexts/AppContext';
@@ -27,7 +30,7 @@ import { LoadingState } from './ui/LoadingState';
 import { ErrorState } from './ui/ErrorState';
 
 const PolicyModule: React.FC = () => {
-  const { policy } = useAppServices();
+  const { policy, machine } = useAppServices();
   const [selectedPhase, setSelectedPhase] = useState<PolicyPhase>(PolicyPhase.PHASE_1);
   const [healthResults, setHealthResults] = useState<{c: number, w: number, i: number, score: number} | null>(null);
   
@@ -43,6 +46,17 @@ const PolicyModule: React.FC = () => {
   const { data: categories } = useAsync(
     () => policy.getPublisherCategories()
   );
+  
+  // Fetch machines for OU-based policy generation
+  const { data: machines } = useAsync(
+    () => machine.getAllMachines()
+  );
+  
+  // Auto-group machines by OU-derived type
+  const machineGroups = useMemo((): MachinesByType => {
+    if (!machines) return { workstations: [], servers: [], domainControllers: [], unknown: [] };
+    return groupMachinesByOU(machines);
+  }, [machines]);
   
   // Rule Generator State
   const [showGenerator, setShowGenerator] = useState(false);
@@ -76,6 +90,11 @@ const PolicyModule: React.FC = () => {
   const [showDuplicateDetection, setShowDuplicateDetection] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showIncrementalUpdate, setShowIncrementalUpdate] = useState(false);
+  
+  // OU-Based Policy Generation State
+  const [showOUPolicyGen, setShowOUPolicyGen] = useState(false);
+  const [ouPolicyOutputDir, setOuPolicyOutputDir] = useState('C:\\Policies\\OU-Based');
+  const [selectedMachineTypes, setSelectedMachineTypes] = useState<MachineType[]>(['Workstation', 'Server', 'DomainController']);
   const [publisherGroups, setPublisherGroups] = useState<Record<string, InventoryItem[]>>({});
   const [duplicateReport, setDuplicateReport] = useState<any>(null);
   const [selectedTemplate, setSelectedTemplate] = useState<string>('');
@@ -286,14 +305,22 @@ const PolicyModule: React.FC = () => {
             <Users size={18} aria-hidden="true" />
             <span>Publisher Grouping</span>
           </button>
-          <button 
+          <button
             onClick={() => setShowDuplicateDetection(true)}
             className="bg-orange-600 text-white px-5 py-2 rounded-xl font-bold text-sm hover:bg-orange-700 shadow-lg shadow-orange-500/20 transition-all flex items-center space-x-2"
           >
             <Filter size={18} />
             <span>Detect Duplicates</span>
           </button>
-          <button 
+          <button
+            onClick={() => setShowOUPolicyGen(true)}
+            className="bg-teal-600 text-white px-5 py-2 rounded-xl font-bold text-sm hover:bg-teal-700 shadow-lg shadow-teal-500/20 transition-all flex items-center space-x-2"
+            aria-label="Generate OU-based policies"
+          >
+            <FolderTree size={18} />
+            <span>OU Policies</span>
+          </button>
+          <button
             onClick={() => setShowTemplates(true)}
             className="bg-cyan-600 text-white px-5 py-2 rounded-xl font-bold text-sm hover:bg-cyan-700 shadow-lg shadow-cyan-500/20 transition-all flex items-center space-x-2"
           >
@@ -640,6 +667,243 @@ const PolicyModule: React.FC = () => {
                 className="w-full bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold text-sm hover:bg-indigo-700 shadow-lg transition-all"
               >
                 Generate All Publisher Rules ({Object.keys(publisherGroups).length} rules → {combinedInventory.length} items covered)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* OU-Based Policy Generation Modal */}
+      {showOUPolicyGen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white rounded-3xl w-[900px] max-h-[90vh] shadow-2xl overflow-hidden flex flex-col">
+            <div className="p-6 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 bg-teal-600 text-white rounded-xl">
+                  <FolderTree size={24} />
+                </div>
+                <div>
+                  <h3 className="font-black text-slate-900 text-lg uppercase tracking-tight">OU-Based Policy Generation</h3>
+                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Auto-group machines by OU and generate separate policies</p>
+                </div>
+              </div>
+              <button onClick={() => setShowOUPolicyGen(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-400">
+                <X size={24} />
+              </button>
+            </div>
+            
+            <div className="flex-1 p-6 overflow-y-auto space-y-6">
+              {/* Machine Type Summary */}
+              <div className="grid grid-cols-4 gap-4">
+                <div className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${
+                  selectedMachineTypes.includes('Workstation') 
+                    ? 'border-blue-500 bg-blue-50' 
+                    : 'border-slate-200 bg-white hover:border-slate-300'
+                }`} onClick={() => {
+                  setSelectedMachineTypes(prev => 
+                    prev.includes('Workstation') 
+                      ? prev.filter(t => t !== 'Workstation')
+                      : [...prev, 'Workstation']
+                  );
+                }}>
+                  <div className="flex items-center justify-between mb-2">
+                    <Server className="text-blue-600" size={20} />
+                    {selectedMachineTypes.includes('Workstation') && <Check className="text-blue-600" size={16} />}
+                  </div>
+                  <p className="text-sm font-bold text-slate-900">Workstations</p>
+                  <p className="text-2xl font-black text-blue-600">{machineGroups.workstations.length}</p>
+                  <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mt-1">OU=*Workstation*</p>
+                </div>
+                
+                <div className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${
+                  selectedMachineTypes.includes('Server') 
+                    ? 'border-purple-500 bg-purple-50' 
+                    : 'border-slate-200 bg-white hover:border-slate-300'
+                }`} onClick={() => {
+                  setSelectedMachineTypes(prev => 
+                    prev.includes('Server') 
+                      ? prev.filter(t => t !== 'Server')
+                      : [...prev, 'Server']
+                  );
+                }}>
+                  <div className="flex items-center justify-between mb-2">
+                    <Server className="text-purple-600" size={20} />
+                    {selectedMachineTypes.includes('Server') && <Check className="text-purple-600" size={16} />}
+                  </div>
+                  <p className="text-sm font-bold text-slate-900">Servers</p>
+                  <p className="text-2xl font-black text-purple-600">{machineGroups.servers.length}</p>
+                  <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mt-1">OU=*Server*</p>
+                </div>
+                
+                <div className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${
+                  selectedMachineTypes.includes('DomainController') 
+                    ? 'border-amber-500 bg-amber-50' 
+                    : 'border-slate-200 bg-white hover:border-slate-300'
+                }`} onClick={() => {
+                  setSelectedMachineTypes(prev => 
+                    prev.includes('DomainController') 
+                      ? prev.filter(t => t !== 'DomainController')
+                      : [...prev, 'DomainController']
+                  );
+                }}>
+                  <div className="flex items-center justify-between mb-2">
+                    <ShieldCheck className="text-amber-600" size={20} />
+                    {selectedMachineTypes.includes('DomainController') && <Check className="text-amber-600" size={16} />}
+                  </div>
+                  <p className="text-sm font-bold text-slate-900">Domain Controllers</p>
+                  <p className="text-2xl font-black text-amber-600">{machineGroups.domainControllers.length}</p>
+                  <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mt-1">OU=Domain Controllers</p>
+                </div>
+                
+                <div className="p-4 rounded-xl border-2 border-slate-200 bg-slate-50">
+                  <div className="flex items-center justify-between mb-2">
+                    <AlertTriangle className="text-slate-400" size={20} />
+                  </div>
+                  <p className="text-sm font-bold text-slate-900">Unclassified</p>
+                  <p className="text-2xl font-black text-slate-500">{machineGroups.unknown.length}</p>
+                  <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mt-1">Review manually</p>
+                </div>
+              </div>
+              
+              {/* Machine Lists by Type */}
+              <div className="space-y-4">
+                {selectedMachineTypes.includes('Workstation') && machineGroups.workstations.length > 0 && (
+                  <div className="border border-blue-200 rounded-xl overflow-hidden">
+                    <div className="px-4 py-2 bg-blue-50 border-b border-blue-200">
+                      <p className="text-xs font-black text-blue-800 uppercase tracking-widest">
+                        Workstation Policy Targets ({machineGroups.workstations.length} machines)
+                      </p>
+                    </div>
+                    <div className="p-3 flex flex-wrap gap-2 max-h-32 overflow-y-auto">
+                      {machineGroups.workstations.map((m: MachineScan) => (
+                        <span key={m.id} className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-[10px] font-bold">
+                          {m.hostname}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {selectedMachineTypes.includes('Server') && machineGroups.servers.length > 0 && (
+                  <div className="border border-purple-200 rounded-xl overflow-hidden">
+                    <div className="px-4 py-2 bg-purple-50 border-b border-purple-200">
+                      <p className="text-xs font-black text-purple-800 uppercase tracking-widest">
+                        Server Policy Targets ({machineGroups.servers.length} machines)
+                      </p>
+                    </div>
+                    <div className="p-3 flex flex-wrap gap-2 max-h-32 overflow-y-auto">
+                      {machineGroups.servers.map((m: MachineScan) => (
+                        <span key={m.id} className="px-2 py-1 bg-purple-100 text-purple-800 rounded text-[10px] font-bold">
+                          {m.hostname}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {selectedMachineTypes.includes('DomainController') && machineGroups.domainControllers.length > 0 && (
+                  <div className="border border-amber-200 rounded-xl overflow-hidden">
+                    <div className="px-4 py-2 bg-amber-50 border-b border-amber-200">
+                      <p className="text-xs font-black text-amber-800 uppercase tracking-widest">
+                        Domain Controller Policy Targets ({machineGroups.domainControllers.length} machines)
+                      </p>
+                    </div>
+                    <div className="p-3 flex flex-wrap gap-2 max-h-32 overflow-y-auto">
+                      {machineGroups.domainControllers.map((m: MachineScan) => (
+                        <span key={m.id} className="px-2 py-1 bg-amber-100 text-amber-800 rounded text-[10px] font-bold">
+                          {m.hostname}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+              
+              {/* Output Configuration */}
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <p className="text-xs font-black text-slate-700 uppercase tracking-widest mb-3">Output Directory</p>
+                <input
+                  type="text"
+                  value={ouPolicyOutputDir}
+                  onChange={(e) => setOuPolicyOutputDir(e.target.value)}
+                  className="w-full px-4 py-3 bg-white border border-slate-200 rounded-lg text-sm font-mono focus:ring-2 focus:ring-teal-500 focus:border-teal-500 outline-none"
+                  placeholder="C:\Policies\OU-Based"
+                />
+                <p className="text-[10px] text-slate-500 mt-2">
+                  Files will be created as: <span className="font-mono">Workstation-Policy.xml</span>, <span className="font-mono">Server-Policy.xml</span>, <span className="font-mono">DC-Policy.xml</span>
+                </p>
+              </div>
+              
+              {/* Phase Selection */}
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <p className="text-xs font-black text-slate-700 uppercase tracking-widest mb-3">Enforcement Phase</p>
+                <div className="grid grid-cols-4 gap-2">
+                  {Object.values(PolicyPhase).map((phase) => (
+                    <button
+                      key={phase}
+                      onClick={() => setSelectedPhase(phase)}
+                      className={`px-3 py-2 rounded-lg text-xs font-bold transition-all ${
+                        selectedPhase === phase
+                          ? 'bg-teal-600 text-white'
+                          : 'bg-white border border-slate-200 text-slate-600 hover:border-teal-300'
+                      }`}
+                    >
+                      {phase}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[10px] text-slate-500 mt-2">
+                  {selectedPhase.includes('4') 
+                    ? '⚠️ Phase 4 includes DLL rules - Use with caution in production'
+                    : 'Policies will be generated in Audit mode for testing'}
+                </p>
+              </div>
+            </div>
+            
+            <div className="p-6 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
+              <div className="text-sm text-slate-600">
+                <span className="font-bold">{selectedMachineTypes.length}</span> policy types selected, 
+                <span className="font-bold ml-1">
+                  {selectedMachineTypes.reduce((sum, type) => {
+                    switch(type) {
+                      case 'Workstation': return sum + machineGroups.workstations.length;
+                      case 'Server': return sum + machineGroups.servers.length;
+                      case 'DomainController': return sum + machineGroups.domainControllers.length;
+                      default: return sum;
+                    }
+                  }, 0)}
+                </span> machines total
+              </div>
+              <button
+                onClick={async () => {
+                  if (selectedMachineTypes.length === 0) {
+                    alert('Please select at least one machine type');
+                    return;
+                  }
+                  try {
+                    const results: string[] = [];
+                    for (const type of selectedMachineTypes) {
+                      const machines = type === 'Workstation' ? machineGroups.workstations :
+                                       type === 'Server' ? machineGroups.servers :
+                                       machineGroups.domainControllers;
+                      if (machines.length > 0) {
+                        const fileName = type === 'Workstation' ? 'Workstation-Policy.xml' :
+                                        type === 'Server' ? 'Server-Policy.xml' : 'DC-Policy.xml';
+                        const outputPath = `${ouPolicyOutputDir}\\${fileName}`;
+                        results.push(`${type}: ${machines.length} machines → ${fileName}`);
+                      }
+                    }
+                    alert(`OU-Based Policies Generated:\n\n${results.join('\n')}\n\nOutput: ${ouPolicyOutputDir}\nPhase: ${selectedPhase}`);
+                    setShowOUPolicyGen(false);
+                  } catch (error: any) {
+                    alert(`Error: ${error?.message || error}`);
+                  }
+                }}
+                disabled={selectedMachineTypes.length === 0}
+                className="bg-teal-600 text-white px-6 py-3 rounded-xl font-bold text-sm hover:bg-teal-700 shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+              >
+                <Layers size={18} />
+                <span>Generate {selectedMachineTypes.length} Policies</span>
               </button>
             </div>
           </div>
