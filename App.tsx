@@ -222,7 +222,7 @@ const App: React.FC = () => {
                 <h4 className="text-3xl font-black text-slate-900 tracking-tight">GA-AppLocker v1.2.4</h4>
                 <div className="flex items-center justify-center space-x-2 text-slate-400 text-xs font-black uppercase tracking-widest">
                   <span>Created By</span>
-                  <span className="text-blue-600">GA-ASI ISSO Team</span>
+                  <span className="text-blue-600">Tony Tran</span>
                 </div>
               </div>
 
