@@ -1587,6 +1587,98 @@ function setupIpcHandlers() {
     }
   });
 
+  /**
+   * Get all OUs that contain computer objects.
+   * Returns a list of unique OUs with computer counts for dropdown population.
+   *
+   * @channel ad:getOUsWithComputers
+   * @returns {Object} Result with OUs array
+   * @returns {boolean} returns.success - Whether the query succeeded
+   * @returns {Array} returns.ous - Array of OU objects with path and computerCount
+   * @returns {string} [returns.error] - Error message if failed
+   *
+   * @example
+   * const result = await electron.ipc.invoke('ad:getOUsWithComputers');
+   * // Returns: { success: true, ous: [{ path: "OU=Workstations,DC=corp,DC=local", name: "Workstations", computerCount: 50 }] }
+   *
+   * @since v1.2.10
+   */
+  ipcMain.handle('ad:getOUsWithComputers', async () => {
+    try {
+      const command = `
+        try {
+          # Get all computers and extract unique OUs
+          $computers = Get-ADComputer -Filter * -Properties DistinguishedName -ErrorAction SilentlyContinue
+
+          if (-not $computers) {
+            @{ success = $true; ous = @() } | ConvertTo-Json -Compress -Depth 5
+            return
+          }
+
+          # Extract OU from each computer's DN and count
+          $ouCounts = @{}
+          foreach ($computer in $computers) {
+            # Extract the OU part from the DN (everything after the first comma)
+            $dn = $computer.DistinguishedName
+            $ouPath = ($dn -split ',', 2)[1]
+
+            if ($ouPath) {
+              if ($ouCounts.ContainsKey($ouPath)) {
+                $ouCounts[$ouPath]++
+              } else {
+                $ouCounts[$ouPath] = 1
+              }
+            }
+          }
+
+          # Convert to array of objects with friendly names
+          $ous = @()
+          foreach ($ou in $ouCounts.Keys) {
+            # Extract the most specific OU name for display
+            $ouName = "Root"
+            if ($ou -match 'OU=([^,]+)') {
+              $ouName = $matches[1]
+            } elseif ($ou -match 'CN=([^,]+)') {
+              $ouName = $matches[1]
+            }
+
+            $ous += @{
+              path = $ou
+              name = $ouName
+              computerCount = $ouCounts[$ou]
+              # Determine type based on OU name
+              type = if ($ouName -match 'Workstation|Desktop|WS|Client') { 'Workstation' }
+                     elseif ($ouName -match 'Server|SRV|Member') { 'Server' }
+                     elseif ($ouName -match 'Domain Controller') { 'DomainController' }
+                     else { 'Unknown' }
+            }
+          }
+
+          # Sort by computer count descending
+          $ous = $ous | Sort-Object { -$_.computerCount }
+
+          @{ success = $true; ous = $ous } | ConvertTo-Json -Compress -Depth 5
+        } catch {
+          @{ success = $false; error = $_.Exception.Message; ous = @() } | ConvertTo-Json -Compress -Depth 5
+        }
+      `;
+      const result = await executePowerShellCommand(command, { timeout: 60000 });
+
+      if (result.stdout) {
+        const parsed = JSON.parse(result.stdout);
+        return {
+          success: parsed.success !== false,
+          ous: Array.isArray(parsed.ous) ? parsed.ous : [],
+          error: parsed.error
+        };
+      }
+      return { success: true, ous: [] };
+    } catch (error) {
+      console.error('[IPC] Get OUs with computers error:', error);
+      return { success: false, ous: [], error: sanitizeErrorMessage(error) };
+    }
+  });
+
   // ============================================
   // MACHINE HANDLERS (Remote Scanning)
   // ============================================

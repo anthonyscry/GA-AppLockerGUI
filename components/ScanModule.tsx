@@ -53,7 +53,16 @@ const ScanModule: React.FC = () => {
 
   // Local scan state
   const [isLocalScanning, setIsLocalScanning] = useState(false);
-  
+
+  // Available OUs from AD
+  const [availableOUs, setAvailableOUs] = useState<Array<{
+    path: string;
+    name: string;
+    computerCount: number;
+    type: string;
+  }>>([]);
+  const [ousLoading, setOusLoading] = useState(false);
+
   // Auto-detect domain on mount
   React.useEffect(() => {
     const detectDomain = async () => {
@@ -74,6 +83,27 @@ const ScanModule: React.FC = () => {
       }
     };
     detectDomain();
+  }, []);
+
+  // Fetch available OUs on mount
+  React.useEffect(() => {
+    const fetchOUs = async () => {
+      setOusLoading(true);
+      try {
+        const electron = (window as any).electron;
+        if (electron?.ipc) {
+          const result = await electron.ipc.invoke('ad:getOUsWithComputers');
+          if (result.success && Array.isArray(result.ous)) {
+            setAvailableOUs(result.ous);
+          }
+        }
+      } catch (error) {
+        console.warn('Could not fetch OUs:', error);
+      } finally {
+        setOusLoading(false);
+      }
+    };
+    fetchOUs();
   }, []);
 
   // Fetch machines
@@ -479,16 +509,25 @@ const ScanModule: React.FC = () => {
           />
         </div>
 
-        {/* OU Filter */}
+        {/* OU Filter Dropdown */}
         <div className="md:col-span-3 relative group">
-          <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors" size={16} />
-          <input 
-            type="text" 
+          <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10 pointer-events-none" size={16} />
+          <select
+            id="ou-filter"
             value={ouPath}
             onChange={(e) => setOuPath(e.target.value)}
-            placeholder="OU Path (e.g. Workstations)..." 
-            className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-xs font-bold"
-          />
+            className="w-full appearance-none pl-9 pr-8 py-2.5 min-h-[44px] bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:border-blue-500 transition-all text-xs font-bold cursor-pointer"
+            aria-label="Filter machines by Organizational Unit"
+            disabled={ousLoading}
+          >
+            <option value="">All OUs {ousLoading ? '(Loading...)' : `(${availableOUs.reduce((sum, ou) => sum + ou.computerCount, 0)} computers)`}</option>
+            {availableOUs.map((ou, index) => (
+              <option key={index} value={ou.path}>
+                {ou.name} ({ou.computerCount}) - {ou.type}
+              </option>
+            ))}
+          </select>
+          <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={14} />
         </div>
 
         {/* Status Dropdown */}
