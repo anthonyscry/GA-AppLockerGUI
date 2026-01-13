@@ -1818,7 +1818,7 @@ function setupIpcHandlers() {
           # Get executables from common paths
           $exePaths = @(
             "$env:ProgramFiles",
-            "${env:ProgramFiles(x86)}",
+            "\${env:ProgramFiles(x86)}",
             "$env:SystemRoot"
           )
 
