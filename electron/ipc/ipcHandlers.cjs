@@ -2022,6 +2022,92 @@ ${rules}
     }
   });
 
+  // Get current policy XML preview
+  ipcMain.handle('policy:getPolicyXML', async (event, phase = 'effective') => {
+    try {
+      const command = `
+        try {
+          $policy = $null
+          if ("${phase}" -eq "local") {
+            $policy = Get-AppLockerPolicy -Local -Xml -ErrorAction SilentlyContinue
+          } else {
+            $policy = Get-AppLockerPolicy -Effective -Xml -ErrorAction SilentlyContinue
+          }
+
+          if ($policy) {
+            # Format the XML nicely
+            $xml = [xml]$policy
+            $stringWriter = New-Object System.IO.StringWriter
+            $xmlWriter = New-Object System.Xml.XmlTextWriter($stringWriter)
+            $xmlWriter.Formatting = [System.Xml.Formatting]::Indented
+            $xml.WriteTo($xmlWriter)
+            $stringWriter.ToString()
+          } else {
+            '<AppLockerPolicy Version="1">
+  <RuleCollection Type="Exe" EnforcementMode="NotConfigured">
+    <!-- No AppLocker policy configured -->
+  </RuleCollection>
+</AppLockerPolicy>'
+          }
+        } catch {
+          '<AppLockerPolicy Version="1">
+  <RuleCollection Type="Exe" EnforcementMode="NotConfigured">
+    <!-- Error retrieving policy: ' + $_.Exception.Message + ' -->
+  </RuleCollection>
+</AppLockerPolicy>'
+        }
+      `;
+      const result = await executePowerShellCommand(command, { timeout: 30000 });
+      return result.stdout || '';
+    } catch (error) {
+      console.error('[IPC] Get policy XML error:', error);
+      return `<AppLockerPolicy Version="1">
+  <RuleCollection Type="Exe" EnforcementMode="NotConfigured">
+    <!-- Error: ${error.message} -->
+  </RuleCollection>
+</AppLockerPolicy>`;
+    }
+  });
+
+  // Create path-based rule
+  ipcMain.handle('policy:createPathRule', async (event, options, outputPath) => {
+    try {
+      if (!isPathAllowed(outputPath)) {
+        return { success: false, error: 'Output path not allowed' };
+      }
+
+      const rulePath = escapePowerShellString(options.path);
+      const ruleName = escapePowerShellString(options.name || options.path);
+      const action = options.action || 'Allow';
+
+      const command = `
+        try {
+          $rule = @"
+<AppLockerPolicy Version="1">
+  <RuleCollection Type="Exe" EnforcementMode="AuditOnly">
+    <FilePathRule Id="$([guid]::NewGuid())" Name="${ruleName}" Description="Auto-generated path rule" UserOrGroupSid="S-1-1-0" Action="${action}">
+      <Conditions>
+        <FilePathCondition Path="${rulePath}" />
+      </Conditions>
+    </FilePathRule>
+  </RuleCollection>
+</AppLockerPolicy>
+"@
+          $rule | Out-File -FilePath "${escapePowerShellString(outputPath)}" -Encoding UTF8
+          @{ success = $true; outputPath = "${escapePowerShellString(outputPath)}" } | ConvertTo-Json -Compress
+        } catch {
+          @{ success = $false; error = $_.Exception.Message } | ConvertTo-Json -Compress
+        }
+      `;
+
+      const result = await executePowerShellCommand(command, { timeout: 30000 });
+      return JSON.parse(result.stdout || '{"success":false}');
+    } catch (error) {
+      console.error('[IPC] Create path rule error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
   console.log('[IPC] IPC handlers registered successfully');
 }
 

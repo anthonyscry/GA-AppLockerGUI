@@ -180,20 +180,22 @@ const PolicyModule: React.FC = () => {
   const runHealthCheck = async () => {
     try {
       const result = await policy.runHealthCheck(selectedPhase);
-      setHealthResults({ 
-        c: result.critical, 
-        w: result.warning, 
-        i: result.info, 
-        score: result.score 
+      setHealthResults({
+        c: result.critical,
+        w: result.warning,
+        i: result.info,
+        score: result.score
       });
     } catch (error) {
       console.error('Health check failed:', error);
-      // Fallback to mock data if service fails
-      const critical = 0;
-      const warning = 2;
-      const info = 4;
-      const score = 100 - (20 * critical) - (5 * warning) - (1 * info);
-      setHealthResults({ c: critical, w: warning, i: info, score });
+      // Show error state instead of mock data
+      setHealthResults({
+        c: -1,  // -1 indicates error state
+        w: 0,
+        i: 0,
+        score: 0
+      });
+      alert(`Health check failed: ${error instanceof Error ? error.message : 'Could not run health check. Ensure AppLocker is configured.'}`);
     }
   };
 

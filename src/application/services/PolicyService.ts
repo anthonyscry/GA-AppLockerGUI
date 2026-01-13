@@ -213,18 +213,37 @@ export class PolicyService {
 
   /**
    * Get policy XML preview for a phase
+   * Fetches real policy XML from the system via IPC
    */
-  getPolicyXMLPreview(phase: PolicyPhase): string {
+  async getPolicyXMLPreview(_phase: PolicyPhase): Promise<string> {
+    try {
+      // Access the electron IPC bridge
+      const electron = (window as unknown as { electron?: { ipc?: { invoke: (channel: string, ...args: unknown[]) => Promise<string> } } }).electron;
+      if (electron?.ipc) {
+        const xml = await electron.ipc.invoke('policy:getPolicyXML', 'effective');
+        if (xml && xml.trim().length > 0) {
+          return xml;
+        }
+      }
+      return this.getDefaultPolicyXML();
+    } catch (error) {
+      logger.warn('Could not fetch policy XML from system', { error });
+      return this.getDefaultPolicyXML();
+    }
+  }
+
+  /**
+   * Get default policy XML when actual policy is unavailable
+   */
+  private getDefaultPolicyXML(): string {
     return `<AppLockerPolicy Version="1">
-  <RuleCollection Type="Exe" EnforcementMode="AuditOnly">
-    <!-- Policy Phase: ${phase} -->
-    <FilePublisherRule Id="72277d33-..." Name="Microsoft-Signed" Action="Allow">
-      <Conditions>
-        <PublisherCondition PublisherName="O=Microsoft Corporation, ..." />
-      </Conditions>
-    </FilePublisherRule>
-    ${phase.includes('Phase 2') ? '<FilePathRule Id="..." Name="Script-Allow" Action="Allow">...</FilePathRule>' : '<!-- Scripts Restricted in Phase 1 -->'}
+  <RuleCollection Type="Exe" EnforcementMode="NotConfigured">
+    <!-- No AppLocker policy configured on this system -->
+    <!-- Use the Policy Lab to generate and deploy policies -->
   </RuleCollection>
+  <RuleCollection Type="Msi" EnforcementMode="NotConfigured" />
+  <RuleCollection Type="Script" EnforcementMode="NotConfigured" />
+  <RuleCollection Type="Dll" EnforcementMode="NotConfigured" />
 </AppLockerPolicy>`;
   }
 
@@ -376,7 +395,7 @@ export class PolicyService {
     } = {}
   ): Promise<{ success: boolean; outputPath?: string; error?: string }> {
     logger.info('Creating rule from template', { templateId, outputPath });
-    
+
     const template = await this.getTemplateById(templateId);
     if (!template) {
       return {
@@ -393,10 +412,51 @@ export class PolicyService {
       });
     }
 
-    // For path rules, would need to call a different repository method
+    if (template.ruleType === 'Path' && template.path) {
+      return this.createPathRule(template.path, outputPath, {
+        name: template.name,
+        action: template.action,
+        targetGroup: options.targetGroup,
+        collectionType: options.collectionType,
+      });
+    }
+
     return {
       success: false,
-      error: 'Path rule creation not yet implemented',
+      error: `Unsupported rule type: ${template.ruleType}`,
     };
+  }
+
+  /**
+   * Create a path-based rule
+   */
+  async createPathRule(
+    rulePath: string,
+    outputPath: string,
+    options: {
+      name?: string;
+      action?: 'Allow' | 'Deny';
+      targetGroup?: string;
+      collectionType?: string;
+    } = {}
+  ): Promise<{ success: boolean; outputPath?: string; error?: string }> {
+    logger.info('Creating path rule', { rulePath, outputPath });
+
+    try {
+      const electron = (window as unknown as { electron?: { ipc?: { invoke: (channel: string, ...args: unknown[]) => Promise<{ success: boolean; outputPath?: string; error?: string }> } } }).electron;
+      if (electron?.ipc) {
+        return await electron.ipc.invoke('policy:createPathRule', {
+          path: rulePath,
+          name: options.name || rulePath,
+          action: options.action || 'Allow',
+          targetGroup: options.targetGroup,
+          collectionType: options.collectionType,
+        }, outputPath);
+      }
+      return { success: false, error: 'IPC not available' };
+    } catch (error) {
+      logger.error('Failed to create path rule', error as Error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
   }
 }
