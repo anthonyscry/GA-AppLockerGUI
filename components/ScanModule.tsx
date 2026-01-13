@@ -388,8 +388,8 @@ const ScanModule: React.FC = () => {
               <div className="space-y-2">
                 <h4 className="text-white font-bold text-lg tracking-tight">Confirm GPO Change</h4>
                 <p className="text-slate-400 text-sm leading-relaxed font-medium">
-                  You are about to {gpoStatus === 'Enabled' ? 'disable' : 'enable'} WinRM domain-wide. 
-                  This will affect 500+ machines and may take 90-120 minutes to fully propagate via GPUpdate.
+                  You are about to {gpoStatus === 'Enabled' ? 'disable' : 'enable'} WinRM domain-wide.
+                  This will affect the network and may take time to fully propagate via GPUpdate.
                 </p>
               </div>
               <div className="flex items-center justify-center space-x-3 pt-2">

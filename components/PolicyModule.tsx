@@ -281,78 +281,41 @@ const PolicyModule: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500 pb-12">
+    <div className="space-y-4 animate-in fade-in duration-500 pb-8">
+      {/* Compact Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-black text-slate-900 tracking-tight">Policy Lab</h2>
-          <p className="text-slate-500 text-sm">Design, merge, and validate AppLocker XML policies.</p>
+          <h2 className="text-xl font-black text-slate-900 tracking-tight">Policy Lab</h2>
+          <p className="text-slate-500 text-xs">Design and deploy AppLocker policies</p>
         </div>
-        <div className="flex space-x-3">
-          <button 
+        <div className="flex space-x-2">
+          <button
             onClick={() => { setShowGenerator(true); setGeneratorTab('scanned'); }}
-            className="bg-blue-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-blue-700 shadow-lg shadow-blue-500/20 transition-all flex items-center space-x-2 min-h-[44px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-            aria-label="Open rule generator"
+            className="bg-blue-600 text-white px-3 py-2 rounded-lg font-bold text-xs hover:bg-blue-700 shadow-sm transition-all flex items-center space-x-1.5"
           >
-            <Import size={18} aria-hidden="true" />
-            <span>Rule Generator</span>
-          </button>
-          <button 
-            onClick={() => setShowMerger(true)}
-            className="bg-purple-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-purple-700 shadow-lg shadow-purple-500/20 transition-all flex items-center space-x-2 min-h-[44px] focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2"
-            aria-label="Open policy merger"
-          >
-            <Archive size={18} aria-hidden="true" />
-            <span>Merge Policies</span>
-          </button>
-          <button 
-            onClick={() => setShowComprehensiveGen(true)}
-            className="bg-green-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-green-700 shadow-lg shadow-green-500/20 transition-all flex items-center space-x-2 min-h-[44px] focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
-            aria-label="Open comprehensive scan"
-          >
-            <Activity size={18} aria-hidden="true" />
-            <span>Comprehensive Scan</span>
-          </button>
-          <button 
-            onClick={() => setShowPublisherGrouping(true)}
-            className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-indigo-700 shadow-lg shadow-indigo-500/20 transition-all flex items-center space-x-2 min-h-[44px] focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-            aria-label="Open publisher grouping"
-          >
-            <Users size={18} aria-hidden="true" />
-            <span>Publisher Grouping</span>
-          </button>
-          <button
-            onClick={() => setShowDuplicateDetection(true)}
-            className="bg-orange-600 text-white px-5 py-2 rounded-xl font-bold text-sm hover:bg-orange-700 shadow-lg shadow-orange-500/20 transition-all flex items-center space-x-2"
-          >
-            <Filter size={18} />
-            <span>Detect Duplicates</span>
-          </button>
-          <button
-            onClick={() => setShowOUPolicyGen(true)}
-            className="bg-teal-600 text-white px-5 py-2 rounded-xl font-bold text-sm hover:bg-teal-700 shadow-lg shadow-teal-500/20 transition-all flex items-center space-x-2"
-            aria-label="Generate OU-based policies"
-          >
-            <FolderTree size={18} />
-            <span>OU Policies</span>
+            <Import size={14} />
+            <span>Generate Rules</span>
           </button>
           <button
             onClick={() => setShowOUDeploy(true)}
-            className="bg-emerald-600 text-white px-5 py-2 rounded-xl font-bold text-sm hover:bg-emerald-700 shadow-lg shadow-emerald-500/20 transition-all flex items-center space-x-2"
-            aria-label="Deploy policy to OU"
+            className="bg-emerald-600 text-white px-3 py-2 rounded-lg font-bold text-xs hover:bg-emerald-700 shadow-sm transition-all flex items-center space-x-1.5"
           >
-            <Upload size={18} />
-            <span>Deploy to OU</span>
+            <Upload size={14} />
+            <span>Deploy</span>
+          </button>
+          <button
+            onClick={() => setShowMerger(true)}
+            className="bg-white border border-slate-200 text-slate-600 px-3 py-2 rounded-lg font-bold text-xs hover:bg-slate-50 transition-all flex items-center space-x-1.5"
+          >
+            <Archive size={14} />
+            <span>Merge</span>
           </button>
           <button
             onClick={() => setShowTemplates(true)}
-            className="bg-cyan-600 text-white px-5 py-2 rounded-xl font-bold text-sm hover:bg-cyan-700 shadow-lg shadow-cyan-500/20 transition-all flex items-center space-x-2"
+            className="bg-white border border-slate-200 text-slate-600 px-3 py-2 rounded-lg font-bold text-xs hover:bg-slate-50 transition-all flex items-center space-x-1.5"
           >
-            <FileCode size={18} />
+            <FileCode size={14} />
             <span>Templates</span>
-          </button>
-          <button className="bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-xl font-bold text-sm hover:bg-slate-50 flex items-center space-x-2 shadow-sm">
-            <Plus size={18} />
-            <span>New Manual Rule</span>
           </button>
         </div>
       </div>
@@ -1866,110 +1829,71 @@ const PolicyModule: React.FC = () => {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        <div className="lg:col-span-1 space-y-4">
-          <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
-            <h4 className="font-black text-slate-900 text-[10px] uppercase tracking-widest mb-4">Deployment Phase</h4>
-            <div className="space-y-2">
+      {/* Compact Phase Selector Row */}
+      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Phase:</span>
+            <div className="flex space-x-1">
               {Object.values(PolicyPhase).map((phase) => (
                 <button
                   key={phase}
                   onClick={() => setSelectedPhase(phase)}
-                  className={`w-full text-left p-3.5 min-h-[44px] rounded-xl text-xs font-bold transition-all border focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-                    selectedPhase === phase 
-                    ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-500/20' 
-                    : 'bg-slate-50 border-slate-100 text-slate-500 hover:border-slate-300'
+                  className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all ${
+                    selectedPhase === phase
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
                   }`}
-                  aria-label={`Select ${phase} deployment phase`}
-                  aria-pressed={selectedPhase === phase}
                 >
-                  {phase}
+                  {phase.replace('Phase ', 'P')}
                 </button>
               ))}
             </div>
-            <div className="mt-4 pt-4 border-t border-slate-100">
-               <button 
-                onClick={runHealthCheck}
-                className="w-full flex items-center justify-center space-x-2 py-2.5 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all"
-               >
-                 <Activity size={14} />
-                 <span>Run Health Check</span>
-               </button>
-            </div>
           </div>
-
-          <div className={`p-5 rounded-2xl border transition-all ${
-            selectedPhase.includes('Phase 4') ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'
-          }`}>
-            <div className={`flex items-center space-x-2 mb-2 font-black text-[10px] uppercase tracking-widest ${
-              selectedPhase.includes('Phase 4') ? 'text-red-700' : 'text-amber-700'
-            }`}>
-              <ShieldAlert size={16} />
-              <span>Phase Risk Assessment</span>
-            </div>
-            <p className={`text-xs leading-relaxed font-medium ${
-              selectedPhase.includes('Phase 4') ? 'text-red-600' : 'text-amber-600'
-            }`}>
-              {selectedPhase.includes('Phase 4') 
-                ? "CRITICAL: DLL rules impact system performance and stability. 14+ days of auditing is REQUIRED before enforcement."
-                : "Safe to deploy in Audit Mode. Ensure all high-priority systems have been scanned first."
-              }
-            </p>
+          <div className="flex items-center space-x-3">
+            {healthResults && (
+              <div className="flex items-center space-x-2">
+                <span className={`px-2 py-1 rounded text-xs font-black ${
+                  healthResults.score > 80 ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
+                }`}>
+                  Score: {healthResults.score}
+                </span>
+                <span className="text-[9px] text-slate-400">
+                  {healthResults.c}C / {healthResults.w}W / {healthResults.i}I
+                </span>
+              </div>
+            )}
+            <button
+              onClick={runHealthCheck}
+              className="flex items-center space-x-1 px-3 py-1.5 bg-slate-900 text-white rounded-lg text-[10px] font-bold hover:bg-slate-800 transition-all"
+            >
+              <Activity size={12} />
+              <span>Health Check</span>
+            </button>
           </div>
         </div>
+      </div>
 
-        <div className="lg:col-span-3 space-y-6">
-          {healthResults && (
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 animate-in slide-in-from-top-4">
-              <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center space-x-3">
-                  <div className={`p-3 rounded-2xl font-black text-xl ${
-                    healthResults.score > 80 ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
-                  }`}>
-                    {healthResults.score}
-                  </div>
-                  <div>
-                    <h3 className="font-black text-slate-900 text-sm uppercase tracking-widest">Rule Health Score</h3>
-                    <p className="text-xs text-slate-500">Based on GA-AppLocker Test-RuleHealth.ps1</p>
-                  </div>
-                </div>
-                <div className="flex space-x-4">
-                  <HealthStat icon={<ShieldAlert size={14} className="text-red-500" />} label="Critical" value={healthResults.c} />
-                  <HealthStat icon={<AlertTriangle size={14} className="text-amber-500" />} label="Warning" value={healthResults.w} />
-                  <HealthStat icon={<Info size={14} className="text-blue-500" />} label="Info" value={healthResults.i} />
-                </div>
-              </div>
-            </div>
+      {/* Compact XML Preview */}
+      <div className="bg-slate-900 p-4 rounded-xl shadow-lg border border-slate-800 font-mono">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center space-x-2">
+            <FileCode size={14} className="text-blue-400" />
+            <span className="text-slate-500 text-[9px] font-black uppercase tracking-widest">XML Preview - {selectedPhase}</span>
+          </div>
+          {selectedPhase.includes('Phase 4') && (
+            <span className="text-[9px] font-bold text-red-400 bg-red-900/30 px-2 py-0.5 rounded">DLL Rules Active</span>
           )}
-
-          <div className="bg-slate-900 p-8 rounded-2xl shadow-2xl border border-slate-800 font-mono group relative">
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center space-x-3">
-                <FileCode size={20} className="text-blue-400" />
-                <span className="text-slate-500 text-[10px] font-black uppercase tracking-widest">AppLocker XML Preview</span>
-              </div>
-              <div className="flex space-x-2">
-                <div className="w-3 h-3 rounded-full bg-slate-800" />
-                <div className="w-3 h-3 rounded-full bg-slate-800" />
-                <div className="w-3 h-3 rounded-full bg-slate-800" />
-              </div>
-            </div>
-            <pre className="text-blue-100 text-[11px] overflow-x-auto whitespace-pre-wrap leading-loose opacity-90 group-hover:opacity-100 transition-opacity">
+        </div>
+        <pre className="text-blue-100 text-[10px] overflow-x-auto whitespace-pre leading-relaxed max-h-32 overflow-y-auto">
 {`<AppLockerPolicy Version="1">
   <RuleCollection Type="Exe" EnforcementMode="AuditOnly">
-    <!-- Policy Phase: ${selectedPhase} -->
     <FilePublisherRule Id="72277d33-..." Name="Microsoft-Signed" Action="Allow">
-      <Conditions>
-        <PublisherCondition PublisherName="O=Microsoft Corporation, ..." />
-      </Conditions>
+      <Conditions><PublisherCondition PublisherName="O=Microsoft Corporation, ..." /></Conditions>
     </FilePublisherRule>
-    ${selectedPhase.includes('Phase 2') ? '<FilePathRule Id="..." Name="Script-Allow" Action="Allow">...</FilePathRule>' : '<!-- Scripts Restricted in Phase 1 -->'}
   </RuleCollection>
 </AppLockerPolicy>`}
-            </pre>
-          </div>
-
-        </div>
+        </pre>
       </div>
     </div>
   );
