@@ -66,28 +66,28 @@ export class Logger {
    * Log debug message
    */
   debug(message: string, context?: Record<string, unknown>): void {
-    this.log(LogLevel.DEBUG, message, context);
+    this.logInternal(LogLevel.DEBUG, message, context);
   }
 
   /**
    * Log info message
    */
   info(message: string, context?: Record<string, unknown>): void {
-    this.log(LogLevel.INFO, message, context);
+    this.logInternal(LogLevel.INFO, message, context);
   }
 
   /**
    * Log warning message
    */
   warn(message: string, context?: Record<string, unknown>): void {
-    this.log(LogLevel.WARN, message, context);
+    this.logInternal(LogLevel.WARN, message, context);
   }
 
   /**
    * Log error message
    */
   error(message: string, error?: Error, context?: Record<string, unknown>): void {
-    this.log(LogLevel.ERROR, message, {
+    this.logInternal(LogLevel.ERROR, message, {
       ...context,
       error: error?.message,
       stack: error?.stack,
@@ -97,7 +97,7 @@ export class Logger {
   /**
    * Internal log method
    */
-  private log(level: LogLevel, message: string, context?: Record<string, unknown>): void {
+  private logInternal(level: LogLevel, message: string, context?: Record<string, unknown>): void {
     if (level < this.config.minLevel) return;
 
     const entry: LogEntry = {
@@ -137,18 +137,23 @@ export class Logger {
    * Create child logger with additional context
    */
   child(context: Record<string, unknown>): Logger {
-    const childLogger = Logger.getInstance();
-    const originalLogMethod = childLogger.log.bind(childLogger);
-    
-    // Create a wrapper that merges contexts
-    const wrappedLogger = {
-      ...childLogger,
-      log: (level: LogLevel, message: string, ctx?: Record<string, unknown>) => {
-        originalLogMethod(level, message, { ...context, ...ctx });
+    const childLogger = new (class extends Logger {
+      private parentContext: Record<string, unknown>;
+
+      constructor(parentContext: Record<string, unknown>) {
+        super();
+        this.parentContext = parentContext;
       }
-    } as Logger;
+
+      protected logInternal(level: LogLevel, message: string, ctx?: Record<string, unknown>): void {
+        super.logInternal(level, message, { ...this.parentContext, ...ctx });
+      }
+    })(context);
+
+    // Copy config from parent
+    childLogger.config = { ...this.config };
     
-    return wrappedLogger;
+    return childLogger;
   }
 }
 

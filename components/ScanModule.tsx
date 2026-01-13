@@ -1,5 +1,4 @@
-
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { 
   Search, 
   RefreshCw, 
@@ -12,46 +11,76 @@ import {
   ToggleLeft, 
   ToggleRight, 
   Loader2,
-  CheckCircle2,
   MapPin
 } from 'lucide-react';
+import { useAppServices } from '../src/presentation/contexts/AppContext';
+import { useAsync } from '../src/presentation/hooks/useAsync';
+import { MachineScan } from '../src/shared/types';
+import { MachineFilter } from '../src/domain/interfaces/IMachineRepository';
+import { NotFoundError, ExternalServiceError } from '../src/domain/errors';
 
 const ScanModule: React.FC = () => {
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const { machine, ad } = useAppServices();
   const [searchQuery, setSearchQuery] = useState('');
   const [ouPath, setOuPath] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [riskFilter, setRiskFilter] = useState<string>('All');
   
-  // WinRM GPO Simulation State
+  // WinRM GPO State
   const [gpoStatus, setGpoStatus] = useState<'Enabled' | 'Disabled' | 'Processing'>('Enabled');
   const [showGpoConfirm, setShowGpoConfirm] = useState(false);
 
-  const handleScan = () => {
-    setIsRefreshing(true);
-    setTimeout(() => setIsRefreshing(false), 2000);
-  };
+  // Fetch machines
+  const { data: machines, loading: machinesLoading, error: machinesError, refetch: refetchMachines } = useAsync(
+    () => machine.getAllMachines()
+  );
 
-  const toggleWinRMGPO = () => {
-    setGpoStatus('Processing');
-    setShowGpoConfirm(false);
-    // Simulate GPO propagation delay
-    setTimeout(() => {
-      setGpoStatus(prev => prev === 'Processing' ? (gpoStatus === 'Enabled' ? 'Disabled' : 'Enabled') : prev);
-    }, 3000);
-  };
+  // Fetch GPO status
+  const { data: gpoStatusData, refetch: refetchGPO } = useAsync(
+    () => ad.getWinRMGPOStatus()
+  );
+
+  // Update local GPO status when data changes
+  React.useEffect(() => {
+    if (gpoStatusData) {
+      setGpoStatus(gpoStatusData.status);
+    }
+  }, [gpoStatusData]);
+
+  const handleScan = useCallback(async () => {
+    try {
+      await machine.startBatchScan({});
+      await refetchMachines();
+    } catch (error) {
+      console.error('Failed to start scan:', error);
+    }
+  }, [machine, refetchMachines]);
+
+  const toggleWinRMGPO = useCallback(async () => {
+    try {
+      setGpoStatus('Processing');
+      setShowGpoConfirm(false);
+      const enable = gpoStatus === 'Disabled';
+      await ad.toggleWinRMGPO(enable);
+      await refetchGPO();
+    } catch (error) {
+      console.error('Failed to toggle WinRM GPO:', error);
+      setGpoStatus(gpoStatus === 'Enabled' ? 'Enabled' : 'Disabled');
+    }
+  }, [ad, gpoStatus, refetchGPO]);
 
   const filteredMachines = useMemo(() => {
-    return [].filter((machine: any) => {
-      const matchesSearch = machine.hostname.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesStatus = statusFilter === 'All' || machine.status === statusFilter;
-      const matchesRisk = riskFilter === 'All' || machine.riskLevel === riskFilter;
-      // Mock OU filter - in real app this would check the distinguishedName
-      const matchesOU = !ouPath || machine.hostname.toLowerCase().includes(ouPath.toLowerCase());
-      
-      return matchesSearch && matchesStatus && matchesRisk && matchesOU;
-    });
-  }, [searchQuery, statusFilter, riskFilter, ouPath]);
+    if (!machines) return [];
+    
+    const filter: MachineFilter = {
+      searchQuery: searchQuery || undefined,
+      ouPath: ouPath || undefined,
+      status: statusFilter !== 'All' ? statusFilter : undefined,
+      riskLevel: riskFilter !== 'All' ? riskFilter : undefined,
+    };
+    
+    return machine.filterMachines(machines, filter);
+  }, [machines, searchQuery, ouPath, statusFilter, riskFilter, machine]);
 
   const clearFilters = () => {
     setSearchQuery('');
@@ -61,6 +90,23 @@ const ScanModule: React.FC = () => {
   };
 
   const hasActiveFilters = statusFilter !== 'All' || riskFilter !== 'All' || searchQuery !== '' || ouPath !== '';
+
+  if (machinesLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="animate-spin text-blue-600" size={32} />
+      </div>
+    );
+  }
+
+  if (machinesError) {
+    return (
+      <div className="bg-red-50 border border-red-200 rounded-xl p-6">
+        <p className="text-red-600 font-bold">Error loading machines</p>
+        <p className="text-red-500 text-sm mt-2">{machinesError.message}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500 pb-12">
@@ -73,11 +119,10 @@ const ScanModule: React.FC = () => {
         <div className="flex space-x-3">
           <button 
             onClick={handleScan}
-            disabled={isRefreshing}
-            className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl transition-all font-bold disabled:opacity-50 shadow-lg shadow-blue-500/20 text-sm"
+            className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl transition-all font-bold shadow-lg shadow-blue-500/20 text-sm"
           >
-            <RefreshCw size={18} className={isRefreshing ? 'animate-spin' : ''} />
-            <span>{isRefreshing ? 'Scanning...' : 'Start Batch Scan'}</span>
+            <RefreshCw size={18} />
+            <span>Start Batch Scan</span>
           </button>
         </div>
       </div>

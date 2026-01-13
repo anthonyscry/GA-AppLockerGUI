@@ -112,11 +112,25 @@ class WindowManager {
       }
     });
 
-    this.mainWindow.on('closed', () => {
-      // Clean up event listeners to prevent memory leaks
-      if (this.mainWindow) {
-        this.mainWindow.webContents.removeAllListeners('did-fail-load');
+    this.mainWindow.on('close', (event) => {
+      // Clean up any pending operations before close
+      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+        try {
+          // Remove all listeners to prevent errors
+          this.mainWindow.webContents.removeAllListeners();
+          // Close DevTools if open
+          if (this.mainWindow.webContents.isDevToolsOpened()) {
+            this.mainWindow.webContents.closeDevTools();
+          }
+        } catch (e) {
+          // Ignore errors during cleanup - window may already be destroyed
+        }
       }
+    });
+    
+    this.mainWindow.on('closed', () => {
+      // Window is closed, clean up reference
+      // Don't try to access window properties here
       this.mainWindow = null;
     });
   }

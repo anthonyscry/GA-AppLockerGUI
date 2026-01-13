@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { ADUser } from '../types';
+import { ADUser } from '../src/shared/types';
 import { APPLOCKER_GROUPS } from '../constants';
 import { 
   Users, 

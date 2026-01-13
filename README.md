@@ -17,6 +17,8 @@ A comprehensive administrative dashboard for the GA-AppLocker toolkit, enabling 
 
 ## Quick Start
 
+**👉 For first-time setup, see [START_HERE.md](./START_HERE.md)**
+
 ### Development
 
 1. Install dependencies:

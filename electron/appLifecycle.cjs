@@ -94,16 +94,30 @@ function setupAppLifecycle(windowManager, loadContent) {
   if (app && app.on) {
     app.on('window-all-closed', () => {
       if (process.platform !== 'darwin') {
+        // Set shutdown flag before quitting
+        if (process.env.NODE_ENV === 'development') {
+          console.log('All windows closed, quitting application...');
+        }
         app.quit();
       }
     });
 
-    // Handle app termination
+    // Handle app termination - set shutdown flag early
     app.on('before-quit', (event) => {
-      // Add any cleanup logic here
+      // Prevent default to allow cleanup, but mark as shutting down
       if (process.env.NODE_ENV === 'development') {
         console.log('Application shutting down...');
       }
+      // Mark as shutting down to prevent new operations
+      global.isShuttingDown = true;
+    });
+    
+    // Handle will-quit to ensure clean shutdown
+    app.on('will-quit', (event) => {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Application will quit...');
+      }
+      global.isShuttingDown = true;
     });
   }
 }

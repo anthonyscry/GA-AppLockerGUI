@@ -145,19 +145,18 @@ try {
                 continue
             }
             
-            # Determine rule type
+            # Determine rule type with priority: Publisher → Hash (skip Path)
             $selectedRuleType = $RuleType
             if ($RuleType -eq 'Auto') {
-                # Try to get publisher from file
+                # PRIORITY 1: Try to get publisher from file (preferred - resilient to updates)
                 $filePublisher = Get-FilePublisher -FilePath $filePath
                 if ($filePublisher) {
                     $selectedRuleType = 'Publisher'
                     $publisher = $filePublisher
                 }
-                elseif ($filePath -like "%PROGRAMFILES%*" -or $filePath -like "C:\Program Files*" -or $filePath -like "C:\Windows*") {
-                    $selectedRuleType = 'Path'
-                }
                 else {
+                    # PRIORITY 2: Use Hash rule (most secure for unsigned files)
+                    # Skip Path rules - they're too restrictive and break on updates
                     $selectedRuleType = 'Hash'
                 }
             }

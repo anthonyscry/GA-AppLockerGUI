@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { AppView } from './types';
+import { AppView } from './src/shared/types';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
 import ScanModule from './components/ScanModule';
@@ -7,6 +7,7 @@ import PolicyModule from './components/PolicyModule';
 import EventsModule from './components/EventsModule';
 import ADManagementModule from './components/ADManagementModule';
 import ComplianceModule from './components/ComplianceModule';
+import InventoryCompareModule from './components/InventoryCompareModule';
 import { Bell, Search, HelpCircle, User, X, Globe, Terminal, FileText } from 'lucide-react';
 import { NAVIGATION } from './constants';
 
@@ -130,6 +131,7 @@ const App: React.FC = () => {
       case AppView.EVENTS: return <EventsModule />;
       case AppView.AD_MANAGEMENT: return <ADManagementModule />;
       case AppView.COMPLIANCE: return <ComplianceModule />;
+      case AppView.INVENTORY_COMPARE: return <InventoryCompareModule />;
       default: return <Dashboard />;
     }
   };

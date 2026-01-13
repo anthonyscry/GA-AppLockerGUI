@@ -1,5 +1,5 @@
 import React from 'react';
-import { AppView } from '../types';
+import { AppView } from '../src/shared/types';
 import { NAVIGATION } from '../constants';
 import { ChevronRight } from 'lucide-react';
 

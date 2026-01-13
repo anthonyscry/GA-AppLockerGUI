@@ -10,6 +10,19 @@ const { setupAppLifecycle, getContentPath } = require('./appLifecycle.cjs');
 const { AppConfig } = require('../config/appConfig.cjs');
 const { setupIpcHandlers } = require('./ipc/ipcHandlers.cjs');
 
+// Global shutdown flag to prevent operations during exit
+let isShuttingDown = false;
+
+// Set shutdown flag when app is quitting
+if (app && app.on) {
+  app.on('before-quit', () => {
+    isShuttingDown = true;
+  });
+  app.on('will-quit', () => {
+    isShuttingDown = true;
+  });
+}
+
 /**
  * Initialize security handlers
  * Must be called before app is ready
@@ -71,13 +84,19 @@ async function initializeApp() {
   } catch (error) {
     console.error('Failed to initialize app:', error);
     
-    // Show user-friendly error dialog
-    if (app && !app.isQuiting) {
-      dialog.showErrorBox(
-        'Application Initialization Error',
-        `Failed to start the application:\n\n${error.message}\n\nPlease contact support if this problem persists.`
-      );
-      app.quit();
+    // Show user-friendly error dialog (only if app is still available and not shutting down)
+    if (app && !isShuttingDown && dialog) {
+      try {
+        dialog.showErrorBox(
+          'Application Initialization Error',
+          `Failed to start the application:\n\n${error.message}\n\nPlease contact support if this problem persists.`
+        );
+      } catch (e) {
+        console.error('Could not show error dialog:', e.message);
+      }
+      if (app && !isShuttingDown) {
+        app.quit();
+      }
     }
   }
 }
@@ -90,33 +109,62 @@ process.on('uncaughtException', (error) => {
   console.error('[Main] Uncaught Exception:', error);
   console.error('[Main] Stack:', error.stack);
   
-  // Show error dialog to user
-  if (app && !app.isQuiting && dialog) {
-    dialog.showErrorBox(
-      'Application Error',
-      `An unexpected error occurred:\n\n${error.message}\n\nThe application will now exit.\n\nPlease report this error to support.`
-    );
+  // Don't show dialogs during shutdown
+  if (isShuttingDown) {
+    return;
+  }
+  
+  // Show error dialog to user (only if window still exists and not shutting down)
+  const mainWindow = windowManager.getMainWindow();
+  if (app && !isShuttingDown && dialog) {
+    try {
+      // Only show dialog if window exists and is not destroyed
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        dialog.showErrorBox(
+          'Application Error',
+          `An unexpected error occurred:\n\n${error.message}\n\nThe application will now exit.\n\nPlease report this error to support.`
+        );
+      }
+    } catch (e) {
+      // Window may have been destroyed, just log
+      console.error('Could not show error dialog:', e.message);
+    }
   }
   
   // In production, might want to log to file or send to error tracking service
-  if (app && !app.isQuiting) {
+  if (app && !isShuttingDown) {
+    isShuttingDown = true;
     app.quit();
   }
 });
 
 // Handle unhandled promise rejections
 process.on('unhandledRejection', (reason, promise) => {
+  // Don't process rejections during shutdown
+  if (isShuttingDown) {
+    return;
+  }
+  
   const error = reason instanceof Error ? reason : new Error(String(reason));
   console.error('[Main] Unhandled Rejection at:', promise);
   console.error('[Main] Reason:', error.message);
   console.error('[Main] Stack:', error.stack);
   
-  // Show error dialog for critical unhandled rejections
-  if (app && !app.isQuiting && dialog && process.env.NODE_ENV === 'production') {
-    dialog.showErrorBox(
-      'Application Error',
-      `An unexpected error occurred:\n\n${error.message}\n\nPlease report this error to support.`
-    );
+  // Show error dialog for critical unhandled rejections (only if window exists and not shutting down)
+  const mainWindow = windowManager.getMainWindow();
+  if (app && !isShuttingDown && dialog && process.env.NODE_ENV === 'production') {
+    try {
+      // Only show dialog if window exists and is not destroyed
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        dialog.showErrorBox(
+          'Application Error',
+          `An unexpected error occurred:\n\n${error.message}\n\nPlease report this error to support.`
+        );
+      }
+    } catch (e) {
+      // Window may have been destroyed, just log
+      console.error('Could not show error dialog:', e.message);
+    }
   }
   
   // In production, might want to log to file or send to error tracking service
