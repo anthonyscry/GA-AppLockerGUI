@@ -14,7 +14,7 @@ const EventsModule: React.FC = () => {
   const [showBackupModal, setShowBackupModal] = useState(false);
   const [backupProgress, setBackupProgress] = useState<{current: number, total: number, status: string} | null>(null);
   const [selectedBackupSystems, setSelectedBackupSystems] = useState<Set<string>>(new Set());
-  const [backupPath, setBackupPath] = useState('C:\\AppLocker-Backups');
+  const [backupPath, setBackupPath] = useState('.\\backups\\events');
   const debouncedSearch = useDebounce(searchQuery, 300);
 
   // Fetch events

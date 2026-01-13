@@ -100,7 +100,7 @@ const PolicyModule: React.FC = () => {
   
   // OU-Based Policy Generation State
   const [showOUPolicyGen, setShowOUPolicyGen] = useState(false);
-  const [ouPolicyOutputDir, setOuPolicyOutputDir] = useState('C:\\Policies\\OU-Based');
+  const [ouPolicyOutputDir, setOuPolicyOutputDir] = useState('.\\policies\\ou-based');
   const [selectedMachineTypes, setSelectedMachineTypes] = useState<MachineType[]>(['Workstation', 'Server', 'DomainController']);
   
   // OU Deployment State (for linking GPO to OU)
@@ -237,7 +237,7 @@ const PolicyModule: React.FC = () => {
     }
     
     try {
-      const outputPath = prompt('Enter output path for generated policy:', 'C:\\Policies\\Batch-Generated.xml');
+      const outputPath = prompt('Enter output path for generated policy:', '.\\policies\\Batch-Generated.xml');
       if (!outputPath) return;
       
       const result = await policy.batchGenerateRules(filteredInventory, outputPath, {
@@ -582,7 +582,7 @@ const PolicyModule: React.FC = () => {
                             const { showSaveDialog } = await import('../src/infrastructure/ipc/fileDialog');
                             const outputPath = await showSaveDialog({
                               title: 'Save Publisher Rule',
-                              defaultPath: `C:\\Policies\\Publisher-${publisher.replace(/[^a-zA-Z0-9]/g, '-')}.xml`,
+                              defaultPath: `.\\policies\\Publisher-${publisher.replace(/[^a-zA-Z0-9]/g, '-')}.xml`,
                               filters: [
                                 { name: 'XML Files', extensions: ['xml'] },
                                 { name: 'All Files', extensions: ['*'] }
@@ -640,7 +640,7 @@ const PolicyModule: React.FC = () => {
                   const confirmed = confirm(`Generate publisher rules for all ${Object.keys(publisherGroups).length} publishers?\n\nThis will create ${Object.keys(publisherGroups).length} rules covering ${combinedInventory.length} items.`);
                   if (!confirmed) return;
                   
-                  const outputPath = prompt('Enter output path:', 'C:\\Policies\\All-Publishers.xml');
+                  const outputPath = prompt('Enter output path:', '.\\policies\\All-Publishers.xml');
                   if (!outputPath) return;
                   
                   try {
@@ -1318,7 +1318,7 @@ const PolicyModule: React.FC = () => {
                     return;
                   }
                   
-                  const outputPath = prompt(`Apply template "${template.name}"?\n\nEnter output path:`, `C:\\Policies\\Template-${template.id}.xml`);
+                  const outputPath = prompt(`Apply template "${template.name}"?\n\nEnter output path:`, `.\\policies\\Template-${template.id}.xml`);
                   if (!outputPath) return;
                   
                   try {

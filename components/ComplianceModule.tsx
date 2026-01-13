@@ -275,7 +275,7 @@ const ComplianceModule: React.FC = () => {
                 onClick={async () => {
                   const dirPath = await showOpenDirectoryDialog({
                     title: 'Select Compliance Reports Directory',
-                    defaultPath: 'C:\\Compliance'
+                    defaultPath: '.\\compliance'
                   });
                   if (dirPath) {
                     alert(`Selected directory: ${dirPath}\n\nHistorical reports will be loaded from this location.`);
