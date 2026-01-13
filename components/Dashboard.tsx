@@ -222,31 +222,29 @@ const Dashboard: React.FC = () => {
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard 
-          label="Managed Systems" 
-          value={machines?.length.toString() || '0'} 
-          icon={<Users className="text-blue-600" />} 
-          trend="+2 this week"
-          trendIcon={<TrendingUp size={14} className="text-green-500" />}
+        <StatCard
+          label="Managed Systems"
+          value={machines?.length.toString() || '0'}
+          icon={<Users className="text-blue-600" />}
+          trend="From Active Directory"
         />
-        <StatCard 
-          label="Unique Blocked Apps" 
-          value={eventStats?.uniquePaths.toString() || '0'} 
-          icon={<FileSearch className="text-red-500" />} 
-          trend="From UniqueBlockedApps.csv"
+        <StatCard
+          label="Unique Blocked Apps"
+          value={eventStats?.uniquePaths?.toString() || '0'}
+          icon={<FileSearch className="text-red-500" />}
+          trend="Event ID 8004"
         />
-        <StatCard 
-          label="Rule Health Score" 
-          value={`${healthScore}/100`} 
-          icon={<CheckCircle className="text-green-500" />} 
-          trend="Based on Test-RuleHealth.ps1"
+        <StatCard
+          label="Rule Health Score"
+          value={`${healthScore}/100`}
+          icon={<CheckCircle className={healthScore >= 80 ? "text-green-500" : healthScore >= 50 ? "text-amber-500" : "text-red-500"} />}
+          trend="Test-RuleHealth.ps1"
         />
-        <StatCard 
-          label="Blocked Events" 
-          value={eventStats?.totalBlocked.toString() || '0'} 
-          icon={<ShieldAlert className="text-amber-500" />} 
-          trend="-12% vs last week"
-          trendIcon={<TrendingDown size={14} className="text-green-500" />}
+        <StatCard
+          label="Blocked Events"
+          value={eventStats?.totalBlocked?.toString() || '0'}
+          icon={<ShieldAlert className="text-amber-500" />}
+          trend="From audit logs"
         />
       </div>
 
