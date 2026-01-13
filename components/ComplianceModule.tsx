@@ -56,7 +56,7 @@ const ComplianceModule: React.FC = () => {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold text-slate-900">Compliance & Audit</h2>
-          <p className="text-slate-500 text-sm">Generate CORA evidence packages and regulatory reports.</p>
+          <p className="text-slate-500 text-sm">Generate NIST compliance evidence packages and regulatory reports.</p>
         </div>
         <button 
           onClick={handleGenerateEvidence}
@@ -86,7 +86,7 @@ const ComplianceModule: React.FC = () => {
               <ClipboardCheck size={16} />
               <span>Evidence Readiness</span>
             </div>
-            <h3 className="text-2xl font-bold text-white">CORA Evidence Builder</h3>
+            <h3 className="text-2xl font-bold text-white">Compliance Evidence Builder</h3>
             <p className="text-slate-400 text-sm leading-relaxed">
               Automate the collection of configuration XMLs, event logs, and system snapshots 
               into a signed package ready for inspector review.

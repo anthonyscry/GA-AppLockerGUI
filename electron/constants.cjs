@@ -108,17 +108,28 @@ const COMMON_PUBLISHERS = [
 ];
 
 const MOCK_AD_USERS = [
-  { id: 'u1', samAccountName: 'ttran', displayName: 'Tony Tran', department: 'ISSO', groups: ['Domain Admins', 'AppLocker-Admin-Group'] },
-  { id: 'u2', samAccountName: 'jdoe', displayName: 'John Doe', department: 'QA', groups: ['Domain Users', 'QA-Team'] },
-  { id: 'u3', samAccountName: 'asmith', displayName: 'Alice Smith', department: 'Engineering', groups: ['Domain Users', 'Dev-Team'] },
+  { id: 'u1', samAccountName: 'ttran', displayName: 'Tony Tran', department: 'ISSO', ou: 'OU=IT,OU=Staff,DC=GA-ASI,DC=CORP', groups: ['Domain Admins', 'AppLocker-Admins', 'AppLocker-Installers'] },
+  { id: 'u2', samAccountName: 'jdoe', displayName: 'John Doe', department: 'QA', ou: 'OU=QA,OU=Staff,DC=GA-ASI,DC=CORP', groups: ['Domain Users', 'AppLocker-StandardUsers'] },
+  { id: 'u3', samAccountName: 'asmith', displayName: 'Alice Smith', department: 'Engineering', ou: 'OU=Engineering,OU=Staff,DC=GA-ASI,DC=CORP', groups: ['Domain Users', 'AppLocker-Exceptions-Developers'] },
+  { id: 'u4', samAccountName: 'svcAppLocker', displayName: 'AppLocker Service Account', department: 'IT Services', ou: 'OU=ServiceAccounts,DC=GA-ASI,DC=CORP', groups: ['AppLocker-ServiceAccounts'] },
+  { id: 'u5', samAccountName: 'bwilson', displayName: 'Bob Wilson', department: 'Sales', ou: 'OU=Sales,OU=Staff,DC=GA-ASI,DC=CORP', groups: ['Domain Users', 'AppLocker-StandardUsers'] },
 ];
 
 const APPLOCKER_GROUPS = [
+  // Workstation Groups
   'AppLocker-WS-Audit',
   'AppLocker-WS-Enforce',
+  // Server Groups
   'AppLocker-SRV-Audit',
   'AppLocker-SRV-Enforce',
-  'AppLocker-Exceptions-Global'
+  // Role-Based Groups
+  'AppLocker-Admins',
+  'AppLocker-Installers',
+  'AppLocker-ServiceAccounts',
+  'AppLocker-StandardUsers',
+  // Exception Groups
+  'AppLocker-Exceptions-Global',
+  'AppLocker-Exceptions-Developers',
 ];
 
 const MOCK_EVENTS = [
