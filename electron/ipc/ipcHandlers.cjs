@@ -1797,6 +1797,231 @@ ${rules}
     }
   });
 
+  // ============================================
+  // POLICY INVENTORY HANDLERS
+  // ============================================
+
+  // Get software inventory from local machine or network
+  ipcMain.handle('policy:getInventory', async () => {
+    try {
+      const command = `
+        try {
+          # Get installed applications from registry
+          $apps = @()
+
+          # 64-bit applications
+          $apps += Get-ItemProperty "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*" -ErrorAction SilentlyContinue |
+            Where-Object { $_.DisplayName } |
+            Select-Object DisplayName, Publisher, DisplayVersion, InstallLocation
+
+          # 32-bit applications on 64-bit Windows
+          $apps += Get-ItemProperty "HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*" -ErrorAction SilentlyContinue |
+            Where-Object { $_.DisplayName } |
+            Select-Object DisplayName, Publisher, DisplayVersion, InstallLocation
+
+          # Convert to inventory format
+          $inventory = $apps | Where-Object { $_.DisplayName } | ForEach-Object {
+            @{
+              id = [guid]::NewGuid().ToString()
+              name = $_.DisplayName
+              publisher = if($_.Publisher) { $_.Publisher } else { 'Unknown' }
+              version = if($_.DisplayVersion) { $_.DisplayVersion } else { '0.0.0' }
+              path = if($_.InstallLocation) { $_.InstallLocation } else { '' }
+              type = 'Application'
+              isSigned = $false
+            }
+          } | Select-Object -Unique -Property name, publisher, version, path, type, isSigned, id
+
+          $inventory | ConvertTo-Json -Compress -Depth 3
+        } catch {
+          '[]'
+        }
+      `;
+      const result = await executePowerShellCommand(command, { timeout: 60000 });
+
+      if (result.stdout && result.stdout.trim() !== '[]') {
+        try {
+          const inventory = JSON.parse(result.stdout);
+          return Array.isArray(inventory) ? inventory : [inventory];
+        } catch (e) {
+          console.warn('[IPC] Could not parse inventory:', e);
+        }
+      }
+      return [];
+    } catch (error) {
+      console.error('[IPC] Get inventory error:', error);
+      return [];
+    }
+  });
+
+  // Get trusted publishers (code signing certificates)
+  ipcMain.handle('policy:getTrustedPublishers', async () => {
+    try {
+      const command = `
+        try {
+          # Get trusted publishers from certificate store
+          $publishers = Get-ChildItem Cert:\\LocalMachine\\TrustedPublisher -ErrorAction SilentlyContinue |
+            Select-Object Subject, Issuer, Thumbprint, NotAfter |
+            ForEach-Object {
+              # Extract CN from Subject
+              $cn = if ($_.Subject -match 'CN=([^,]+)') { $matches[1] } else { $_.Subject }
+              @{
+                id = $_.Thumbprint
+                name = $cn
+                issuer = if ($_.Issuer -match 'CN=([^,]+)') { $matches[1] } else { $_.Issuer }
+                thumbprint = $_.Thumbprint
+                expiryDate = $_.NotAfter.ToString('o')
+                isTrusted = $true
+              }
+            }
+
+          if ($publishers) {
+            $publishers | ConvertTo-Json -Compress -Depth 3
+          } else {
+            '[]'
+          }
+        } catch {
+          '[]'
+        }
+      `;
+      const result = await executePowerShellCommand(command, { timeout: 30000 });
+
+      if (result.stdout && result.stdout.trim() !== '[]') {
+        try {
+          const publishers = JSON.parse(result.stdout);
+          return Array.isArray(publishers) ? publishers : [publishers];
+        } catch (e) {
+          console.warn('[IPC] Could not parse trusted publishers:', e);
+        }
+      }
+      return [];
+    } catch (error) {
+      console.error('[IPC] Get trusted publishers error:', error);
+      return [];
+    }
+  });
+
+  // Get AppLocker policy groups (rule collections)
+  ipcMain.handle('policy:getGroups', async () => {
+    try {
+      const command = `
+        try {
+          # Get AppLocker policy and extract rule collections
+          $policy = Get-AppLockerPolicy -Effective -ErrorAction SilentlyContinue
+
+          if ($policy) {
+            $groups = @()
+            foreach ($collection in $policy.RuleCollections) {
+              $groups += @{
+                name = $collection.RuleCollectionType
+                enforcementMode = $collection.EnforcementMode.ToString()
+                ruleCount = $collection.Count
+              }
+            }
+            $groups | ConvertTo-Json -Compress
+          } else {
+            # Return default AppLocker rule collection types
+            @(
+              @{ name = 'Exe'; enforcementMode = 'NotConfigured'; ruleCount = 0 },
+              @{ name = 'Msi'; enforcementMode = 'NotConfigured'; ruleCount = 0 },
+              @{ name = 'Script'; enforcementMode = 'NotConfigured'; ruleCount = 0 },
+              @{ name = 'Dll'; enforcementMode = 'NotConfigured'; ruleCount = 0 },
+              @{ name = 'Appx'; enforcementMode = 'NotConfigured'; ruleCount = 0 }
+            ) | ConvertTo-Json -Compress
+          }
+        } catch {
+          '[]'
+        }
+      `;
+      const result = await executePowerShellCommand(command, { timeout: 30000 });
+
+      if (result.stdout && result.stdout.trim() !== '[]') {
+        try {
+          const groups = JSON.parse(result.stdout);
+          // Return just the names for backwards compatibility
+          if (Array.isArray(groups)) {
+            return groups.map(g => g.name || g);
+          }
+          return [groups.name || groups];
+        } catch (e) {
+          console.warn('[IPC] Could not parse policy groups:', e);
+        }
+      }
+      // Default AppLocker collection types
+      return ['Exe', 'Msi', 'Script', 'Dll', 'Appx'];
+    } catch (error) {
+      console.error('[IPC] Get policy groups error:', error);
+      return ['Exe', 'Msi', 'Script', 'Dll', 'Appx'];
+    }
+  });
+
+  // Create a single policy rule
+  ipcMain.handle('policy:createRule', async (event, rule) => {
+    try {
+      if (!rule || !rule.name) {
+        return { success: false, error: 'Rule name is required' };
+      }
+
+      const ruleId = rule.id || crypto.randomUUID();
+      const ruleName = escapePowerShellString(rule.name);
+      const ruleType = rule.type || 'Publisher';
+      const action = validateEnum(rule.action || 'Allow', ALLOWED_RULE_ACTIONS, 'action');
+      const collectionType = validateEnum(rule.collectionType || 'Exe', ALLOWED_COLLECTION_TYPES, 'collectionType');
+
+      let ruleXml = '';
+
+      if (ruleType === 'Publisher' && rule.publisher) {
+        const publisher = escapePowerShellString(rule.publisher);
+        ruleXml = `
+<FilePublisherRule Id="${ruleId}" Name="${ruleName}" Description="${escapePowerShellString(rule.description || '')}" UserOrGroupSid="S-1-1-0" Action="${action}">
+  <Conditions>
+    <FilePublisherCondition PublisherName="${publisher}" ProductName="*" BinaryName="*">
+      <BinaryVersionRange LowSection="*" HighSection="*" />
+    </FilePublisherCondition>
+  </Conditions>
+</FilePublisherRule>`;
+      } else if (ruleType === 'Path' && rule.path) {
+        const rulePath = escapePowerShellString(rule.path);
+        ruleXml = `
+<FilePathRule Id="${ruleId}" Name="${ruleName}" Description="${escapePowerShellString(rule.description || '')}" UserOrGroupSid="S-1-1-0" Action="${action}">
+  <Conditions>
+    <FilePathCondition Path="${rulePath}" />
+  </Conditions>
+</FilePathRule>`;
+      } else if (ruleType === 'Hash' && rule.hash) {
+        const hash = escapePowerShellString(rule.hash);
+        ruleXml = `
+<FileHashRule Id="${ruleId}" Name="${ruleName}" Description="${escapePowerShellString(rule.description || '')}" UserOrGroupSid="S-1-1-0" Action="${action}">
+  <Conditions>
+    <FileHashCondition>
+      <FileHash Type="SHA256" Data="${hash}" SourceFileName="${escapePowerShellString(rule.fileName || 'Unknown')}" SourceFileLength="0" />
+    </FileHashCondition>
+  </Conditions>
+</FileHashRule>`;
+      } else {
+        return { success: false, error: 'Invalid rule type or missing required fields' };
+      }
+
+      // Return the created rule object
+      return {
+        id: ruleId,
+        name: rule.name,
+        type: ruleType,
+        action: action,
+        collectionType: collectionType,
+        publisher: rule.publisher,
+        path: rule.path,
+        hash: rule.hash,
+        description: rule.description || '',
+        xml: ruleXml.trim(),
+        createdAt: new Date().toISOString()
+      };
+    } catch (error) {
+      console.error('[IPC] Create rule error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
   console.log('[IPC] IPC handlers registered successfully');
 }
 
