@@ -4,6 +4,7 @@ import App from './App';
 import { ErrorBoundary } from './src/presentation/contexts/ErrorBoundary';
 import { AppProvider } from './src/presentation/contexts/AppContext';
 import { setupContainer } from './src/infrastructure/di/setup';
+import './src/index.css';
 
 // Setup dependency injection container
 setupContainer();
