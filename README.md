@@ -50,7 +50,7 @@ This will:
 3. Create an installer in the `release` directory
 
 The output will be:
-- `release/GA-AppLocker Dashboard-1.2.4-x64.exe` - NSIS installer
+- `release/GA-AppLocker Dashboard-1.2.5-x64.exe` - NSIS installer
 - `release/win-unpacked/` - Unpacked application (for testing)
 
 ### Available Scripts
@@ -128,7 +128,7 @@ For detailed API documentation, see [docs/API.md](./docs/API.md).
 
 ## Application Details
 
-- **Version**: 1.2.4
+- **Version**: 1.2.5
 - **Author**: Tony Tran, ISSO, GA-ASI
 - **Built with**: React, TypeScript, Electron, Vite, Tailwind CSS
 - **Architecture**: Clean Architecture with Dependency Injection
