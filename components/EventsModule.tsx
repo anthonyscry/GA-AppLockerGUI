@@ -27,12 +27,12 @@ const EventsModule: React.FC = () => {
     () => event.getEventStats()
   );
 
-  // Filter events based on search and event type
+  // Filter events based on search and event type (client-side filtering)
   const filteredEvents = React.useMemo(() => {
     if (!events) return [];
-    
+
     let filtered = events;
-    
+
     // Filter by event type
     if (eventTypeFilter !== 'all') {
       filtered = filtered.filter((e: AppEvent) => {
@@ -44,14 +44,19 @@ const EventsModule: React.FC = () => {
         }
       });
     }
-    
-    // Apply search filter
-    const filter: EventFilter = {
-      searchQuery: debouncedSearch || undefined,
-    };
-    
-    return event.filterEvents(filtered, filter);
-  }, [events, debouncedSearch, eventTypeFilter, event]);
+
+    // Apply search filter (client-side)
+    if (debouncedSearch) {
+      const query = debouncedSearch.toLowerCase();
+      filtered = filtered.filter((e: AppEvent) =>
+        e.machine?.toLowerCase().includes(query) ||
+        e.path?.toLowerCase().includes(query) ||
+        e.publisher?.toLowerCase().includes(query)
+      );
+    }
+
+    return filtered;
+  }, [events, debouncedSearch, eventTypeFilter]);
 
   // Fetch machines for backup selection
   const { data: machines } = useAsync(() => machine.getAllMachines());

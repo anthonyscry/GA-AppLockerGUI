@@ -468,20 +468,24 @@ const ScanModule: React.FC = () => {
             {gpoStatus === 'Processing' ? (
               <div className="flex items-center space-x-2 text-amber-400 text-sm font-bold animate-pulse">
                 <Loader2 size={18} className="animate-spin" />
-                <span>Propagating Changes...</span>
+                <span>Propagating...</span>
               </div>
             ) : (
-              <button 
+              <button
                 onClick={() => setShowGpoConfirm(true)}
-                className={`flex items-center space-x-2 px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all min-h-[44px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-                  gpoStatus === 'Enabled' 
-                  ? 'bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white border border-red-500/20' 
-                  : 'bg-green-600 text-white hover:bg-green-700 shadow-lg shadow-green-900/20'
+                disabled={!domainInfo.isDC}
+                className={`flex items-center space-x-2 px-4 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all min-h-[36px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                  !domainInfo.isDC
+                    ? 'bg-slate-700 text-slate-500 cursor-not-allowed border border-slate-600'
+                    : gpoStatus === 'Enabled'
+                    ? 'bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white border border-red-500/20'
+                    : 'bg-green-600 text-white hover:bg-green-700 shadow-lg shadow-green-900/20'
                 }`}
-                aria-label={gpoStatus === 'Enabled' ? 'Decommission WinRM GPO' : 'Deploy WinRM GPO'}
+                aria-label={!domainInfo.isDC ? 'Requires Domain Controller' : gpoStatus === 'Enabled' ? 'Decommission WinRM GPO' : 'Deploy WinRM GPO'}
+                title={!domainInfo.isDC ? 'Run this app on a Domain Controller to manage GPOs' : ''}
               >
-                {gpoStatus === 'Enabled' ? <ToggleRight size={18} aria-hidden="true" /> : <ToggleLeft size={18} aria-hidden="true" />}
-                <span>{gpoStatus === 'Enabled' ? 'Decommission WinRM' : 'Deploy WinRM GPO'}</span>
+                {gpoStatus === 'Enabled' ? <ToggleRight size={16} aria-hidden="true" /> : <ToggleLeft size={16} aria-hidden="true" />}
+                <span>{!domainInfo.isDC ? 'Requires DC' : gpoStatus === 'Enabled' ? 'Disable WinRM' : 'Deploy WinRM GPO'}</span>
               </button>
             )}
           </div>
@@ -493,89 +497,85 @@ const ScanModule: React.FC = () => {
         </div>
       </div>
 
-      {/* Filter Bar */}
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 grid grid-cols-1 md:grid-cols-12 gap-3">
+      {/* Filter Bar - Compact */}
+      <div className="bg-white p-2 rounded-lg shadow-sm border border-slate-200 flex flex-wrap items-center gap-2">
         {/* Hostname Search */}
-        <div className="md:col-span-4 relative group">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors" size={16} />
-          <input 
-            type="text" 
+        <div className="relative flex-1 min-w-[120px]">
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" size={12} />
+          <input
+            type="text"
             id="hostname-search"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Hostname..." 
-            className="w-full pl-9 pr-8 py-2.5 min-h-[44px] bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:border-blue-500 transition-all text-xs font-bold"
+            placeholder="Hostname..."
+            className="w-full pl-7 pr-2 py-1.5 bg-slate-50 border border-slate-200 rounded text-[10px] font-bold outline-none focus:ring-1 focus:ring-blue-500"
             aria-label="Search machines by hostname"
           />
         </div>
 
         {/* OU Filter Dropdown */}
-        <div className="md:col-span-3 relative group">
-          <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10 pointer-events-none" size={16} />
+        <div className="relative flex-1 min-w-[140px]">
+          <MapPin className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 z-10 pointer-events-none" size={12} />
           <select
             id="ou-filter"
             value={ouPath}
             onChange={(e) => setOuPath(e.target.value)}
-            className="w-full appearance-none pl-9 pr-8 py-2.5 min-h-[44px] bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:border-blue-500 transition-all text-xs font-bold cursor-pointer"
-            aria-label="Filter machines by Organizational Unit"
+            className="w-full appearance-none pl-7 pr-6 py-1.5 bg-slate-50 border border-slate-200 rounded text-[10px] font-bold cursor-pointer outline-none focus:ring-1 focus:ring-blue-500"
+            aria-label="Filter by OU"
             disabled={ousLoading}
           >
-            <option value="">All OUs {ousLoading ? '(Loading...)' : `(${availableOUs.reduce((sum, ou) => sum + ou.computerCount, 0)} computers)`}</option>
+            <option value="">All OUs ({availableOUs.reduce((sum, ou) => sum + ou.computerCount, 0)})</option>
             {availableOUs.map((ou, index) => (
-              <option key={index} value={ou.path}>
-                {ou.name} ({ou.computerCount}) - {ou.type}
-              </option>
+              <option key={index} value={ou.path}>{ou.name} ({ou.computerCount})</option>
             ))}
           </select>
-          <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={14} />
+          <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={10} />
         </div>
 
         {/* Status Dropdown */}
-        <div className="md:col-span-2 relative">
-          <select 
+        <div className="relative min-w-[90px]">
+          <select
             id="status-filter"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="w-full appearance-none bg-slate-50 border border-slate-200 text-slate-600 text-xs rounded-lg pl-3 pr-8 py-2.5 min-h-[44px] outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:border-blue-500 transition-all cursor-pointer font-bold"
-            aria-label="Filter machines by status"
+            className="w-full appearance-none bg-slate-50 border border-slate-200 text-[10px] rounded pl-2 pr-6 py-1.5 cursor-pointer font-bold outline-none focus:ring-1 focus:ring-blue-500"
+            aria-label="Filter by status"
           >
-            <option value="All">All Statuses</option>
+            <option value="All">All Status</option>
             <option value="Online">Online</option>
             <option value="Offline">Offline</option>
             <option value="Scanning">Scanning</option>
           </select>
-          <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={14} />
+          <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={10} />
         </div>
 
         {/* Risk Level Dropdown */}
-        <div className="md:col-span-2 relative">
-          <select 
+        <div className="relative min-w-[80px]">
+          <select
             id="risk-filter"
             value={riskFilter}
             onChange={(e) => setRiskFilter(e.target.value)}
-            className="w-full appearance-none bg-slate-50 border border-slate-200 text-slate-600 text-xs rounded-lg pl-3 pr-8 py-2.5 min-h-[44px] outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:border-blue-500 transition-all cursor-pointer font-bold"
-            aria-label="Filter machines by risk level"
+            className="w-full appearance-none bg-slate-50 border border-slate-200 text-[10px] rounded pl-2 pr-6 py-1.5 cursor-pointer font-bold outline-none focus:ring-1 focus:ring-blue-500"
+            aria-label="Filter by risk"
           >
-            <option value="All">All Risk Levels</option>
-            <option value="Low">Low Risk</option>
-            <option value="Medium">Medium Risk</option>
-            <option value="High">High Risk</option>
+            <option value="All">All Risk</option>
+            <option value="Low">Low</option>
+            <option value="Medium">Medium</option>
+            <option value="High">High</option>
           </select>
-          <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={14} />
+          <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={10} />
         </div>
 
         {/* Reset Button */}
-        <div className="md:col-span-1 flex items-center justify-center">
-          {hasActiveFilters && (
-            <button 
-              onClick={clearFilters}
-              className="text-slate-400 hover:text-red-500 transition-colors p-2"
-              title="Clear all filters"
-            >
-              <X size={20} />
-            </button>
-          )}
-        </div>
+        {hasActiveFilters && (
+          <button
+            onClick={clearFilters}
+            className="text-slate-400 hover:text-red-500 transition-colors p-1"
+            title="Clear filters"
+          >
+            <X size={14} />
+          </button>
+        )}
       </div>
 
       {/* OU-Based Auto-Grouping Summary - Compact */}
