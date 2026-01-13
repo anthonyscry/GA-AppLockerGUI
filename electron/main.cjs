@@ -11,15 +11,16 @@ const { AppConfig } = require('../config/appConfig.cjs');
 const { setupIpcHandlers } = require('./ipc/ipcHandlers.cjs');
 
 // Global shutdown flag to prevent operations during exit
-let isShuttingDown = false;
+// Use global to share across modules
+global.isShuttingDown = false;
 
 // Set shutdown flag when app is quitting
 if (app && app.on) {
   app.on('before-quit', () => {
-    isShuttingDown = true;
+    global.isShuttingDown = true;
   });
   app.on('will-quit', () => {
-    isShuttingDown = true;
+    global.isShuttingDown = true;
   });
 }
 
@@ -85,7 +86,7 @@ async function initializeApp() {
     console.error('Failed to initialize app:', error);
     
     // Show user-friendly error dialog (only if app is still available and not shutting down)
-    if (app && !isShuttingDown && dialog) {
+    if (app && !global.isShuttingDown && dialog) {
       try {
         dialog.showErrorBox(
           'Application Initialization Error',
@@ -94,7 +95,7 @@ async function initializeApp() {
       } catch (e) {
         console.error('Could not show error dialog:', e.message);
       }
-      if (app && !isShuttingDown) {
+      if (app && !global.isShuttingDown) {
         app.quit();
       }
     }
@@ -110,13 +111,13 @@ process.on('uncaughtException', (error) => {
   console.error('[Main] Stack:', error.stack);
   
   // Don't show dialogs during shutdown
-  if (isShuttingDown) {
+  if (global.isShuttingDown) {
     return;
   }
   
   // Show error dialog to user (only if window still exists and not shutting down)
   const mainWindow = windowManager.getMainWindow();
-  if (app && !isShuttingDown && dialog) {
+  if (app && !global.isShuttingDown && dialog) {
     try {
       // Only show dialog if window exists and is not destroyed
       if (mainWindow && !mainWindow.isDestroyed()) {
@@ -132,8 +133,8 @@ process.on('uncaughtException', (error) => {
   }
   
   // In production, might want to log to file or send to error tracking service
-  if (app && !isShuttingDown) {
-    isShuttingDown = true;
+  if (app && !global.isShuttingDown) {
+    global.isShuttingDown = true;
     app.quit();
   }
 });
@@ -141,7 +142,7 @@ process.on('uncaughtException', (error) => {
 // Handle unhandled promise rejections
 process.on('unhandledRejection', (reason, promise) => {
   // Don't process rejections during shutdown
-  if (isShuttingDown) {
+  if (global.isShuttingDown) {
     return;
   }
   
@@ -152,7 +153,7 @@ process.on('unhandledRejection', (reason, promise) => {
   
   // Show error dialog for critical unhandled rejections (only if window exists and not shutting down)
   const mainWindow = windowManager.getMainWindow();
-  if (app && !isShuttingDown && dialog && process.env.NODE_ENV === 'production') {
+  if (app && !global.isShuttingDown && dialog && process.env.NODE_ENV === 'production') {
     try {
       // Only show dialog if window exists and is not destroyed
       if (mainWindow && !mainWindow.isDestroyed()) {
