@@ -457,37 +457,6 @@ const ScanModule: React.FC = () => {
           </div>
         </div>
 
-        {/* GPO Confirmation Dialog Overlay */}
-        {showGpoConfirm && (
-          <div className="absolute inset-0 z-20 bg-slate-900/95 backdrop-blur-sm flex items-center justify-center p-6 animate-in fade-in duration-200">
-            <div className="max-w-md w-full text-center space-y-4">
-              <ShieldAlert size={48} className="text-amber-500 mx-auto" />
-              <div className="space-y-2">
-                <h4 className="text-white font-bold text-lg tracking-tight">Confirm GPO Change</h4>
-                <p className="text-slate-400 text-sm leading-relaxed font-medium">
-                  You are about to {gpoStatus === 'Enabled' ? 'disable' : 'enable'} WinRM domain-wide.
-                  This will affect the network and may take time to fully propagate via GPUpdate.
-                </p>
-              </div>
-              <div className="flex items-center justify-center space-x-3 pt-2">
-                <button 
-                  onClick={() => setShowGpoConfirm(false)}
-                  className="px-6 py-2.5 min-h-[44px] rounded-xl text-slate-400 font-bold text-xs uppercase tracking-widest hover:text-white transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                  aria-label="Cancel GPO change"
-                >
-                  Cancel
-                </button>
-                <button 
-                  onClick={toggleWinRMGPO}
-                  className="px-6 py-2.5 min-h-[44px] bg-blue-600 text-white rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-blue-700 shadow-xl shadow-blue-500/20 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                  aria-label="Confirm and proceed with GPO change"
-                >
-                  Confirm & Proceed
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
 
         <div className="absolute -right-16 -bottom-16 opacity-[0.03] text-white">
           <Globe size={240} />
@@ -793,6 +762,38 @@ const ScanModule: React.FC = () => {
           <Server size={300} />
         </div>
       </div>
+
+      {/* GPO Confirmation Modal - Fixed position for full visibility */}
+      {showGpoConfirm && (
+        <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-6 animate-in fade-in duration-200">
+          <div className="bg-slate-800 rounded-2xl p-8 max-w-md w-full text-center space-y-6 shadow-2xl border border-slate-700">
+            <ShieldAlert size={48} className="text-amber-500 mx-auto" />
+            <div className="space-y-2">
+              <h4 className="text-white font-bold text-xl tracking-tight">Confirm GPO Change</h4>
+              <p className="text-slate-400 text-sm leading-relaxed font-medium">
+                You are about to {gpoStatus === 'Enabled' ? 'disable' : 'enable'} WinRM domain-wide.
+                This will affect the network and may take time to fully propagate via GPUpdate.
+              </p>
+            </div>
+            <div className="flex items-center justify-center space-x-3 pt-2">
+              <button
+                onClick={() => setShowGpoConfirm(false)}
+                className="px-6 py-3 min-h-[44px] rounded-xl text-slate-400 font-bold text-xs uppercase tracking-widest hover:text-white hover:bg-slate-700 transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-slate-800"
+                aria-label="Cancel GPO change"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={toggleWinRMGPO}
+                className="px-6 py-3 min-h-[44px] bg-blue-600 text-white rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-blue-700 shadow-xl shadow-blue-500/20 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-slate-800"
+                aria-label="Confirm and proceed with GPO change"
+              >
+                Confirm & Proceed
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

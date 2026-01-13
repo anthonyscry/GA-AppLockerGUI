@@ -1501,6 +1501,62 @@ function setupIpcHandlers() {
     }
   });
 
+  // Local scan handler - scans the local machine for installed applications
+  ipcMain.handle('scan:local', async (event, options = {}) => {
+    try {
+      const command = `
+        try {
+          # Get installed applications from registry
+          $apps = @()
+
+          # 64-bit applications
+          $apps += Get-ItemProperty "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*" -ErrorAction SilentlyContinue |
+            Where-Object { $_.DisplayName } |
+            Select-Object DisplayName, Publisher, DisplayVersion, InstallLocation
+
+          # 32-bit applications on 64-bit Windows
+          $apps += Get-ItemProperty "HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*" -ErrorAction SilentlyContinue |
+            Where-Object { $_.DisplayName } |
+            Select-Object DisplayName, Publisher, DisplayVersion, InstallLocation
+
+          # Get executables from common paths
+          $exePaths = @(
+            "$env:ProgramFiles",
+            "${env:ProgramFiles(x86)}",
+            "$env:SystemRoot"
+          )
+
+          $exeCount = 0
+          foreach ($exePath in $exePaths) {
+            if (Test-Path $exePath) {
+              $exeCount += (Get-ChildItem -Path $exePath -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue | Measure-Object).Count
+            }
+          }
+
+          @{
+            success = $true
+            appCount = ($apps | Where-Object { $_.DisplayName } | Select-Object -Unique DisplayName | Measure-Object).Count
+            exeCount = $exeCount
+            computerName = $env:COMPUTERNAME
+            scanTime = (Get-Date).ToString('o')
+          } | ConvertTo-Json -Compress
+        } catch {
+          @{ success = $false; error = $_.Exception.Message } | ConvertTo-Json -Compress
+        }
+      `;
+
+      const result = await executePowerShellCommand(command, { timeout: 120000 });
+
+      if (result.stdout) {
+        return JSON.parse(result.stdout);
+      }
+      return { success: false, error: 'No output from scan' };
+    } catch (error) {
+      console.error('[IPC] Local scan error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
   // ============================================
   // EVENT HANDLERS (AppLocker Audit Logs)
   // ============================================
@@ -1609,7 +1665,7 @@ function setupIpcHandlers() {
   // Get evidence status
   ipcMain.handle('compliance:getEvidenceStatus', async () => {
     try {
-      const evidenceDir = path.join(process.cwd(), 'evidence');
+      const evidenceDir = path.join(process.cwd(), 'compliance');
 
       const hasPolicyDefs = fs.existsSync(path.join(evidenceDir, 'policies'));
       const hasAuditLogs = fs.existsSync(path.join(evidenceDir, 'audit-logs'));
@@ -1638,7 +1694,7 @@ function setupIpcHandlers() {
       const scriptsDir = getScriptsDirectory();
       const scriptPath = path.join(scriptsDir, 'Export-ComplianceEvidence.ps1');
 
-      const outputDir = options.outputDirectory || path.join(process.cwd(), 'evidence');
+      const outputDir = options.outputDirectory || path.join(process.cwd(), 'compliance');
       const args = ['-OutputDirectory', outputDir];
 
       if (fs.existsSync(scriptPath)) {
@@ -1665,7 +1721,7 @@ function setupIpcHandlers() {
   // Get historical reports
   ipcMain.handle('compliance:getHistoricalReports', async () => {
     try {
-      const reportsDir = path.join(process.cwd(), 'evidence', 'reports');
+      const reportsDir = path.join(process.cwd(), 'compliance', 'reports');
 
       if (!fs.existsSync(reportsDir)) {
         return [];
@@ -1686,7 +1742,7 @@ function setupIpcHandlers() {
   // Validate evidence
   ipcMain.handle('compliance:validateEvidence', async () => {
     try {
-      const evidenceDir = path.join(process.cwd(), 'evidence');
+      const evidenceDir = path.join(process.cwd(), 'compliance');
       const missingItems = [];
       const warnings = [];
 
