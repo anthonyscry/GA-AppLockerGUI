@@ -48,14 +48,11 @@ const PolicyModule: React.FC = () => {
     () => policy.getInventory()
   );
   
+  // Fetch trusted publishers from Windows certificate store (merged with COMMON_PUBLISHERS)
   const { data: trustedPublishers, loading: publishersLoading, error: publishersError } = useAsync(
     () => policy.getTrustedPublishers()
   );
-  
-  const { data: categories } = useAsync(
-    () => policy.getPublisherCategories()
-  );
-  
+
   // Fetch machines for OU-based policy generation
   const { data: machines } = useAsync(
     () => machine.getAllMachines()
@@ -170,20 +167,53 @@ const PolicyModule: React.FC = () => {
     );
   }, [combinedInventory, genSearchQuery]);
 
+  /**
+   * Merge COMMON_PUBLISHERS with any additional publishers from certificate store
+   * COMMON_PUBLISHERS is always the base list; certificate store publishers are added
+   * to show which publishers are actually trusted on this machine
+   */
+  const allPublishers = useMemo(() => {
+    // Always start with COMMON_PUBLISHERS as the base
+    const base = [...COMMON_PUBLISHERS];
+
+    // If certificate store returned additional publishers, merge them
+    if (trustedPublishers && trustedPublishers.length > 0) {
+      trustedPublishers.forEach(certPub => {
+        // Check if this publisher already exists in base (by name match)
+        const exists = base.some(p =>
+          (p.name || '').toLowerCase() === (certPub.name || '').toLowerCase() ||
+          (p.publisherName || '').toLowerCase().includes((certPub.name || '').toLowerCase())
+        );
+        if (!exists && certPub.name) {
+          // Add certificate store publisher with 'Installed' category
+          base.push({
+            ...certPub,
+            category: certPub.category || 'Installed',
+            description: certPub.description || `Trusted certificate: ${certPub.name}`
+          });
+        }
+      });
+    }
+    return base;
+  }, [trustedPublishers]);
+
   const filteredPublishers = useMemo(() => {
-    const publishers = trustedPublishers || COMMON_PUBLISHERS;
-    if (!genSearchQuery && genCategoryFilter === 'All') return publishers;
+    if (!genSearchQuery && genCategoryFilter === 'All') return allPublishers;
     const query = genSearchQuery.toLowerCase();
-    return publishers.filter(p => {
+    return allPublishers.filter(p => {
       const matchesSearch = !genSearchQuery ||
         (p.name || '').toLowerCase().includes(query) ||
         (p.publisherName || '').toLowerCase().includes(query);
       const matchesCategory = genCategoryFilter === 'All' || p.category === genCategoryFilter;
       return matchesSearch && matchesCategory;
     });
-  }, [trustedPublishers, genSearchQuery, genCategoryFilter]);
+  }, [allPublishers, genSearchQuery, genCategoryFilter]);
 
-  const availableCategories = categories || ['All', ...Array.from(new Set(COMMON_PUBLISHERS.map(p => p.category)))];
+  // Generate categories from the merged publisher list
+  const availableCategories = useMemo(() => {
+    const cats = new Set(allPublishers.map(p => p.category));
+    return ['All', ...Array.from(cats).sort()];
+  }, [allPublishers]);
 
   const runHealthCheck = async () => {
     try {
@@ -1423,7 +1453,13 @@ const PolicyModule: React.FC = () => {
                     >Vendors</button>
                   </div>
 
-                  {/* Import Artifacts Button */}
+                  {/*
+                   * Multi-File Import for Scan Artifacts
+                   * Supports importing multiple CSV or JSON files simultaneously.
+                   * - JSON: Handles both comprehensive scan format (with Executables array) and flat arrays
+                   * - CSV: Parses header row to map columns (name, publisher, path, version, type)
+                   * Automatically deduplicates items by file path to prevent redundant rules.
+                   */}
                   <label className="block">
                     <input
                       type="file"
@@ -1439,12 +1475,20 @@ const PolicyModule: React.FC = () => {
                         let processedCount = 0;
                         const fileNames: string[] = [];
 
+                        /**
+                         * Parse a single file's content into InventoryItem array
+                         * @param text - Raw file content as string
+                         * @param fileName - Name of the file (used to determine format)
+                         * @returns Array of InventoryItem objects
+                         */
                         const parseFile = (text: string, fileName: string): InventoryItem[] => {
                           let items: InventoryItem[] = [];
+                          // Generate unique base ID using timestamp + offset to prevent collisions
                           const baseId = Date.now() + processedCount * 10000;
 
                           if (fileName.endsWith('.json')) {
                             const data = JSON.parse(text);
+                            // Handle comprehensive scan artifacts format (from Get-ComprehensiveScanArtifacts.ps1)
                             if (data.Executables) {
                               items = data.Executables.map((exe: any, index: number) => ({
                                 id: `imported-${baseId}-${index}`,
@@ -1454,6 +1498,7 @@ const PolicyModule: React.FC = () => {
                                 version: exe.Version || exe.version || '',
                                 type: (exe.Type || exe.type || 'EXE') as InventoryItem['type']
                               }));
+                            // Handle flat JSON array format
                             } else if (Array.isArray(data)) {
                               items = data.map((item: any, index: number) => ({
                                 id: `imported-${baseId}-${index}`,
@@ -1465,12 +1510,14 @@ const PolicyModule: React.FC = () => {
                               }));
                             }
                           } else {
+                            // CSV format: Parse header row for column mapping
                             const lines = text.split('\n').filter(l => l.trim());
                             const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
                             items = lines.slice(1).map((line, index) => {
                               const values = line.split(',').map(v => v.trim());
                               return {
                                 id: `imported-${baseId}-${index}`,
+                                // Map by header name, fallback to positional index
                                 name: values[headers.indexOf('name')] || values[0] || 'Unknown',
                                 publisher: values[headers.indexOf('publisher')] || values[1] || 'Unknown',
                                 path: values[headers.indexOf('path')] || values[2] || '',
@@ -1482,6 +1529,10 @@ const PolicyModule: React.FC = () => {
                           return items;
                         };
 
+                        /**
+                         * Process all selected files asynchronously
+                         * Reads each file, parses content, and accumulates results
+                         */
                         const processFiles = async () => {
                           for (const file of files) {
                             try {
@@ -1497,12 +1548,13 @@ const PolicyModule: React.FC = () => {
                             processedCount++;
                           }
 
-                          // Remove duplicates by path
+                          // Deduplicate by file path to prevent redundant AppLocker rules
                           const uniqueItems = allItems.filter((item, index, self) =>
                             index === self.findIndex(t => t.path === item.path && t.path !== '')
                           );
 
                           if (uniqueItems.length > 0) {
+                            // Append to existing imported artifacts (allows cumulative imports)
                             setImportedArtifacts(prev => [...prev, ...uniqueItems]);
                             setImportedFrom(fileNames.length > 1 ? `${fileNames.length} files` : fileNames[0]);
                             setGeneratorTab('scanned');
@@ -1709,8 +1761,17 @@ const PolicyModule: React.FC = () => {
                       </div>
                     </div>
 
+                    {/*
+                     * Rule Generation Action Buttons
+                     * Four options for creating AppLocker rules:
+                     * 1. Commit to AD - Creates rule directly in Active Directory GPO
+                     * 2. Save to File - Exports single rule to XML file for review/manual import
+                     * 3. Batch - Creates rules for all filtered items directly to AD
+                     * 4. Export All - Exports all filtered items as rules to XML file
+                     */}
                     <div className="space-y-1.5 pt-2 border-t border-slate-100">
                       <div className="grid grid-cols-2 gap-1.5">
+                        {/* Commit to AD: Creates rule directly in Active Directory */}
                         <button
                           onClick={handleCreateRule}
                           className="py-2 bg-blue-600 text-white rounded-xl font-black uppercase tracking-widest text-[10px] hover:bg-blue-700 shadow-lg transition-all flex items-center justify-center space-x-1"
@@ -1718,14 +1779,21 @@ const PolicyModule: React.FC = () => {
                           <Check size={12} aria-hidden="true" />
                           <span>Commit to AD</span>
                         </button>
+                        {/*
+                         * Save to File: Export single rule to XML without applying to AD
+                         * Useful for review, backup, or manual GPO import
+                         * Invokes policy:saveRule IPC handler
+                         */}
                         <button
                           onClick={async () => {
                             const subject = generatorTab === 'scanned' ? selectedApp : selectedPublisher;
                             if (!subject) return;
 
+                            // Dynamic import to reduce initial bundle size
                             const { showSaveDialog } = await import('../src/infrastructure/ipc/fileDialog');
                             const outputPath = await showSaveDialog({
                               title: 'Save Rule to File',
+                              // Sanitize filename: remove special chars, limit length
                               defaultPath: `.\\policies\\Rule-${'name' in subject ? subject.name.replace(/[^a-zA-Z0-9]/g, '-').slice(0, 30) : 'Generated'}.xml`,
                               filters: [
                                 { name: 'XML Files', extensions: ['xml'] },
@@ -1740,6 +1808,7 @@ const PolicyModule: React.FC = () => {
                                 alert('IPC not available');
                                 return;
                               }
+                              // Call IPC handler to generate and save XML rule
                               const result = await electron.ipc.invoke('policy:saveRule', {
                                 subject: subject,
                                 action: ruleAction,
@@ -1763,8 +1832,10 @@ const PolicyModule: React.FC = () => {
                           <span>Save to File</span>
                         </button>
                       </div>
+                      {/* Batch operations: Only shown when there are scanned items */}
                       {generatorTab === 'scanned' && filteredInventory.length > 0 && (
                         <div className="grid grid-cols-2 gap-1.5">
+                          {/* Batch: Apply rules for all filtered items directly to AD */}
                           <button
                             onClick={handleBatchGenerate}
                             className="py-2 bg-green-600 text-white rounded-xl font-black uppercase tracking-widest text-[10px] hover:bg-green-700 transition-all flex items-center justify-center space-x-1"
@@ -1772,6 +1843,10 @@ const PolicyModule: React.FC = () => {
                             <Archive size={12} aria-hidden="true" />
                             <span>Batch ({filteredInventory.length})</span>
                           </button>
+                          {/*
+                           * Export All: Save all filtered items as rules to XML file
+                           * Uses batchGenerateRules with groupByPublisher for optimized rules
+                           */}
                           <button
                             onClick={async () => {
                               if (filteredInventory.length === 0) {
@@ -1782,6 +1857,7 @@ const PolicyModule: React.FC = () => {
                               const { showSaveDialog } = await import('../src/infrastructure/ipc/fileDialog');
                               const outputPath = await showSaveDialog({
                                 title: 'Export All Rules to File',
+                                // Include date in filename for versioning
                                 defaultPath: `.\\policies\\Batch-Export-${new Date().toISOString().slice(0,10)}.xml`,
                                 filters: [
                                   { name: 'XML Files', extensions: ['xml'] },
@@ -1791,11 +1867,12 @@ const PolicyModule: React.FC = () => {
                               if (!outputPath) return;
 
                               try {
+                                // Use batch generation with publisher grouping for optimal rule count
                                 const result = await policy.batchGenerateRules(filteredInventory, outputPath, {
                                   ruleAction: ruleAction,
                                   targetGroup: targetGroup,
                                   collectionType: 'Exe',
-                                  groupByPublisher: true
+                                  groupByPublisher: true  // Reduces rule count by combining same-publisher items
                                 });
 
                                 if (result.success) {

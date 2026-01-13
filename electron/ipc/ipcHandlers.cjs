@@ -1939,29 +1939,60 @@ function setupIpcHandlers() {
   // EVENT HANDLERS (AppLocker Audit Logs)
   // ============================================
 
-  // Get all AppLocker events
+  /**
+   * Get all AppLocker events from Windows Event Viewer
+   *
+   * Retrieves events from "Microsoft-Windows-AppLocker/EXE and DLL" log.
+   * Parses event messages to extract file path and publisher information.
+   *
+   * Event IDs:
+   * - 8001: Policy applied successfully
+   * - 8002: Application allowed
+   * - 8003: Would have been blocked (audit mode)
+   * - 8004: Application blocked (enforce mode)
+   *
+   * @returns {Array<AppEvent>} Array of parsed AppLocker events with:
+   *   - id: Unique identifier
+   *   - eventId: Windows event ID (8001-8004)
+   *   - timestamp: ISO format timestamp
+   *   - machine: Computer name
+   *   - path: Executable file path (parsed from message)
+   *   - publisher: Software publisher (parsed from message)
+   *   - action: 'Allowed', 'Audit', or 'Blocked'
+   */
   ipcMain.handle('event:getAll', async () => {
     try {
       const command = `
         try {
+          # Fetch last 100 AppLocker events from EXE and DLL log
           $events = Get-WinEvent -LogName "Microsoft-Windows-AppLocker/EXE and DLL" -MaxEvents 100 -ErrorAction SilentlyContinue |
             ForEach-Object {
               $msg = $_.Message
-              # Parse path from message (usually between quotes or after "was")
+
+              # Parse file path from event message
+              # AppLocker messages include path in various formats
               $path = ''
               $publisher = ''
               $action = ''
+
+              # Try to extract path (usually in quotes or after "was")
               if ($msg -match '([A-Z]:\\\\[^"]+\\.exe|[A-Z]:\\\\[^\\s]+\\.exe)') {
                 $path = $matches[1]
               } elseif ($msg -match '"([^"]+)"') {
                 $path = $matches[1]
               }
+
+              # Try to extract publisher information
               if ($msg -match 'Publisher:\\s*([^\\r\\n]+)') {
                 $publisher = $matches[1].Trim()
               } elseif ($msg -match 'signed by\\s+([^\\r\\n]+)') {
                 $publisher = $matches[1].Trim()
               }
+
+              # Map event ID to action type
               $action = if($_.Id -eq 8004) { 'Blocked' } elseif($_.Id -eq 8003) { 'Audit' } else { 'Allowed' }
+
+              # Return structured event object
               @{
                 id = [guid]::NewGuid().ToString()
                 eventId = $_.Id
@@ -2340,19 +2371,39 @@ ${rules}
     }
   });
 
-  // Save a single rule to file
+  /**
+   * Save a single AppLocker rule to XML file
+   *
+   * Generates a complete AppLocker policy XML file containing one rule.
+   * Supports three rule types:
+   * - Publisher: Based on software publisher certificate (recommended for signed software)
+   * - Path: Based on file system path (use with caution, easily bypassed)
+   * - Hash: Based on file hash (secure but breaks on updates)
+   *
+   * @param {Object} options - Rule configuration
+   * @param {Object} options.subject - The item to create rule for (InventoryItem or TrustedPublisher)
+   * @param {string} options.action - 'Allow' or 'Deny'
+   * @param {string} options.ruleType - 'Publisher', 'Path', or 'Hash'
+   * @param {string} options.targetGroup - Security group the rule applies to
+   * @param {string} options.collectionType - 'Exe', 'Script', 'Msi', or 'Dll'
+   * @param {string} outputPath - Full path where XML file will be saved
+   * @returns {Object} { success: boolean, outputPath?: string, error?: string }
+   */
   ipcMain.handle('policy:saveRule', async (event, options, outputPath) => {
     try {
+      // Security: Validate output path is in allowed directory
       if (!isPathAllowed(outputPath)) {
         return { success: false, error: 'Output path not allowed' };
       }
 
+      // Extract and sanitize rule parameters
       const subject = options.subject;
       const action = options.action || 'Allow';
       const ruleType = options.ruleType || 'Publisher';
       const targetGroup = escapePowerShellString(options.targetGroup || 'Everyone');
       const collectionType = options.collectionType || 'Exe';
 
+      // Generate unique rule ID and sanitize inputs
       const ruleId = crypto.randomUUID();
       const ruleName = escapePowerShellString(subject?.name || 'Generated-Rule');
       const publisher = escapePowerShellString(subject?.publisher || subject?.publisherName || 'Unknown');
@@ -2360,7 +2411,10 @@ ${rules}
 
       let ruleXml = '';
 
+      // Generate rule XML based on rule type
       if (ruleType === 'Publisher') {
+        // Publisher rules: Most flexible, survives software updates
+        // Uses wildcard (*) for ProductName and BinaryName for broad coverage
         ruleXml = `    <FilePublisherRule Id="${ruleId}" Name="${ruleName}" Action="${action}" UserOrGroupSid="S-1-1-0">
       <Conditions>
         <FilePublisherCondition PublisherName="${publisher}" ProductName="*" BinaryName="*">
@@ -2369,13 +2423,15 @@ ${rules}
       </Conditions>
     </FilePublisherRule>`;
       } else if (ruleType === 'Path') {
+        // Path rules: Simple but less secure (user can copy file elsewhere)
         ruleXml = `    <FilePathRule Id="${ruleId}" Name="${ruleName}" Action="${action}" UserOrGroupSid="S-1-1-0">
       <Conditions>
         <FilePathCondition Path="${filePath}" />
       </Conditions>
     </FilePathRule>`;
       } else if (ruleType === 'Hash') {
-        // Hash rules require actual file hash - for now, generate a placeholder
+        // Hash rules: Most secure but breaks on any file change
+        // NOTE: Placeholder hash - real implementation would compute actual file hash
         ruleXml = `    <FileHashRule Id="${ruleId}" Name="${ruleName}" Action="${action}" UserOrGroupSid="S-1-1-0">
       <Conditions>
         <FileHashCondition>
@@ -2385,6 +2441,8 @@ ${rules}
     </FileHashRule>`;
       }
 
+      // Wrap rule in complete AppLocker policy XML structure
+      // EnforcementMode="AuditOnly" for safe testing before enforcement
       const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <AppLockerPolicy Version="1">
   <RuleCollection Type="${collectionType}" EnforcementMode="AuditOnly">
@@ -2392,12 +2450,13 @@ ${ruleXml}
   </RuleCollection>
 </AppLockerPolicy>`;
 
-      // Ensure directory exists
+      // Create output directory if it doesn't exist
       const dir = path.dirname(outputPath);
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
 
+      // Write XML to file
       fs.writeFileSync(outputPath, xml, 'utf8');
       return { success: true, outputPath };
     } catch (error) {
