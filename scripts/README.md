@@ -1,6 +1,6 @@
 # GA-AppLocker PowerShell Scripts
 
-**Version:** 1.2.4  
+**Version:** 1.2.10
 **Author:** GA-ASI ISSO Team
 
 This directory contains PowerShell scripts and modules for comprehensive AppLocker policy management in GA-ASI environments.
@@ -294,6 +294,102 @@ Environment setup and prerequisite verification.
 
 ---
 
+### 7. Enable-WinRMGPO.ps1
+
+Enables WinRM (Windows Remote Management) via Group Policy for remote AppLocker management.
+
+**Usage:**
+```powershell
+.\Enable-WinRMGPO.ps1 `
+    -GPOName "WinRM-Enable-Policy" `
+    -TargetOU "OU=Workstations,DC=contoso,DC=com"
+```
+
+**Parameters:**
+- `-GPOName` (Optional): Name of GPO to create (default: "WinRM-Enable-Policy")
+- `-TargetOU` (Optional): Target OU for GPO linking
+
+**Features:**
+- Creates GPO with WinRM service configuration
+- Configures IPv4/IPv6 filters
+- Links GPO to specified OU
+- Returns JSON status for IPC integration
+
+**Security Note:** Opens WinRM to all addresses by default. Ensure firewall rules restrict access to trusted networks.
+
+---
+
+### 8. Disable-WinRMGPO.ps1
+
+Disables or removes WinRM Group Policy configuration.
+
+**Usage:**
+```powershell
+# Disable only (keeps GPO)
+.\Disable-WinRMGPO.ps1 -GPOName "WinRM-Enable-Policy"
+
+# Complete removal
+.\Disable-WinRMGPO.ps1 -GPOName "WinRM-Enable-Policy" -RemoveGPO
+```
+
+**Parameters:**
+- `-GPOName` (Optional): Name of GPO to disable (default: "WinRM-Enable-Policy")
+- `-RemoveGPO` (Switch): Completely remove GPO instead of just disabling
+
+**Features:**
+- Disables GPO settings without deletion (default)
+- Option to completely remove GPO and all links
+- Safe cleanup of OU links before deletion
+- Returns JSON status for IPC integration
+
+---
+
+### 9. Export-ComplianceEvidence.ps1
+
+Generates comprehensive compliance evidence packages for auditors with integrity verification.
+
+**Usage:**
+```powershell
+.\Export-ComplianceEvidence.ps1 `
+    -OutputDirectory "C:\Compliance\Q1-2026" `
+    -DaysBack 30 `
+    -IncludeSystemInfo
+```
+
+**Parameters:**
+- `-OutputDirectory` (Required): Output directory for evidence package
+- `-DaysBack` (Optional): Number of days of audit logs to include (default: 30)
+- `-IncludeSystemInfo` (Switch): Include system configuration snapshot
+
+**Output Structure:**
+```
+OutputDirectory/
+├── Evidence_YYYYMMDD_HHMMSS/
+│   ├── policies/
+│   │   └── AppLockerPolicy_Export.xml
+│   ├── logs/
+│   │   └── AuditEvents_30Days.csv
+│   ├── system/
+│   │   └── SystemInfo.json
+│   └── manifest.json (SHA256 hashes)
+```
+
+**Features:**
+- Exports current AppLocker policies
+- Collects audit event logs (configurable date range)
+- Captures system configuration snapshot
+- Generates SHA256 hashes for all files
+- Creates manifest for evidence chain of custody
+- Individual error handling per section (resilient operation)
+
+**Compliance Use Cases:**
+- STIG compliance audits
+- Security assessments
+- Change management documentation
+- Incident response evidence collection
+
+---
+
 ## Templates
 
 ### inventory-template.csv
@@ -433,6 +529,13 @@ For issues or questions:
 
 ## Version History
 
+- **1.2.10** (2026): WinRM GPO management and compliance evidence
+  - Added Enable-WinRMGPO.ps1 for remote management setup
+  - Added Disable-WinRMGPO.ps1 for GPO cleanup
+  - Added Export-ComplianceEvidence.ps1 for audit packages
+  - SHA256 hash verification for evidence integrity
+  - JSON output for IPC integration
+
 - **1.2.4** (2024): Initial release
   - Core module functions
   - Deployment scripts
@@ -443,6 +546,6 @@ For issues or questions:
 ---
 
 **Document Control:**
-- **Version:** 1.2.4
-- **Last Updated:** 2024
+- **Version:** 1.2.10
+- **Last Updated:** January 2026
 - **Owner:** GA-ASI ISSO Team
