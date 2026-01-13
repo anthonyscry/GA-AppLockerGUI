@@ -1196,6 +1196,607 @@ function setupIpcHandlers() {
     }
   });
 
+  // ============================================
+  // AD HANDLERS (Active Directory Operations)
+  // ============================================
+
+  // Get all AD users (query from Active Directory)
+  ipcMain.handle('ad:getUsers', async () => {
+    try {
+      const command = `
+        try {
+          $users = Get-ADUser -Filter * -Properties DisplayName, Title, Department, EmailAddress, Enabled, MemberOf |
+            Select-Object -First 100 SamAccountName, DisplayName, Title, Department, EmailAddress, Enabled,
+              @{N='Groups';E={($_.MemberOf | ForEach-Object { ($_ -split ',')[0] -replace 'CN=' }) -join ';'}} |
+            ConvertTo-Json -Compress
+          $users
+        } catch {
+          '[]'
+        }
+      `;
+      const result = await executePowerShellCommand(command, { timeout: 30000 });
+
+      if (result.stdout && result.stdout.trim() !== '[]') {
+        try {
+          const users = JSON.parse(result.stdout);
+          return Array.isArray(users) ? users : [users];
+        } catch (e) {
+          console.warn('[IPC] Could not parse AD users:', e);
+        }
+      }
+      return [];
+    } catch (error) {
+      console.error('[IPC] Get AD users error:', error);
+      return [];
+    }
+  });
+
+  // Get user by ID
+  ipcMain.handle('ad:getUserById', async (event, userId) => {
+    try {
+      const safeUserId = escapePowerShellString(userId);
+      const command = `
+        try {
+          Get-ADUser -Identity "${safeUserId}" -Properties DisplayName, Title, Department, EmailAddress, Enabled, MemberOf |
+            Select-Object SamAccountName, DisplayName, Title, Department, EmailAddress, Enabled,
+              @{N='Groups';E={($_.MemberOf | ForEach-Object { ($_ -split ',')[0] -replace 'CN=' }) -join ';'}} |
+            ConvertTo-Json -Compress
+        } catch {
+          'null'
+        }
+      `;
+      const result = await executePowerShellCommand(command, { timeout: 15000 });
+
+      if (result.stdout && result.stdout.trim() !== 'null') {
+        return JSON.parse(result.stdout);
+      }
+      return null;
+    } catch (error) {
+      console.error('[IPC] Get AD user by ID error:', error);
+      return null;
+    }
+  });
+
+  // Add user to AD group
+  ipcMain.handle('ad:addToGroup', async (event, userId, groupName) => {
+    try {
+      const safeUserId = escapePowerShellString(userId);
+      const safeGroupName = escapePowerShellString(groupName);
+
+      const command = `
+        try {
+          Add-ADGroupMember -Identity "${safeGroupName}" -Members "${safeUserId}" -ErrorAction Stop
+          @{ success = $true } | ConvertTo-Json -Compress
+        } catch {
+          @{ success = $false; error = $_.Exception.Message } | ConvertTo-Json -Compress
+        }
+      `;
+      const result = await executePowerShellCommand(command, { timeout: 30000 });
+      return JSON.parse(result.stdout || '{"success":false}');
+    } catch (error) {
+      console.error('[IPC] Add to group error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Remove user from AD group
+  ipcMain.handle('ad:removeFromGroup', async (event, userId, groupName) => {
+    try {
+      const safeUserId = escapePowerShellString(userId);
+      const safeGroupName = escapePowerShellString(groupName);
+
+      const command = `
+        try {
+          Remove-ADGroupMember -Identity "${safeGroupName}" -Members "${safeUserId}" -Confirm:$false -ErrorAction Stop
+          @{ success = $true } | ConvertTo-Json -Compress
+        } catch {
+          @{ success = $false; error = $_.Exception.Message } | ConvertTo-Json -Compress
+        }
+      `;
+      const result = await executePowerShellCommand(command, { timeout: 30000 });
+      return JSON.parse(result.stdout || '{"success":false}');
+    } catch (error) {
+      console.error('[IPC] Remove from group error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Get AD groups (AppLocker-related)
+  ipcMain.handle('ad:getGroups', async () => {
+    try {
+      const command = `
+        try {
+          $groups = Get-ADGroup -Filter "Name -like '*AppLocker*' -or Name -like '*Application*'" -Properties Description |
+            Select-Object Name, Description, @{N='MemberCount';E={(Get-ADGroupMember -Identity $_.DistinguishedName -ErrorAction SilentlyContinue | Measure-Object).Count}} |
+            ConvertTo-Json -Compress
+          if ($groups) { $groups } else { '[]' }
+        } catch {
+          '[]'
+        }
+      `;
+      const result = await executePowerShellCommand(command, { timeout: 30000 });
+
+      if (result.stdout && result.stdout.trim() !== '[]') {
+        try {
+          const groups = JSON.parse(result.stdout);
+          return Array.isArray(groups) ? groups : [groups];
+        } catch (e) {
+          console.warn('[IPC] Could not parse AD groups:', e);
+        }
+      }
+      // Return default AppLocker groups if AD query fails
+      return [
+        'AppLocker-Admins',
+        'AppLocker-Exempt-Users',
+        'AppLocker-Developers',
+        'AppLocker-Standard-Users',
+        'AppLocker-Audit-Only'
+      ];
+    } catch (error) {
+      console.error('[IPC] Get AD groups error:', error);
+      return [];
+    }
+  });
+
+  // Get WinRM GPO status
+  ipcMain.handle('ad:getWinRMGPOStatus', async () => {
+    try {
+      const command = `
+        try {
+          $gpo = Get-GPO -Name "Enable-WinRM" -ErrorAction SilentlyContinue
+          if ($gpo) {
+            @{
+              status = 'Enabled'
+              gpoName = $gpo.DisplayName
+              createdTime = $gpo.CreationTime.ToString('o')
+              modifiedTime = $gpo.ModificationTime.ToString('o')
+            } | ConvertTo-Json -Compress
+          } else {
+            @{ status = 'Disabled' } | ConvertTo-Json -Compress
+          }
+        } catch {
+          @{ status = 'Unknown'; error = $_.Exception.Message } | ConvertTo-Json -Compress
+        }
+      `;
+      const result = await executePowerShellCommand(command, { timeout: 30000 });
+
+      if (result.stdout) {
+        return JSON.parse(result.stdout);
+      }
+      return { status: 'Unknown' };
+    } catch (error) {
+      console.error('[IPC] Get WinRM GPO status error:', error);
+      return { status: 'Unknown', error: error.message };
+    }
+  });
+
+  // Toggle WinRM GPO
+  ipcMain.handle('ad:toggleWinRMGPO', async (event, enable) => {
+    try {
+      const scriptsDir = getScriptsDirectory();
+      const scriptPath = path.join(scriptsDir, enable ? 'Enable-WinRMGPO.ps1' : 'Disable-WinRMGPO.ps1');
+
+      // Check if script exists, otherwise use inline command
+      if (fs.existsSync(scriptPath)) {
+        const result = await executePowerShellScript(scriptPath, [], { timeout: 300000 });
+        return { success: true, output: result.stdout };
+      } else {
+        // Inline implementation
+        const command = enable ? `
+          try {
+            $gpoName = "Enable-WinRM"
+            $gpo = Get-GPO -Name $gpoName -ErrorAction SilentlyContinue
+            if (-not $gpo) {
+              $gpo = New-GPO -Name $gpoName -Comment "Enables WinRM for remote management"
+            }
+            # Configure WinRM settings via GPO
+            Set-GPRegistryValue -Name $gpoName -Key "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WinRM\\Service" -ValueName "AllowAutoConfig" -Type DWord -Value 1
+            Set-GPRegistryValue -Name $gpoName -Key "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WinRM\\Service" -ValueName "IPv4Filter" -Type String -Value "*"
+            @{ success = $true } | ConvertTo-Json -Compress
+          } catch {
+            @{ success = $false; error = $_.Exception.Message } | ConvertTo-Json -Compress
+          }
+        ` : `
+          try {
+            $gpoName = "Enable-WinRM"
+            $gpo = Get-GPO -Name $gpoName -ErrorAction SilentlyContinue
+            if ($gpo) {
+              $gpo.GpoStatus = 'AllSettingsDisabled'
+            }
+            @{ success = $true } | ConvertTo-Json -Compress
+          } catch {
+            @{ success = $false; error = $_.Exception.Message } | ConvertTo-Json -Compress
+          }
+        `;
+
+        const result = await executePowerShellCommand(command, { timeout: 300000 });
+        return JSON.parse(result.stdout || '{"success":false}');
+      }
+    } catch (error) {
+      console.error('[IPC] Toggle WinRM GPO error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // ============================================
+  // MACHINE HANDLERS (Remote Scanning)
+  // ============================================
+
+  // Get all machines from AD
+  ipcMain.handle('machine:getAll', async () => {
+    try {
+      const command = `
+        try {
+          $computers = Get-ADComputer -Filter * -Properties OperatingSystem, LastLogonDate, DistinguishedName, Description |
+            Select-Object -First 200 Name, OperatingSystem, LastLogonDate, DistinguishedName, Description,
+              @{N='OU';E={($_.DistinguishedName -split ',', 2)[1]}} |
+            ForEach-Object {
+              @{
+                id = [guid]::NewGuid().ToString()
+                hostname = $_.Name
+                ou = $_.OU
+                os = $_.OperatingSystem
+                lastScan = if($_.LastLogonDate) { $_.LastLogonDate.ToString('yyyy-MM-dd') } else { 'Never' }
+                status = if($_.LastLogonDate -and $_.LastLogonDate -gt (Get-Date).AddDays(-30)) { 'Online' } else { 'Offline' }
+                riskLevel = 'Low'
+                appCount = 0
+              }
+            } | ConvertTo-Json -Compress
+          $computers
+        } catch {
+          '[]'
+        }
+      `;
+      const result = await executePowerShellCommand(command, { timeout: 60000 });
+
+      if (result.stdout && result.stdout.trim() !== '[]') {
+        try {
+          const machines = JSON.parse(result.stdout);
+          return Array.isArray(machines) ? machines : [machines];
+        } catch (e) {
+          console.warn('[IPC] Could not parse machines:', e);
+        }
+      }
+      return [];
+    } catch (error) {
+      console.error('[IPC] Get all machines error:', error);
+      return [];
+    }
+  });
+
+  // Get machine by ID
+  ipcMain.handle('machine:getById', async (event, id) => {
+    try {
+      // For now, return null - would need to track IDs in a database
+      console.log('[IPC] Get machine by ID:', id);
+      return null;
+    } catch (error) {
+      console.error('[IPC] Get machine by ID error:', error);
+      return null;
+    }
+  });
+
+  // Start batch scan (uses existing batch scan handler from earlier in file)
+  ipcMain.handle('machine:startScan', async (event, options = {}) => {
+    try {
+      const scriptsDir = getScriptsDirectory();
+      const scanScriptPath = path.join(scriptsDir, 'Start-BatchScan.ps1');
+
+      const args = [];
+      if (options.targetOUs && options.targetOUs.length > 0) {
+        args.push('-TargetOUs', options.targetOUs.join(','));
+      }
+      if (options.computerNames && options.computerNames.length > 0) {
+        args.push('-ComputerNames', options.computerNames.join(','));
+      }
+
+      const result = await executePowerShellScript(scanScriptPath, args, {
+        timeout: options.timeout || 600000
+      });
+
+      return { success: true, output: result.stdout };
+    } catch (error) {
+      console.error('[IPC] Start scan error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // ============================================
+  // EVENT HANDLERS (AppLocker Audit Logs)
+  // ============================================
+
+  // Get all AppLocker events
+  ipcMain.handle('event:getAll', async () => {
+    try {
+      const command = `
+        try {
+          $events = Get-WinEvent -LogName "Microsoft-Windows-AppLocker/EXE and DLL" -MaxEvents 100 -ErrorAction SilentlyContinue |
+            Select-Object Id, TimeCreated, Message, @{N='Computer';E={$env:COMPUTERNAME}} |
+            ForEach-Object {
+              @{
+                id = [guid]::NewGuid().ToString()
+                eventId = $_.Id
+                timestamp = $_.TimeCreated.ToString('o')
+                message = $_.Message
+                machineName = $_.Computer
+                severity = if($_.Id -eq 8004) { 'Blocked' } elseif($_.Id -eq 8003) { 'Warning' } else { 'Info' }
+              }
+            } | ConvertTo-Json -Compress
+          if ($events) { $events } else { '[]' }
+        } catch {
+          '[]'
+        }
+      `;
+      const result = await executePowerShellCommand(command, { timeout: 30000 });
+
+      if (result.stdout && result.stdout.trim() !== '[]') {
+        try {
+          const events = JSON.parse(result.stdout);
+          return Array.isArray(events) ? events : [events];
+        } catch (e) {
+          console.warn('[IPC] Could not parse events:', e);
+        }
+      }
+      return [];
+    } catch (error) {
+      console.error('[IPC] Get events error:', error);
+      return [];
+    }
+  });
+
+  // Get event statistics
+  ipcMain.handle('event:getStats', async () => {
+    try {
+      const command = `
+        try {
+          $events = Get-WinEvent -LogName "Microsoft-Windows-AppLocker/EXE and DLL" -MaxEvents 1000 -ErrorAction SilentlyContinue
+          $blocked = ($events | Where-Object { $_.Id -eq 8004 }).Count
+          $warnings = ($events | Where-Object { $_.Id -eq 8003 }).Count
+          $allowed = ($events | Where-Object { $_.Id -eq 8002 }).Count
+
+          @{
+            totalBlocked = $blocked
+            totalWarnings = $warnings
+            totalAllowed = $allowed
+            totalEvents = $events.Count
+          } | ConvertTo-Json -Compress
+        } catch {
+          @{ totalBlocked = 0; totalWarnings = 0; totalAllowed = 0; totalEvents = 0 } | ConvertTo-Json -Compress
+        }
+      `;
+      const result = await executePowerShellCommand(command, { timeout: 30000 });
+
+      if (result.stdout) {
+        return JSON.parse(result.stdout);
+      }
+      return { totalBlocked: 0, totalWarnings: 0, totalAllowed: 0, totalEvents: 0 };
+    } catch (error) {
+      console.error('[IPC] Get event stats error:', error);
+      return { totalBlocked: 0, totalWarnings: 0, totalAllowed: 0, totalEvents: 0 };
+    }
+  });
+
+  // Export events to CSV
+  ipcMain.handle('event:exportCSV', async (event, outputPath) => {
+    try {
+      if (!isPathAllowed(outputPath)) {
+        return { success: false, error: 'Output path not allowed' };
+      }
+
+      const safeOutputPath = escapePowerShellString(outputPath);
+      const command = `
+        try {
+          Get-WinEvent -LogName "Microsoft-Windows-AppLocker/EXE and DLL" -MaxEvents 5000 -ErrorAction SilentlyContinue |
+            Select-Object Id, TimeCreated, Message |
+            Export-Csv -Path "${safeOutputPath}" -NoTypeInformation
+          @{ success = $true; path = "${safeOutputPath}" } | ConvertTo-Json -Compress
+        } catch {
+          @{ success = $false; error = $_.Exception.Message } | ConvertTo-Json -Compress
+        }
+      `;
+      const result = await executePowerShellCommand(command, { timeout: 60000 });
+      return JSON.parse(result.stdout || '{"success":false}');
+    } catch (error) {
+      console.error('[IPC] Export events error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // ============================================
+  // COMPLIANCE HANDLERS
+  // ============================================
+
+  // Get evidence status
+  ipcMain.handle('compliance:getEvidenceStatus', async () => {
+    try {
+      const evidenceDir = path.join(process.cwd(), 'evidence');
+
+      const hasPolicyDefs = fs.existsSync(path.join(evidenceDir, 'policies'));
+      const hasAuditLogs = fs.existsSync(path.join(evidenceDir, 'audit-logs'));
+      const hasSnapshots = fs.existsSync(path.join(evidenceDir, 'snapshots'));
+
+      return {
+        policyDefinitions: hasPolicyDefs ? 'COMPLETE' : 'MISSING',
+        auditLogs: hasAuditLogs ? 'SYNCED' : 'MISSING',
+        systemSnapshots: hasSnapshots ? 'COMPLETE' : 'STALE',
+        lastUpdate: new Date().toISOString(),
+      };
+    } catch (error) {
+      console.error('[IPC] Get evidence status error:', error);
+      return {
+        policyDefinitions: 'UNKNOWN',
+        auditLogs: 'UNKNOWN',
+        systemSnapshots: 'UNKNOWN',
+        lastUpdate: null,
+      };
+    }
+  });
+
+  // Generate evidence package
+  ipcMain.handle('compliance:generateEvidence', async (event, options = {}) => {
+    try {
+      const scriptsDir = getScriptsDirectory();
+      const scriptPath = path.join(scriptsDir, 'Export-ComplianceEvidence.ps1');
+
+      const outputDir = options.outputDirectory || path.join(process.cwd(), 'evidence');
+      const args = ['-OutputDirectory', outputDir];
+
+      if (fs.existsSync(scriptPath)) {
+        const result = await executePowerShellScript(scriptPath, args, { timeout: 300000 });
+        return { success: true, path: outputDir, output: result.stdout };
+      }
+
+      // Create evidence directory structure
+      const dirs = ['policies', 'audit-logs', 'snapshots', 'reports'];
+      for (const dir of dirs) {
+        const dirPath = path.join(outputDir, dir);
+        if (!fs.existsSync(dirPath)) {
+          fs.mkdirSync(dirPath, { recursive: true });
+        }
+      }
+
+      return { success: true, path: outputDir };
+    } catch (error) {
+      console.error('[IPC] Generate evidence error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Get historical reports
+  ipcMain.handle('compliance:getHistoricalReports', async () => {
+    try {
+      const reportsDir = path.join(process.cwd(), 'evidence', 'reports');
+
+      if (!fs.existsSync(reportsDir)) {
+        return [];
+      }
+
+      const files = fs.readdirSync(reportsDir).filter(f => f.endsWith('.json') || f.endsWith('.html'));
+      return files.map(f => ({
+        name: f,
+        path: path.join(reportsDir, f),
+        date: fs.statSync(path.join(reportsDir, f)).mtime.toISOString()
+      }));
+    } catch (error) {
+      console.error('[IPC] Get historical reports error:', error);
+      return [];
+    }
+  });
+
+  // Validate evidence
+  ipcMain.handle('compliance:validateEvidence', async () => {
+    try {
+      const evidenceDir = path.join(process.cwd(), 'evidence');
+      const missingItems = [];
+      const warnings = [];
+
+      // Check required directories
+      const requiredDirs = ['policies', 'audit-logs'];
+      for (const dir of requiredDirs) {
+        if (!fs.existsSync(path.join(evidenceDir, dir))) {
+          missingItems.push(`Missing directory: ${dir}`);
+        }
+      }
+
+      // Check for stale data
+      const snapshotsDir = path.join(evidenceDir, 'snapshots');
+      if (fs.existsSync(snapshotsDir)) {
+        const files = fs.readdirSync(snapshotsDir);
+        if (files.length === 0) {
+          warnings.push('No system snapshots found');
+        }
+      }
+
+      return {
+        isValid: missingItems.length === 0,
+        missingItems,
+        warnings,
+      };
+    } catch (error) {
+      console.error('[IPC] Validate evidence error:', error);
+      return { isValid: false, missingItems: ['Validation failed'], warnings: [error.message] };
+    }
+  });
+
+  // ============================================
+  // POLICY HANDLERS (Additional)
+  // ============================================
+
+  // Create publisher rule
+  ipcMain.handle('policy:createPublisherRule', async (event, options, outputPath) => {
+    try {
+      if (!isPathAllowed(outputPath)) {
+        return { success: false, error: 'Output path not allowed' };
+      }
+
+      const publisher = escapePowerShellString(options.publisher);
+      const action = options.action || 'Allow';
+      const targetGroup = escapePowerShellString(options.targetGroup || 'Everyone');
+
+      const command = `
+        try {
+          $rule = @"
+<AppLockerPolicy Version="1">
+  <RuleCollection Type="Exe" EnforcementMode="AuditOnly">
+    <FilePublisherRule Id="$([guid]::NewGuid())" Name="${publisher}" Description="Auto-generated publisher rule" UserOrGroupSid="S-1-1-0" Action="${action}">
+      <Conditions>
+        <FilePublisherCondition PublisherName="${publisher}" ProductName="*" BinaryName="*">
+          <BinaryVersionRange LowSection="*" HighSection="*" />
+        </FilePublisherCondition>
+      </Conditions>
+    </FilePublisherRule>
+  </RuleCollection>
+</AppLockerPolicy>
+"@
+          $rule | Out-File -FilePath "${escapePowerShellString(outputPath)}" -Encoding UTF8
+          @{ success = $true; outputPath = "${escapePowerShellString(outputPath)}" } | ConvertTo-Json -Compress
+        } catch {
+          @{ success = $false; error = $_.Exception.Message } | ConvertTo-Json -Compress
+        }
+      `;
+
+      const result = await executePowerShellCommand(command, { timeout: 30000 });
+      return JSON.parse(result.stdout || '{"success":false}');
+    } catch (error) {
+      console.error('[IPC] Create publisher rule error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Batch create publisher rules
+  ipcMain.handle('policy:batchCreatePublisherRules', async (event, publishers, outputPath, options = {}) => {
+    try {
+      if (!isPathAllowed(outputPath)) {
+        return { success: false, error: 'Output path not allowed' };
+      }
+
+      const action = options.action || 'Allow';
+      const rules = publishers.map(pub => {
+        const safePub = escapePowerShellString(pub);
+        return `    <FilePublisherRule Id="${crypto.randomUUID()}" Name="${safePub}" Action="${action}" UserOrGroupSid="S-1-1-0">
+      <Conditions>
+        <FilePublisherCondition PublisherName="${safePub}" ProductName="*" BinaryName="*">
+          <BinaryVersionRange LowSection="*" HighSection="*" />
+        </FilePublisherCondition>
+      </Conditions>
+    </FilePublisherRule>`;
+      }).join('\n');
+
+      const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<AppLockerPolicy Version="1">
+  <RuleCollection Type="Exe" EnforcementMode="AuditOnly">
+${rules}
+  </RuleCollection>
+</AppLockerPolicy>`;
+
+      fs.writeFileSync(outputPath, xml, 'utf8');
+      return { success: true, outputPath, ruleCount: publishers.length };
+    } catch (error) {
+      console.error('[IPC] Batch create publisher rules error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
   console.log('[IPC] IPC handlers registered successfully');
 }
 

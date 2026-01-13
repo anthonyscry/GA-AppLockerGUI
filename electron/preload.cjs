@@ -17,9 +17,11 @@ contextBridge.exposeInMainWorld('electron', {
     invoke: (channel, ...args) => {
       // Whitelist channels for security
       const validChannels = [
+        // Machine channels
         'machine:getAll',
         'machine:getById',
         'machine:startScan',
+        // Policy channels
         'policy:getInventory',
         'policy:getTrustedPublishers',
         'policy:getGroups',
@@ -38,10 +40,14 @@ contextBridge.exposeInMainWorld('electron', {
         'policy:validateRules',
         'policy:getRuleTemplates',
         'policy:generateFromTemplate',
+        'policy:createPublisherRule',
+        'policy:batchCreatePublisherRules',
+        // Event channels
         'event:getAll',
         'event:getStats',
         'event:exportCSV',
         'events:collectAuditLogs',
+        // AD channels
         'ad:getUsers',
         'ad:getUserById',
         'ad:addToGroup',
@@ -49,15 +55,18 @@ contextBridge.exposeInMainWorld('electron', {
         'ad:getGroups',
         'ad:getWinRMGPOStatus',
         'ad:toggleWinRMGPO',
+        // Compliance channels
         'compliance:getEvidenceStatus',
         'compliance:generateEvidence',
         'compliance:generateReport',
         'compliance:getHistoricalReports',
         'compliance:validateEvidence',
+        // System channels
         'system:checkAppLockerService',
         'system:checkPowerShellModules',
         'system:getUserInfo',
         'system:getDomainInfo',
+        // Utility channels
         'util:getScriptsDirectory',
         'dialog:showOpenDialog',
         'dialog:showSaveDialog',
