@@ -2324,6 +2324,72 @@ ${rules}
     }
   });
 
+  // Save a single rule to file
+  ipcMain.handle('policy:saveRule', async (event, options, outputPath) => {
+    try {
+      if (!isPathAllowed(outputPath)) {
+        return { success: false, error: 'Output path not allowed' };
+      }
+
+      const subject = options.subject;
+      const action = options.action || 'Allow';
+      const ruleType = options.ruleType || 'Publisher';
+      const targetGroup = escapePowerShellString(options.targetGroup || 'Everyone');
+      const collectionType = options.collectionType || 'Exe';
+
+      const ruleId = crypto.randomUUID();
+      const ruleName = escapePowerShellString(subject?.name || 'Generated-Rule');
+      const publisher = escapePowerShellString(subject?.publisher || subject?.publisherName || 'Unknown');
+      const filePath = escapePowerShellString(subject?.path || '*');
+
+      let ruleXml = '';
+
+      if (ruleType === 'Publisher') {
+        ruleXml = `    <FilePublisherRule Id="${ruleId}" Name="${ruleName}" Action="${action}" UserOrGroupSid="S-1-1-0">
+      <Conditions>
+        <FilePublisherCondition PublisherName="${publisher}" ProductName="*" BinaryName="*">
+          <BinaryVersionRange LowSection="*" HighSection="*" />
+        </FilePublisherCondition>
+      </Conditions>
+    </FilePublisherRule>`;
+      } else if (ruleType === 'Path') {
+        ruleXml = `    <FilePathRule Id="${ruleId}" Name="${ruleName}" Action="${action}" UserOrGroupSid="S-1-1-0">
+      <Conditions>
+        <FilePathCondition Path="${filePath}" />
+      </Conditions>
+    </FilePathRule>`;
+      } else if (ruleType === 'Hash') {
+        // Hash rules require actual file hash - for now, generate a placeholder
+        ruleXml = `    <FileHashRule Id="${ruleId}" Name="${ruleName}" Action="${action}" UserOrGroupSid="S-1-1-0">
+      <Conditions>
+        <FileHashCondition>
+          <FileHash Type="SHA256" Data="0000000000000000000000000000000000000000000000000000000000000000" SourceFileName="${ruleName}" />
+        </FileHashCondition>
+      </Conditions>
+    </FileHashRule>`;
+      }
+
+      const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<AppLockerPolicy Version="1">
+  <RuleCollection Type="${collectionType}" EnforcementMode="AuditOnly">
+${ruleXml}
+  </RuleCollection>
+</AppLockerPolicy>`;
+
+      // Ensure directory exists
+      const dir = path.dirname(outputPath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+
+      fs.writeFileSync(outputPath, xml, 'utf8');
+      return { success: true, outputPath };
+    } catch (error) {
+      console.error('[IPC] Save rule error:', error);
+      return { success: false, error: sanitizeErrorMessage(error) };
+    }
+  });
+
   // ============================================
   // POLICY INVENTORY HANDLERS
   // ============================================

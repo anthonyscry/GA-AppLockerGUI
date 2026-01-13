@@ -44,6 +44,7 @@ contextBridge.exposeInMainWorld('electron', {
         'policy:generateFromTemplate',
         'policy:createPublisherRule',
         'policy:batchCreatePublisherRules',
+        'policy:saveRule',
         'policy:getPolicyXML',
         'policy:createPathRule',
         // Event channels

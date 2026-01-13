@@ -4,7 +4,6 @@ import { useAppServices } from '../src/presentation/contexts/AppContext';
 import { useAsync } from '../src/presentation/hooks/useAsync';
 import { useDebounce } from '../src/presentation/hooks/useDebounce';
 import { AppEvent } from '../src/shared/types';
-import { EventFilter } from '../src/domain/interfaces/IEventRepository';
 import { showSaveDialog, showOpenDialog } from '../src/infrastructure/ipc/fileDialog';
 
 const EventsModule: React.FC = () => {
