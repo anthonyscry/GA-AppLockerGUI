@@ -1843,7 +1843,6 @@ const PolicyModule: React.FC = () => {
               </div>
             </div>
           </div>
-        </div>
       )}
 
       {/* Tools Tab Content */}
