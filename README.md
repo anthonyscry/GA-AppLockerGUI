@@ -60,6 +60,9 @@ The output will be:
 - `npm run electron:dev` - Run Electron in development mode
 - `npm run electron:build` - Build for current platform
 - `npm run electron:build:win` - Build Windows installer
+- `npm run test` - Run Jest tests
+- `npm run test:watch` - Run tests in watch mode
+- `npm run test:coverage` - Generate test coverage report
 
 ## Requirements
 
@@ -67,11 +70,68 @@ The output will be:
 - Windows 10/11 (for building Windows executables)
 - npm or yarn
 
+## Architecture
+
+The application follows **Clean Architecture** principles with clear separation of concerns:
+
+### Layer Structure
+
+```
+┌─────────────────────────────────────┐
+│   Presentation Layer                 │
+│   - React Components                 │
+│   - Hooks (useAppServices, etc.)   │
+│   - Contexts (AppProvider)          │
+└──────────────┬──────────────────────┘
+               │
+┌──────────────▼──────────────────────┐
+│   Application Layer                 │
+│   - Services (Business Logic)       │
+│   - Use Cases                       │
+└──────────────┬──────────────────────┘
+               │
+┌──────────────▼──────────────────────┐
+│   Domain Layer                      │
+│   - Interfaces (Repositories)      │
+│   - Errors                         │
+│   - Types                          │
+└──────────────┬──────────────────────┘
+               │
+┌──────────────▼──────────────────────┐
+│   Infrastructure Layer              │
+│   - Repositories (Data Access)      │
+│   - IPC (Communication)            │
+│   - Logging                         │
+│   - Validation                      │
+│   - DI Container                    │
+└──────────────────────────────────────┘
+```
+
+### Key Features
+
+- **Dependency Injection**: Services are injected via DI container
+- **Repository Pattern**: Data access abstracted through repositories
+- **Error Handling**: Centralized error hierarchy with custom error types
+- **Logging**: Structured logging infrastructure
+- **Type Safety**: Full TypeScript support throughout
+- **Testing**: Jest test infrastructure with unit and integration tests
+
+### Services
+
+- **MachineService**: Machine inventory and scanning operations
+- **PolicyService**: Policy operations, rule generation, health checks
+- **EventService**: Event filtering, statistics, exports
+- **ADService**: Active Directory operations and group management
+- **ComplianceService**: Compliance evidence generation
+
+For detailed API documentation, see [docs/API.md](./docs/API.md).
+
 ## Application Details
 
 - **Version**: 1.2.4
 - **Author**: Tony Tran, ISSO, GA-ASI
 - **Built with**: React, TypeScript, Electron, Vite, Tailwind CSS
+- **Architecture**: Clean Architecture with Dependency Injection
 - **Window Size**: 1400x900 (minimum 1200x700)
 
 ## Notes

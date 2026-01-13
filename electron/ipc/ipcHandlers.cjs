@@ -3,7 +3,7 @@
  * Handles communication between renderer and main process
  */
 
-const { ipcMain } = require('electron');
+const { ipcMain, dialog } = require('electron');
 const {
   executePowerShellScript,
   executePowerShellCommand,
@@ -423,6 +423,19 @@ function setupIpcHandlers() {
         artifactArgs.push('-IncludeSystemPaths');
       }
 
+      // Add credentials if provided
+      if (options.credentials && !options.credentials.useCurrentUser) {
+        if (options.credentials.username) {
+          artifactArgs.push('-Username', options.credentials.username);
+        }
+        if (options.credentials.password) {
+          artifactArgs.push('-Password', options.credentials.password);
+        }
+        if (options.credentials.domain) {
+          artifactArgs.push('-Domain', options.credentials.domain);
+        }
+      }
+
       // First collect artifacts
       const artifactResult = await executePowerShellScript(artifactScriptPath, artifactArgs, {
         timeout: 600000 // 10 minutes for comprehensive scan
@@ -751,6 +764,108 @@ function setupIpcHandlers() {
       success: true,
       path: getScriptsDirectory()
     };
+  });
+
+  // Dialog handlers
+  ipcMain.handle('dialog:showOpenDialog', async (event, options = {}) => {
+    try {
+      const { BrowserWindow } = require('electron');
+      const window = BrowserWindow.fromWebContents(event.sender);
+      const result = await dialog.showOpenDialog(window || undefined, {
+        title: options.title || 'Select File',
+        defaultPath: options.defaultPath,
+        filters: options.filters || [{ name: 'All Files', extensions: ['*'] }],
+        properties: options.properties || ['openFile'],
+        ...options
+      });
+
+      return {
+        canceled: result.canceled,
+        filePaths: result.filePaths,
+        filePath: result.filePaths[0] || null
+      };
+    } catch (error) {
+      console.error('[IPC] Open dialog error:', error);
+      return {
+        canceled: true,
+        filePaths: [],
+        filePath: null,
+        error: error.message
+      };
+    }
+  });
+
+  ipcMain.handle('dialog:showSaveDialog', async (event, options = {}) => {
+    try {
+      const { BrowserWindow } = require('electron');
+      const window = BrowserWindow.fromWebContents(event.sender);
+      const result = await dialog.showSaveDialog(window || undefined, {
+        title: options.title || 'Save File',
+        defaultPath: options.defaultPath,
+        filters: options.filters || [{ name: 'All Files', extensions: ['*'] }],
+        ...options
+      });
+
+      return {
+        canceled: result.canceled,
+        filePath: result.filePath || null
+      };
+    } catch (error) {
+      console.error('[IPC] Save dialog error:', error);
+      return {
+        canceled: true,
+        filePath: null,
+        error: error.message
+      };
+    }
+  });
+
+  ipcMain.handle('dialog:showOpenDirectoryDialog', async (event, options = {}) => {
+    try {
+      const { BrowserWindow } = require('electron');
+      const window = BrowserWindow.fromWebContents(event.sender);
+      const result = await dialog.showOpenDialog(window || undefined, {
+        title: options.title || 'Select Directory',
+        defaultPath: options.defaultPath,
+        properties: ['openDirectory', 'createDirectory'],
+        ...options
+      });
+
+      return {
+        canceled: result.canceled,
+        filePaths: result.filePaths,
+        filePath: result.filePaths[0] || null
+      };
+    } catch (error) {
+      console.error('[IPC] Open directory dialog error:', error);
+      return {
+        canceled: true,
+        filePaths: [],
+        filePath: null,
+        error: error.message
+      };
+    }
+  });
+
+  // File system handlers
+  ipcMain.handle('fs:writeFile', async (event, filePath, content) => {
+    try {
+      const dir = path.dirname(filePath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      fs.writeFileSync(filePath, content, 'utf8');
+      return {
+        success: true,
+        filePath: filePath
+      };
+    } catch (error) {
+      console.error('[IPC] Write file error:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
   });
 
   console.log('[IPC] IPC handlers registered successfully');

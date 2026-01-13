@@ -21,24 +21,44 @@ import {
   Terminal,
   FileText
 } from 'lucide-react';
+import { useAppServices } from '../src/presentation/contexts/AppContext';
+import { useAsync } from '../src/presentation/hooks/useAsync';
+import { LoadingState } from './ui/LoadingState';
+import { ErrorState } from './ui/ErrorState';
+import { showSaveDialog } from '../src/infrastructure/ipc/fileDialog';
 
 const ADManagementModule: React.FC = () => {
+  const { ad } = useAppServices();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedUser, setSelectedUser] = useState<ADUser | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [draggedUser, setDraggedUser] = useState<ADUser | null>(null);
   const [activeDropGroup, setActiveDropGroup] = useState<string | null>(null);
 
-  const filteredUsers = useMemo(() => {
-    return [].filter((u: ADUser) => 
-      u.samAccountName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      u.displayName.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-  }, [searchQuery]);
+  // Fetch AD users
+  const { data: users, loading: usersLoading, error: usersError, refetch: refetchUsers } = useAsync(
+    () => ad.getAllUsers()
+  );
 
-  const handleScanAD = () => {
+  const filteredUsers = useMemo(() => {
+    if (!users) return [];
+    if (!searchQuery) return users;
+    const query = searchQuery.toLowerCase();
+    return users.filter((u: ADUser) => 
+      u.samAccountName.toLowerCase().includes(query) ||
+      u.displayName.toLowerCase().includes(query)
+    );
+  }, [users, searchQuery]);
+
+  const handleScanAD = async () => {
     setIsScanning(true);
-    setTimeout(() => setIsScanning(false), 1500);
+    try {
+      await refetchUsers();
+    } catch (error) {
+      console.error('Failed to refresh AD inventory:', error);
+    } finally {
+      setIsScanning(false);
+    }
   };
 
   // Drag and Drop Logic
@@ -71,18 +91,45 @@ const ADManagementModule: React.FC = () => {
     setActiveDropGroup(null);
   };
 
-  const handleDrop = (e: React.DragEvent, group: string) => {
+  const handleDrop = async (e: React.DragEvent, group: string) => {
     e.preventDefault();
     const userId = e.dataTransfer.getData('userId');
-    // User provisioning would happen here in production
-    // Use logger in production, console.log only in development
-    if (process.env.NODE_ENV === 'development') {
-      console.log(`Provisioning user ${userId} into ${group}`);
+    
+    try {
+      await ad.addUserToGroup(userId, group);
+      // Refresh users to get updated group memberships
+      await refetchUsers();
+      // Update selected user if it's the one we just moved
+      if (selectedUser?.id === userId) {
+        const updatedUser = await ad.getUserById(userId);
+        if (updatedUser) {
+          setSelectedUser(updatedUser);
+        }
+      }
+    } catch (error) {
+      console.error(`Failed to add user ${userId} to group ${group}:`, error);
+      alert(`Failed to add user to group: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
     
     setActiveDropGroup(null);
     setDraggedUser(null);
   };
+
+  // Show loading state if data is loading
+  if (usersLoading && !users) {
+    return <LoadingState message="Loading Active Directory users..." />;
+  }
+
+  // Show error state if there's an error
+  if (usersError && !users) {
+    return (
+      <ErrorState
+        title="Failed to load Active Directory users"
+        message={usersError.message || 'Unknown error occurred'}
+        onRetry={refetchUsers}
+      />
+    );
+  }
 
   return (
     <div className="space-y-6 animate-in slide-in-from-left-4 duration-500 pb-12">
@@ -94,101 +141,122 @@ const ADManagementModule: React.FC = () => {
         <button 
           onClick={handleScanAD}
           disabled={isScanning}
-          className="bg-[#002868] text-white px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-[#001f4d] shadow-lg shadow-blue-900/20 transition-all flex items-center space-x-2 disabled:opacity-50"
+          className="bg-[#002868] text-white px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-[#001f4d] shadow-lg shadow-blue-900/20 transition-all flex items-center space-x-2 disabled:opacity-50 min-h-[44px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+          aria-label={isScanning ? "Syncing Active Directory domain" : "Refresh Active Directory inventory"}
+          aria-busy={isScanning}
         >
-          {isScanning ? <Activity className="animate-spin" size={18} /> : <Search size={18} />}
+          {isScanning ? <Activity className="animate-spin" size={18} aria-hidden="true" /> : <Search size={18} aria-hidden="true" />}
           <span>{isScanning ? 'Syncing Domain...' : 'Refresh AD Inventory'}</span>
         </button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* User Search List (Drag Source) */}
-        <div className="lg:col-span-4 bg-white rounded-[2rem] border border-slate-200 shadow-sm flex flex-col h-[700px] overflow-hidden">
-          <div className="p-6 border-b border-slate-100 bg-slate-50/50">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Personnel Directory</h3>
-              <div className="flex items-center space-x-1 text-[10px] font-bold text-blue-600">
-                <MousePointer2 size={12} />
-                <span>Drag to Assign</span>
+        <div className="lg:col-span-4 bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col h-[600px] overflow-hidden">
+          <div className="p-4 border-b border-slate-100 bg-slate-50/50">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active Directory Users</h3>
+              <div className="flex items-center space-x-1 text-[9px] font-bold text-blue-600">
+                <MousePointer2 size={10} />
+                <span>Drag to Group</span>
               </div>
             </div>
             <div className="relative">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
               <input 
                 type="text" 
-                placeholder="Search SamAccountName..." 
+                id="user-search"
+                placeholder="Search users..." 
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-12 pr-4 py-3 bg-white border border-slate-200 rounded-2xl text-xs font-bold outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
+                className="w-full pl-10 pr-4 py-2.5 min-h-[44px] bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:border-blue-500 transition-all"
+                aria-label="Search Active Directory users"
               />
             </div>
           </div>
           
-          <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1">
-            {filteredUsers.map((user) => (
-              <div 
-                key={user.id}
-                draggable
-                onDragStart={(e) => handleDragStart(e, user)}
-                onDragEnd={handleDragEnd}
-                onClick={() => setSelectedUser(user)}
-                className={`w-full group cursor-grab active:cursor-grabbing text-left p-4 rounded-2xl border transition-all flex items-center justify-between ${
-                  selectedUser?.id === user.id 
-                    ? 'bg-blue-50 border-blue-200 shadow-sm' 
-                    : 'bg-white border-transparent hover:bg-slate-50 hover:border-slate-100'
-                }`}
-              >
-                <div className="flex items-center space-x-4">
-                  <div className="text-slate-300 group-hover:text-blue-400 transition-colors">
-                    <GripVertical size={18} />
+          <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-2">
+            {filteredUsers.length > 0 ? (
+              filteredUsers.map((user) => (
+                <div 
+                  key={user.id}
+                  draggable
+                  onDragStart={(e) => handleDragStart(e, user)}
+                  onDragEnd={handleDragEnd}
+                  onClick={() => setSelectedUser(user)}
+                  className={`w-full group cursor-grab active:cursor-grabbing text-left p-3 rounded-xl border transition-all flex items-center justify-between ${
+                    selectedUser?.id === user.id 
+                      ? 'bg-blue-50 border-blue-300 shadow-sm ring-2 ring-blue-200' 
+                      : 'bg-white border-slate-200 hover:bg-slate-50 hover:border-slate-300'
+                  }`}
+                >
+                  <div className="flex items-center space-x-3 flex-1 min-w-0">
+                    <div className="text-slate-300 group-hover:text-blue-400 transition-colors shrink-0">
+                      <GripVertical size={14} />
+                    </div>
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center shadow-sm shrink-0 ${
+                      selectedUser?.id === user.id ? 'bg-[#002868] text-white' : 'bg-slate-100 text-slate-400'
+                    }`}>
+                      <User size={14} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-black text-slate-900 group-hover:text-blue-700 transition-colors truncate">{user.samAccountName}</p>
+                      <p className="text-[10px] text-slate-500 font-medium truncate">{user.displayName}</p>
+                    </div>
                   </div>
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center shadow-sm ${
-                    selectedUser?.id === user.id ? 'bg-[#002868] text-white' : 'bg-slate-100 text-slate-400'
-                  }`}>
-                    <User size={18} />
-                  </div>
-                  <div>
-                    <p className="text-xs font-black text-slate-900 group-hover:text-blue-700 transition-colors">{user.samAccountName}</p>
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{user.department}</p>
-                  </div>
+                  <ChevronRight size={12} className={`shrink-0 ${selectedUser?.id === user.id ? 'text-blue-600' : 'text-slate-300'}`} />
                 </div>
-                <ChevronRight size={14} className={selectedUser?.id === user.id ? 'text-blue-600' : 'text-slate-200'} />
+              ))
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full text-slate-400 space-y-3" role="status">
+                <User size={48} className="opacity-20" aria-hidden="true" />
+                <p className="text-xs font-bold">No users found</p>
+                <p className="text-[10px] text-slate-400">Click "Refresh AD Inventory" to load users</p>
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className="mt-2 text-xs text-blue-600 hover:text-blue-800 font-bold underline focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 rounded px-2 py-1 min-h-[44px]"
+                    aria-label="Clear search"
+                  >
+                    Clear search
+                  </button>
+                )}
               </div>
-            ))}
+            )}
           </div>
         </div>
 
         {/* Action Center & Groups (Drop Targets) */}
         <div className="lg:col-span-8 space-y-6">
           {/* Active Profile Header */}
-          <div className="bg-slate-900 rounded-[2.5rem] p-8 border border-slate-800 shadow-2xl relative overflow-hidden text-white min-h-[160px] flex items-center">
-            <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between w-full gap-6">
+          <div className="bg-slate-900 rounded-2xl p-4 border border-slate-800 shadow-xl relative overflow-hidden text-white flex items-center">
+            <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between w-full gap-4">
               {selectedUser ? (
-                <div className="flex items-center space-x-8">
-                  <div className="w-24 h-24 bg-gradient-to-br from-blue-500 to-[#002868] rounded-3xl flex items-center justify-center shadow-2xl ring-4 ring-white/10">
-                    <User size={48} />
+                <div className="flex items-center space-x-4">
+                  <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-[#002868] rounded-xl flex items-center justify-center shadow-lg ring-2 ring-white/10">
+                    <User size={32} />
                   </div>
-                  <div className="space-y-2">
-                    <div className="flex items-center space-x-3">
-                      <h3 className="text-3xl font-black tracking-tighter">{selectedUser.displayName}</h3>
-                      <span className="px-2 py-0.5 bg-green-500 text-white text-[9px] font-black uppercase rounded tracking-widest">Active</span>
+                  <div className="space-y-1">
+                    <div className="flex items-center space-x-2">
+                      <h3 className="text-xl font-black tracking-tighter">{selectedUser.displayName}</h3>
+                      <span className="px-2 py-0.5 bg-green-500 text-white text-[8px] font-black uppercase rounded tracking-widest">Active</span>
                     </div>
-                    <div className="flex items-center space-x-4 text-slate-400 font-bold text-xs uppercase tracking-[0.2em]">
-                      <span className="flex items-center space-x-1"><Terminal size={12} /> <span>{selectedUser.samAccountName}</span></span>
+                    <div className="flex items-center space-x-3 text-slate-400 font-bold text-[10px] uppercase tracking-widest">
+                      <span className="flex items-center space-x-1"><Terminal size={10} /> <span>{selectedUser.samAccountName}</span></span>
                       <span className="w-1 h-1 bg-slate-700 rounded-full" />
                       <span>{selectedUser.department}</span>
                     </div>
                   </div>
                 </div>
               ) : (
-                <div className="flex items-center space-x-4 text-slate-500">
-                  <ArrowRightLeft size={32} />
-                  <p className="font-black uppercase tracking-widest text-sm italic">System Ready: Awaiting Drag/Select Event</p>
+                <div className="flex items-center space-x-2 text-slate-500">
+                  <ArrowRightLeft size={20} />
+                  <p className="font-black uppercase tracking-widest text-xs italic">Select a user to manage</p>
                 </div>
               )}
             </div>
-            <div className="absolute -right-16 -bottom-16 opacity-[0.05]">
-              <Lock size={280} />
+            <div className="absolute -right-8 -bottom-8 opacity-[0.03]">
+              <Lock size={160} />
             </div>
           </div>
 
@@ -263,7 +331,49 @@ const ADManagementModule: React.FC = () => {
                     ))}
                   </div>
                   <div className="mt-8 pt-8 border-t border-slate-100">
-                    <button className="w-full py-4 bg-slate-900 text-white rounded-[1.25rem] text-[10px] font-black uppercase tracking-[0.2em] hover:bg-slate-800 transition-all shadow-xl shadow-slate-900/10 flex items-center justify-center space-x-2 group">
+                    <button 
+                      onClick={async () => {
+                        if (!selectedUser) return;
+                        try {
+                          const filePath = await showSaveDialog({
+                            title: 'Export Audit Profile',
+                            defaultPath: `audit-profile-${selectedUser.samAccountName}-${new Date().toISOString().split('T')[0]}.json`,
+                            filters: [
+                              { name: 'JSON Files', extensions: ['json'] },
+                              { name: 'All Files', extensions: ['*'] }
+                            ]
+                          });
+                          if (filePath) {
+                            const profile = {
+                              user: selectedUser,
+                              exportedAt: new Date().toISOString(),
+                              groups: selectedUser.groups || []
+                            };
+                            const electron = (window as any).electron;
+                            if (electron?.ipc) {
+                              await electron.ipc.invoke('fs:writeFile', filePath, JSON.stringify(profile, null, 2));
+                              alert(`Audit profile exported successfully to:\n${filePath}`);
+                            } else {
+                              // Fallback to browser download
+                              const blob = new Blob([JSON.stringify(profile, null, 2)], { type: 'application/json' });
+                              const url = window.URL.createObjectURL(blob);
+                              const a = document.createElement('a');
+                              a.href = url;
+                              a.download = filePath.split(/[/\\]/).pop() || 'audit-profile.json';
+                              document.body.appendChild(a);
+                              a.click();
+                              document.body.removeChild(a);
+                              window.URL.revokeObjectURL(url);
+                            }
+                          }
+                        } catch (error) {
+                          console.error('Failed to export audit profile:', error);
+                          alert(`Failed to export audit profile: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                        }
+                      }}
+                      className="w-full py-4 bg-slate-900 text-white rounded-[1.25rem] text-[10px] font-black uppercase tracking-[0.2em] hover:bg-slate-800 transition-all shadow-xl shadow-slate-900/10 flex items-center justify-center space-x-2 group min-h-[44px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                      aria-label="Export audit profile for selected user"
+                    >
                       <FileText size={16} />
                       <span>Export Audit Profile</span>
                     </button>

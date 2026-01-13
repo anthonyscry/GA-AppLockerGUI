@@ -8,6 +8,7 @@ import { setupPolicyHandlers } from './handlers/policyHandlers';
 import { setupEventHandlers } from './handlers/eventHandlers';
 import { setupADHandlers } from './handlers/adHandlers';
 import { setupComplianceHandlers } from './handlers/complianceHandlers';
+import { setupDialogHandlers } from './handlers/dialogHandlers';
 
 /**
  * Setup all IPC handlers
@@ -19,5 +20,6 @@ export function setupIPC(): void {
   setupEventHandlers();
   setupADHandlers();
   setupComplianceHandlers();
+  setupDialogHandlers();
   console.log('IPC handlers registered');
 }

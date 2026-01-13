@@ -12,9 +12,18 @@ export const MachineFilterSchema = z.object({
   riskLevel: z.enum(['All', 'Low', 'Medium', 'High']).optional(),
 });
 
+export const ScanCredentialsSchema = z.object({
+  username: z.string().optional(),
+  password: z.string().optional(),
+  domain: z.string().optional(),
+  useCurrentUser: z.boolean().optional(),
+});
+
 export const ScanOptionsSchema = z.object({
   targetOUs: z.array(z.string()).optional(),
   timeout: z.number().positive().optional(),
+  credentials: ScanCredentialsSchema.optional(),
+  computerNames: z.array(z.string()).optional(),
 });
 
 export type MachineFilterInput = z.infer<typeof MachineFilterSchema>;

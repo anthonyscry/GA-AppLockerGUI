@@ -1,0 +1,47 @@
+# Windows-based development container for GA-AppLocker Dashboard
+# Requires Windows containers to be enabled in Docker Desktop
+
+FROM mcr.microsoft.com/windows/servercore:ltsc2022
+
+LABEL maintainer="GA-ASI ISSO Team"
+LABEL description="Windows development environment for GA-AppLocker Dashboard"
+
+# Install Chocolatey
+RUN powershell -Command \
+    Set-ExecutionPolicy Bypass -Scope Process -Force; \
+    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; \
+    iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+
+# Install Node.js, Git, and build tools
+RUN choco install -y nodejs-lts git python3 --params '/InstallDir:C:\Python3'
+
+# Install PowerShell 7
+RUN powershell -Command \
+    Invoke-WebRequest -Uri https://aka.ms/install-powershell.ps1 -OutFile C:\install-ps7.ps1; \
+    .\C:\install-ps7.ps1 -UseMSI -Quiet
+
+# Install AppLocker feature (requires Windows Server)
+RUN powershell -Command \
+    Install-WindowsFeature -Name AppLocker -IncludeManagementTools; \
+    Import-Module AppLocker -ErrorAction SilentlyContinue
+
+# Set working directory
+WORKDIR C:\app
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci
+
+# Copy application files (will be done by docker-compose volume mount)
+# COPY . .
+
+# Expose development ports
+EXPOSE 3000 5173
+
+# Set PowerShell as default shell
+SHELL ["powershell", "-Command"]
+
+# Default command
+CMD ["powershell", "-Command", "npm run dev"]

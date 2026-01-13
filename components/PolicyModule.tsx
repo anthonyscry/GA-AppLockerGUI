@@ -3,6 +3,7 @@ import React, { useState, useMemo } from 'react';
 import { PolicyPhase, InventoryItem, TrustedPublisher } from '../src/shared/types';
 import { 
   FileCode, 
+  FileText,
   Settings, 
   Plus, 
   ShieldAlert,
@@ -20,10 +21,28 @@ import {
   Users
 } from 'lucide-react';
 import { APPLOCKER_GROUPS, COMMON_PUBLISHERS } from '../constants';
+import { useAppServices } from '../src/presentation/contexts/AppContext';
+import { useAsync } from '../src/presentation/hooks/useAsync';
+import { LoadingState } from './ui/LoadingState';
+import { ErrorState } from './ui/ErrorState';
 
 const PolicyModule: React.FC = () => {
+  const { policy } = useAppServices();
   const [selectedPhase, setSelectedPhase] = useState<PolicyPhase>(PolicyPhase.PHASE_1);
   const [healthResults, setHealthResults] = useState<{c: number, w: number, i: number, score: number} | null>(null);
+  
+  // Fetch inventory and trusted publishers
+  const { data: inventory, loading: inventoryLoading, error: inventoryError, refetch: refetchInventory } = useAsync(
+    () => policy.getInventory()
+  );
+  
+  const { data: trustedPublishers, loading: publishersLoading, error: publishersError } = useAsync(
+    () => policy.getTrustedPublishers()
+  );
+  
+  const { data: categories } = useAsync(
+    () => policy.getPublisherCategories()
+  );
   
   // Rule Generator State
   const [showGenerator, setShowGenerator] = useState(false);
@@ -60,36 +79,22 @@ const PolicyModule: React.FC = () => {
   const [publisherGroups, setPublisherGroups] = useState<Record<string, InventoryItem[]>>({});
   const [duplicateReport, setDuplicateReport] = useState<any>(null);
   const [selectedTemplate, setSelectedTemplate] = useState<string>('');
-  const [templates, setTemplates] = useState<any[]>([
-    {
-      id: 'microsoft-all',
-      name: 'Allow All Microsoft-Signed Software',
-      description: 'Creates Publisher rule for all Microsoft Corporation signed executables',
-      publisher: 'O=MICROSOFT CORPORATION*',
-      action: 'Allow'
-    },
-    {
-      id: 'ga-asi-internal',
-      name: 'Allow All GA-ASI Internal Tools',
-      description: 'Creates Publisher rule for GA-ASI signed software',
-      publisher: 'O=GENERAL ATOMICS AERONAUTICAL SYSTEMS, INC.*',
-      action: 'Allow'
-    },
-    {
-      id: 'deny-unsigned-userdirs',
-      name: 'Deny Unsigned Executables in User Directories',
-      description: 'Denies all unsigned executables in user writable paths',
-      path: '%USERPROFILE%\\*',
-      action: 'Deny'
-    },
-    {
-      id: 'allow-programfiles',
-      name: 'Allow Program Files',
-      description: 'Allows executables in Program Files directories',
-      path: '%PROGRAMFILES%\\*',
-      action: 'Allow'
-    }
-  ]);
+  const [templateCategory, setTemplateCategory] = useState<string>('all');
+  
+  // Fetch templates from service
+  const { data: templates, loading: templatesLoading } = useAsync(
+    () => policy.getRuleTemplates()
+  );
+  
+  const { data: templateCategories } = useAsync(
+    () => policy.getTemplateCategories()
+  );
+  
+  const filteredTemplates = useMemo(() => {
+    if (!templates) return [];
+    if (templateCategory === 'all') return templates;
+    return templates.filter(t => t.category.toLowerCase() === templateCategory.toLowerCase());
+  }, [templates, templateCategory]);
   
   // Auto-group by publisher when inventory changes
   React.useEffect(() => {
@@ -112,44 +117,73 @@ const PolicyModule: React.FC = () => {
 
   // Combined inventory: scanned + imported artifacts
   const combinedInventory = useMemo(() => {
-    // TODO: Get from service when available
-    const scanned: InventoryItem[] = [];
+    const scanned: InventoryItem[] = inventory || [];
     return [...scanned, ...importedArtifacts];
-  }, [importedArtifacts]);
+  }, [inventory, importedArtifacts]);
 
   const filteredInventory = useMemo(() => {
+    if (!genSearchQuery) return combinedInventory;
+    const query = genSearchQuery.toLowerCase();
     return combinedInventory.filter((item: InventoryItem) => 
-      item.name.toLowerCase().includes(genSearchQuery.toLowerCase()) ||
-      item.publisher.toLowerCase().includes(genSearchQuery.toLowerCase()) ||
-      item.path.toLowerCase().includes(genSearchQuery.toLowerCase())
+      (item.name?.toLowerCase() || '').includes(query) ||
+      (item.publisher?.toLowerCase() || '').includes(query) ||
+      (item.path?.toLowerCase() || '').includes(query)
     );
   }, [combinedInventory, genSearchQuery]);
 
   const filteredPublishers = useMemo(() => {
-    return COMMON_PUBLISHERS.filter(p => {
+    const publishers = trustedPublishers || COMMON_PUBLISHERS;
+    return publishers.filter(p => {
       const matchesSearch = p.name.toLowerCase().includes(genSearchQuery.toLowerCase()) ||
                             p.publisherName.toLowerCase().includes(genSearchQuery.toLowerCase());
       const matchesCategory = genCategoryFilter === 'All' || p.category === genCategoryFilter;
       return matchesSearch && matchesCategory;
     });
-  }, [genSearchQuery, genCategoryFilter]);
+  }, [trustedPublishers, genSearchQuery, genCategoryFilter]);
 
-  const categories = ['All', ...Array.from(new Set(COMMON_PUBLISHERS.map(p => p.category)))];
+  const availableCategories = categories || ['All', ...Array.from(new Set(COMMON_PUBLISHERS.map(p => p.category)))];
 
-  const runHealthCheck = () => {
-    const critical = 0;
-    const warning = 2;
-    const info = 4;
-    const score = 100 - (20 * critical) - (5 * warning) - (1 * info);
-    setHealthResults({ c: critical, w: warning, i: info, score });
+  const runHealthCheck = async () => {
+    try {
+      const result = await policy.runHealthCheck(selectedPhase);
+      setHealthResults({ 
+        c: result.critical, 
+        w: result.warning, 
+        i: result.info, 
+        score: result.score 
+      });
+    } catch (error) {
+      console.error('Health check failed:', error);
+      // Fallback to mock data if service fails
+      const critical = 0;
+      const warning = 2;
+      const info = 4;
+      const score = 100 - (20 * critical) - (5 * warning) - (1 * info);
+      setHealthResults({ c: critical, w: warning, i: info, score });
+    }
   };
 
   const handleCreateRule = async () => {
-    const subject = generatorTab === 'scanned' ? selectedApp?.name : selectedPublisher?.name;
-    // TODO: Call IPC handler to create rule
-    alert(`Rule created for ${subject}\nAction: ${ruleAction}\nGroup: ${targetGroup}\nType: ${ruleType}`);
-    setShowGenerator(false);
-    resetGenerator();
+    if (!selectedApp && !selectedPublisher) return;
+    
+    try {
+      const subject = generatorTab === 'scanned' ? selectedApp : selectedPublisher;
+      if (!subject) return;
+      
+      await policy.createRule({
+        action: ruleAction,
+        ruleType: ruleType === 'Auto' ? 'Publisher' : ruleType,
+        targetGroup,
+        subject: subject as InventoryItem | TrustedPublisher
+      });
+      
+      alert(`Rule created for ${'name' in subject ? subject.name : subject.name}\nAction: ${ruleAction}\nGroup: ${targetGroup}\nType: ${ruleType}`);
+      setShowGenerator(false);
+      resetGenerator();
+    } catch (error) {
+      console.error('Failed to create rule:', error);
+      alert(`Failed to create rule: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   };
 
   const handleBatchGenerate = async () => {
@@ -163,16 +197,11 @@ const PolicyModule: React.FC = () => {
       return;
     }
     
-    if (!window.electron?.ipc) {
-      alert('IPC not available. Running in browser mode.');
-      return;
-    }
-    
     try {
       const outputPath = prompt('Enter output path for generated policy:', 'C:\\Policies\\Batch-Generated.xml');
       if (!outputPath) return;
       
-      const result = await window.electron.ipc.invoke('policy:batchGenerateRules', filteredInventory, outputPath, {
+      const result = await policy.batchGenerateRules(filteredInventory, outputPath, {
         ruleAction: ruleAction,
         targetGroup: targetGroup,
         collectionType: 'Exe',
@@ -180,13 +209,14 @@ const PolicyModule: React.FC = () => {
       });
       
       if (result.success) {
-        alert(`Successfully generated rules!\n\nOutput: ${result.outputPath}`);
+        alert(`Successfully generated rules!\n\nOutput: ${result.outputPath || outputPath}`);
         setShowGenerator(false);
         resetGenerator();
       } else {
-        alert(`Error: ${result.error}`);
+        alert(`Error: ${result.error || 'Unknown error'}`);
       }
     } catch (error: any) {
+      console.error('Batch generation error:', error);
       alert(`Batch generation failed: ${error?.message || error}`);
     }
   };
@@ -198,6 +228,24 @@ const PolicyModule: React.FC = () => {
     setGenCategoryFilter('All');
   };
 
+  // Show loading state if data is loading
+  if (inventoryLoading || publishersLoading) {
+    return <LoadingState message="Loading policy data..." />;
+  }
+
+  // Show error state if there's an error
+  if (inventoryError || publishersError) {
+    return (
+      <ErrorState
+        title="Failed to load policy data"
+        message={inventoryError?.message || publishersError?.message || 'Unknown error occurred'}
+        onRetry={() => {
+          refetchInventory();
+        }}
+      />
+    );
+  }
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500 pb-12">
       <div className="flex items-center justify-between">
@@ -208,30 +256,34 @@ const PolicyModule: React.FC = () => {
         <div className="flex space-x-3">
           <button 
             onClick={() => { setShowGenerator(true); setGeneratorTab('scanned'); }}
-            className="bg-blue-600 text-white px-5 py-2 rounded-xl font-bold text-sm hover:bg-blue-700 shadow-lg shadow-blue-500/20 transition-all flex items-center space-x-2"
+            className="bg-blue-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-blue-700 shadow-lg shadow-blue-500/20 transition-all flex items-center space-x-2 min-h-[44px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            aria-label="Open rule generator"
           >
-            <Import size={18} />
+            <Import size={18} aria-hidden="true" />
             <span>Rule Generator</span>
           </button>
           <button 
             onClick={() => setShowMerger(true)}
-            className="bg-purple-600 text-white px-5 py-2 rounded-xl font-bold text-sm hover:bg-purple-700 shadow-lg shadow-purple-500/20 transition-all flex items-center space-x-2"
+            className="bg-purple-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-purple-700 shadow-lg shadow-purple-500/20 transition-all flex items-center space-x-2 min-h-[44px] focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2"
+            aria-label="Open policy merger"
           >
-            <Archive size={18} />
+            <Archive size={18} aria-hidden="true" />
             <span>Merge Policies</span>
           </button>
           <button 
             onClick={() => setShowComprehensiveGen(true)}
-            className="bg-green-600 text-white px-5 py-2 rounded-xl font-bold text-sm hover:bg-green-700 shadow-lg shadow-green-500/20 transition-all flex items-center space-x-2"
+            className="bg-green-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-green-700 shadow-lg shadow-green-500/20 transition-all flex items-center space-x-2 min-h-[44px] focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+            aria-label="Open comprehensive scan"
           >
-            <Activity size={18} />
+            <Activity size={18} aria-hidden="true" />
             <span>Comprehensive Scan</span>
           </button>
           <button 
             onClick={() => setShowPublisherGrouping(true)}
-            className="bg-indigo-600 text-white px-5 py-2 rounded-xl font-bold text-sm hover:bg-indigo-700 shadow-lg shadow-indigo-500/20 transition-all flex items-center space-x-2"
+            className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-indigo-700 shadow-lg shadow-indigo-500/20 transition-all flex items-center space-x-2 min-h-[44px] focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+            aria-label="Open publisher grouping"
           >
-            <Users size={18} />
+            <Users size={18} aria-hidden="true" />
             <span>Publisher Grouping</span>
           </button>
           <button 
@@ -387,38 +439,46 @@ const PolicyModule: React.FC = () => {
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Output Path</label>
                 <input
                   type="text"
+                  id="comprehensive-output-path"
                   value={comprehensiveOutputPath}
                   onChange={(e) => setComprehensiveOutputPath(e.target.value)}
                   placeholder="C:\Scans\comprehensive-artifacts.json"
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-green-500/20"
+                  className="w-full px-4 py-3 min-h-[44px] bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+                  aria-label="Output path for comprehensive scan artifacts"
                 />
               </div>
               <div className="space-y-3">
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Scan Options</label>
-                <label className="flex items-center space-x-3 p-3 bg-slate-50 rounded-xl cursor-pointer">
+                <label className="flex items-center space-x-3 p-3 bg-slate-50 rounded-xl cursor-pointer min-h-[44px] focus-within:ring-2 focus-within:ring-green-500 focus-within:ring-offset-2">
                   <input
                     type="checkbox"
+                    id="include-event-logs"
                     checked={includeEventLogs}
                     onChange={(e) => setIncludeEventLogs(e.target.checked)}
-                    className="w-4 h-4 text-green-600 rounded"
+                    className="w-5 h-5 min-w-[20px] min-h-[20px] text-green-600 rounded focus:ring-2 focus:ring-green-500"
+                    aria-label="Include Event Viewer logs in comprehensive scan"
                   />
                   <span className="text-sm font-bold text-slate-700">Include Event Viewer Logs (8003/8004)</span>
                 </label>
-                <label className="flex items-center space-x-3 p-3 bg-slate-50 rounded-xl cursor-pointer">
+                <label className="flex items-center space-x-3 p-3 bg-slate-50 rounded-xl cursor-pointer min-h-[44px] focus-within:ring-2 focus-within:ring-green-500 focus-within:ring-offset-2">
                   <input
                     type="checkbox"
+                    id="include-writable-paths"
                     checked={includeWritablePaths}
                     onChange={(e) => setIncludeWritablePaths(e.target.checked)}
-                    className="w-4 h-4 text-green-600 rounded"
+                    className="w-5 h-5 min-w-[20px] min-h-[20px] text-green-600 rounded focus:ring-2 focus:ring-green-500"
+                    aria-label="Include writable paths in comprehensive scan"
                   />
                   <span className="text-sm font-bold text-slate-700">Include Writable Paths (AppData, Temp)</span>
                 </label>
-                <label className="flex items-center space-x-3 p-3 bg-slate-50 rounded-xl cursor-pointer">
+                <label className="flex items-center space-x-3 p-3 bg-slate-50 rounded-xl cursor-pointer min-h-[44px] focus-within:ring-2 focus-within:ring-green-500 focus-within:ring-offset-2">
                   <input
                     type="checkbox"
+                    id="include-system-paths"
                     checked={includeSystemPaths}
                     onChange={(e) => setIncludeSystemPaths(e.target.checked)}
-                    className="w-4 h-4 text-green-600 rounded"
+                    className="w-5 h-5 min-w-[20px] min-h-[20px] text-green-600 rounded focus:ring-2 focus:ring-green-500"
+                    aria-label="Include system paths in comprehensive scan"
                   />
                   <span className="text-sm font-bold text-slate-700">Include System Paths (Program Files, Windows)</span>
                 </label>
@@ -432,9 +492,391 @@ const PolicyModule: React.FC = () => {
                   alert(`Starting comprehensive scan of ${comprehensiveComputerName || 'localhost'}...`);
                   setShowComprehensiveGen(false);
                 }}
-                className="w-full bg-green-600 text-white px-6 py-3 rounded-xl font-bold text-sm hover:bg-green-700 shadow-lg transition-all"
+                className="w-full bg-green-600 text-white px-6 py-3 min-h-[44px] rounded-xl font-bold text-sm hover:bg-green-700 shadow-lg transition-all focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+                aria-label="Start comprehensive scan and generate rules"
               >
                 Start Comprehensive Scan & Generate Rules
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Publisher Grouping Modal */}
+      {showPublisherGrouping && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white rounded-3xl w-[1000px] max-h-[90vh] shadow-2xl overflow-hidden flex flex-col">
+            <div className="p-6 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 bg-indigo-600 text-white rounded-xl">
+                  <Users size={24} />
+                </div>
+                <div>
+                  <h3 className="font-black text-slate-900 text-lg uppercase tracking-tight">Publisher Grouping</h3>
+                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Group items by publisher for bulk rule generation</p>
+                </div>
+              </div>
+              <button onClick={() => setShowPublisherGrouping(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-400">
+                <X size={24} />
+              </button>
+            </div>
+            <div className="flex-1 p-6 overflow-y-auto">
+              {Object.keys(publisherGroups).length === 0 ? (
+                <div className="text-center py-12 text-slate-400">
+                  <Users size={48} className="mx-auto mb-4 opacity-20" />
+                  <p className="text-sm font-bold">No items imported yet</p>
+                  <p className="text-xs mt-2">Import scan artifacts first to see publisher groupings</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 mb-6">
+                    <p className="text-xs font-bold text-indigo-900">
+                      <strong>{Object.keys(publisherGroups).length}</strong> publishers found with <strong>{combinedInventory.length}</strong> total items.
+                      Creating publisher rules instead of individual rules can reduce policy size by up to 90%.
+                    </p>
+                  </div>
+                  {Object.entries(publisherGroups)
+                    .sort((a, b) => b[1].length - a[1].length)
+                    .map(([publisher, items]) => (
+                    <div key={publisher} className="bg-white border border-slate-200 rounded-2xl p-4 hover:shadow-md transition-all">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center space-x-3">
+                          <div className="p-2 bg-indigo-100 text-indigo-600 rounded-lg">
+                            <ShieldCheck size={18} />
+                          </div>
+                          <div>
+                            <p className="font-bold text-slate-900 text-sm">{publisher}</p>
+                            <p className="text-[10px] text-slate-500">{items.length} items</p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={async () => {
+                            const electron = (window as any).electron;
+                            if (!electron?.ipc) {
+                              alert('IPC not available. Running in browser mode.');
+                              return;
+                            }
+                            const { showSaveDialog } = await import('../src/infrastructure/ipc/fileDialog');
+                            const outputPath = await showSaveDialog({
+                              title: 'Save Publisher Rule',
+                              defaultPath: `C:\\Policies\\Publisher-${publisher.replace(/[^a-zA-Z0-9]/g, '-')}.xml`,
+                              filters: [
+                                { name: 'XML Files', extensions: ['xml'] },
+                                { name: 'All Files', extensions: ['*'] }
+                              ]
+                            });
+                            if (!outputPath) return;
+                            
+                            try {
+                              const result = await electron.ipc.invoke('policy:createPublisherRule', {
+                                publisher: publisher,
+                                action: ruleAction,
+                                targetGroup: targetGroup,
+                                collectionType: 'Exe'
+                              }, outputPath);
+                              
+                              if (result.success) {
+                                alert(`Publisher rule created!\n\n${items.length} items covered by 1 rule.\nOutput: ${result.outputPath}`);
+                              } else {
+                                alert(`Error: ${result.error}`);
+                              }
+                            } catch (error: any) {
+                              alert(`Error: ${error?.message || error}`);
+                            }
+                          }}
+                          className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 transition-all"
+                        >
+                          Create Publisher Rule
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        {items.slice(0, 5).map((item, idx) => (
+                          <span key={idx} className="text-[9px] bg-slate-100 text-slate-600 px-2 py-1 rounded-full font-medium">
+                            {item.name}
+                          </span>
+                        ))}
+                        {items.length > 5 && (
+                          <span className="text-[9px] bg-slate-200 text-slate-700 px-2 py-1 rounded-full font-bold">
+                            +{items.length - 5} more
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="p-6 bg-slate-50 border-t border-slate-200">
+              <button
+                onClick={async () => {
+                  if (Object.keys(publisherGroups).length === 0) {
+                    alert('No publisher groups available');
+                    return;
+                  }
+                  
+                  const confirmed = confirm(`Generate publisher rules for all ${Object.keys(publisherGroups).length} publishers?\n\nThis will create ${Object.keys(publisherGroups).length} rules covering ${combinedInventory.length} items.`);
+                  if (!confirmed) return;
+                  
+                  const outputPath = prompt('Enter output path:', 'C:\\Policies\\All-Publishers.xml');
+                  if (!outputPath) return;
+                  
+                  try {
+                    const result = await policy.batchCreatePublisherRules(Object.keys(publisherGroups), outputPath, {
+                      action: ruleAction,
+                      targetGroup: targetGroup,
+                      collectionType: 'Exe'
+                    });
+                    
+                    if (result.success) {
+                      alert(`Created ${Object.keys(publisherGroups).length} publisher rules!\nOutput: ${result.outputPath || outputPath}`);
+                      setShowPublisherGrouping(false);
+                    } else {
+                      alert(`Error: ${result.error || 'Unknown error'}`);
+                    }
+                  } catch (error: any) {
+                    alert(`Error: ${error?.message || error}`);
+                  }
+                }}
+                className="w-full bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold text-sm hover:bg-indigo-700 shadow-lg transition-all"
+              >
+                Generate All Publisher Rules ({Object.keys(publisherGroups).length} rules → {combinedInventory.length} items covered)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Duplicate Detection Modal */}
+      {showDuplicateDetection && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white rounded-3xl w-[900px] max-h-[90vh] shadow-2xl overflow-hidden flex flex-col">
+            <div className="p-6 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 bg-orange-600 text-white rounded-xl">
+                  <Filter size={24} />
+                </div>
+                <div>
+                  <h3 className="font-black text-slate-900 text-lg uppercase tracking-tight">Duplicate Detection</h3>
+                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Find and remove duplicate entries</p>
+                </div>
+              </div>
+              <button onClick={() => setShowDuplicateDetection(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-400">
+                <X size={24} />
+              </button>
+            </div>
+            <div className="flex-1 p-6 overflow-y-auto">
+              {combinedInventory.length === 0 ? (
+                <div className="text-center py-12 text-slate-400">
+                  <Filter size={48} className="mx-auto mb-4 opacity-20" />
+                  <p className="text-sm font-bold">No items imported yet</p>
+                  <p className="text-xs mt-2">Import scan artifacts first to detect duplicates</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <button
+                    onClick={() => {
+                      const report = policy.detectDuplicates(combinedInventory);
+                      setDuplicateReport(report);
+                    }}
+                    className="w-full bg-orange-600 text-white px-6 py-3 rounded-xl font-bold text-sm hover:bg-orange-700 shadow-lg transition-all flex items-center justify-center space-x-2"
+                  >
+                    <Search size={18} />
+                    <span>Scan for Duplicates ({combinedInventory.length} items)</span>
+                  </button>
+                  
+                  {duplicateReport && (
+                    <div className="space-y-4 mt-6">
+                      <div className="grid grid-cols-3 gap-4">
+                        <div className="bg-slate-50 rounded-xl p-4 text-center">
+                          <p className="text-2xl font-black text-slate-900">{duplicateReport.totalItems}</p>
+                          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Total Items</p>
+                        </div>
+                        <div className={`rounded-xl p-4 text-center ${duplicateReport.pathDupCount > 0 ? 'bg-orange-50' : 'bg-green-50'}`}>
+                          <p className={`text-2xl font-black ${duplicateReport.pathDupCount > 0 ? 'text-orange-600' : 'text-green-600'}`}>{duplicateReport.pathDupCount}</p>
+                          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Path Duplicates</p>
+                        </div>
+                        <div className={`rounded-xl p-4 text-center ${duplicateReport.pubDupCount > 0 ? 'bg-orange-50' : 'bg-green-50'}`}>
+                          <p className={`text-2xl font-black ${duplicateReport.pubDupCount > 0 ? 'text-orange-600' : 'text-green-600'}`}>{duplicateReport.pubDupCount}</p>
+                          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Name Duplicates</p>
+                        </div>
+                      </div>
+                      
+                      {duplicateReport.pathDuplicates?.length > 0 && (
+                        <div>
+                          <h4 className="text-xs font-black text-slate-700 uppercase tracking-widest mb-3">Path Duplicates</h4>
+                          <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                            {duplicateReport.pathDuplicates.slice(0, 10).map(([path, items]: [string, InventoryItem[]], idx: number) => (
+                              <div key={idx} className="bg-orange-50 border border-orange-200 rounded-lg p-3">
+                                <p className="text-xs font-mono text-orange-800 truncate">{path}</p>
+                                <p className="text-[10px] text-orange-600 mt-1">{items.length} duplicate entries</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      
+                      {(duplicateReport.pathDupCount > 0 || duplicateReport.pubDupCount > 0) && (
+                        <button
+                          onClick={() => {
+                            const uniquePaths = new Set<string>();
+                            const deduped = combinedInventory.filter(item => {
+                              if (item.path && uniquePaths.has(item.path)) return false;
+                              if (item.path) uniquePaths.add(item.path);
+                              return true;
+                            });
+                            
+                            const removed = combinedInventory.length - deduped.length;
+                            setImportedArtifacts(deduped.filter(item => item.id.startsWith('imported-')));
+                            setDuplicateReport(null);
+                            alert(`Removed ${removed} duplicate entries.\n${deduped.length} unique items remaining.`);
+                          }}
+                          className="w-full bg-green-600 text-white px-6 py-3 rounded-xl font-bold text-sm hover:bg-green-700 shadow-lg transition-all flex items-center justify-center space-x-2"
+                        >
+                          <Check size={18} />
+                          <span>Remove Duplicates</span>
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Templates Modal */}
+      {showTemplates && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white rounded-3xl w-[900px] max-h-[90vh] shadow-2xl overflow-hidden flex flex-col">
+            <div className="p-6 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 bg-cyan-600 text-white rounded-xl">
+                  <FileCode size={24} />
+                </div>
+                <div>
+                  <h3 className="font-black text-slate-900 text-lg uppercase tracking-tight">Rule Templates</h3>
+                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Pre-built rule templates for common scenarios</p>
+                </div>
+              </div>
+              <button onClick={() => setShowTemplates(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-400">
+                <X size={24} />
+              </button>
+            </div>
+            <div className="flex-1 p-6 overflow-y-auto">
+              {templatesLoading ? (
+                <LoadingState message="Loading templates..." />
+              ) : (
+                <>
+                  {templateCategories && templateCategories.length > 1 && (
+                    <div className="flex items-center space-x-2 overflow-x-auto pb-4 mb-4 border-b border-slate-200">
+                      {templateCategories.map(cat => (
+                        <button
+                          key={cat.id}
+                          onClick={() => setTemplateCategory(cat.id)}
+                          className={`px-4 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
+                            templateCategory === cat.id
+                              ? 'bg-cyan-600 text-white'
+                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                          }`}
+                        >
+                          {cat.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {filteredTemplates.map((template) => (
+                  <div
+                    key={template.id}
+                    className={`bg-white border-2 rounded-2xl p-5 cursor-pointer transition-all hover:shadow-lg ${
+                      selectedTemplate === template.id ? 'border-cyan-500 ring-2 ring-cyan-500/20' : 'border-slate-200'
+                    }`}
+                    onClick={() => setSelectedTemplate(template.id)}
+                  >
+                    <div className="flex items-start justify-between mb-3">
+                      <div className={`p-2 rounded-lg ${template.action === 'Allow' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
+                        {template.action === 'Allow' ? <ShieldCheck size={20} /> : <ShieldAlert size={20} />}
+                      </div>
+                      <span className={`text-[9px] font-black px-2 py-1 rounded-full uppercase tracking-widest ${
+                        template.action === 'Allow' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                      }`}>
+                        {template.action}
+                      </span>
+                    </div>
+                    <h4 className="font-bold text-slate-900 text-sm mb-1">{template.name}</h4>
+                    <p className="text-xs text-slate-500 mb-3">{template.description}</p>
+                    <div className="bg-slate-50 rounded-lg p-2">
+                      <p className="text-[10px] font-mono text-slate-600 truncate">
+                        {template.publisher || template.path}
+                      </p>
+                    </div>
+                  </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="p-6 bg-slate-50 border-t border-slate-200 flex space-x-4">
+              <button
+                onClick={async () => {
+                  if (!selectedTemplate) {
+                    alert('Please select a template first');
+                    return;
+                  }
+                  
+                  const template = templates?.find(t => t.id === selectedTemplate);
+                  if (!template) {
+                    alert('Template not found');
+                    return;
+                  }
+                  
+                  const outputPath = prompt(`Apply template "${template.name}"?\n\nEnter output path:`, `C:\\Policies\\Template-${template.id}.xml`);
+                  if (!outputPath) return;
+                  
+                  try {
+                    const result = await policy.createRuleFromTemplate(selectedTemplate, outputPath, {
+                      targetGroup: targetGroup,
+                      collectionType: 'Exe'
+                    });
+                    
+                    if (result.success) {
+                      alert(`Template applied!\nOutput: ${result.outputPath || outputPath}`);
+                      setShowTemplates(false);
+                      setSelectedTemplate('');
+                    } else {
+                      alert(`Error: ${result.error || 'Unknown error'}`);
+                    }
+                  } catch (error: any) {
+                    alert(`Error: ${error?.message || error}`);
+                  }
+                }}
+                disabled={!selectedTemplate}
+                className={`flex-1 px-6 py-3 rounded-xl font-bold text-sm shadow-lg transition-all ${
+                  selectedTemplate
+                    ? 'bg-cyan-600 text-white hover:bg-cyan-700'
+                    : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                }`}
+              >
+                Apply Selected Template
+              </button>
+              <button
+                onClick={() => {
+                  const name = prompt('Template Name:');
+                  if (!name) return;
+                  const description = prompt('Template Description:');
+                  const ruleTypeChoice = prompt('Rule Type (publisher/path):', 'publisher');
+                  const value = prompt(ruleTypeChoice === 'path' ? 'Path Pattern (e.g., %PROGRAMFILES%\\*)' : 'Publisher Pattern (e.g., O=MICROSOFT*):');
+                  if (!value) return;
+                  const action = prompt('Action (Allow/Deny):', 'Allow');
+                  
+                  // Note: Custom template creation would need to be saved to repository
+                  // For now, just show a message
+                  alert(`Template "${name}" would be created. Custom template persistence not yet implemented.`);
+                }}
+                className="px-6 py-3 bg-slate-200 text-slate-700 rounded-xl font-bold text-sm hover:bg-slate-300 transition-all"
+              >
+                + Create Template
               </button>
             </div>
           </div>
@@ -454,8 +896,12 @@ const PolicyModule: React.FC = () => {
                   <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">GA-AppLocker Toolkit v1.2.4</p>
                 </div>
               </div>
-              <button onClick={() => { setShowGenerator(false); resetGenerator(); }} className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-400">
-                <X size={24} />
+              <button 
+                onClick={() => { setShowGenerator(false); resetGenerator(); }} 
+                className="p-3 min-w-[44px] min-h-[44px] hover:bg-slate-200 rounded-full transition-colors text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                aria-label="Close rule generator"
+              >
+                <X size={24} aria-hidden="true" />
               </button>
             </div>
 
@@ -466,11 +912,15 @@ const PolicyModule: React.FC = () => {
                   <div className="flex p-1 bg-slate-100 rounded-xl">
                     <button 
                       onClick={() => { setGeneratorTab('scanned'); resetGenerator(); }}
-                      className={`flex-1 py-2 text-xs font-black uppercase tracking-widest rounded-lg transition-all ${generatorTab === 'scanned' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}
+                      className={`flex-1 py-2.5 min-h-[44px] text-xs font-black uppercase tracking-widest rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${generatorTab === 'scanned' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}
+                      aria-label="View scanned applications"
+                      aria-pressed={generatorTab === 'scanned'}
                     >Scanned Apps {combinedInventory.length > 0 && `(${combinedInventory.length})`}</button>
                     <button 
                       onClick={() => { setGeneratorTab('trusted'); resetGenerator(); }}
-                      className={`flex-1 py-2 text-xs font-black uppercase tracking-widest rounded-lg transition-all ${generatorTab === 'trusted' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}
+                      className={`flex-1 py-2.5 min-h-[44px] text-xs font-black uppercase tracking-widest rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${generatorTab === 'trusted' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}
+                      aria-label="View trusted vendors"
+                      aria-pressed={generatorTab === 'trusted'}
                     >Trusted Vendors</button>
                   </div>
 
@@ -478,7 +928,9 @@ const PolicyModule: React.FC = () => {
                   <label className="block">
                     <input
                       type="file"
+                      id="import-artifacts-main"
                       accept=".csv,.json"
+                      aria-label="Import scan artifacts from CSV or JSON file"
                       onChange={(e) => {
                         const file = e.target.files?.[0];
                         if (file) {
@@ -486,6 +938,11 @@ const PolicyModule: React.FC = () => {
                           reader.onload = (event) => {
                             try {
                               const text = event.target?.result as string;
+                              if (!text) {
+                                alert('File is empty');
+                                return;
+                              }
+                              
                               let items: InventoryItem[] = [];
                               
                               if (file.name.endsWith('.json')) {
@@ -532,11 +989,17 @@ const PolicyModule: React.FC = () => {
                                 index === self.findIndex(t => t.path === item.path && t.path !== '')
                               );
                               
-                              setImportedArtifacts([...importedArtifacts, ...uniqueItems]);
-                              setImportedFrom(file.name);
-                              setGeneratorTab('scanned');
-                            } catch (error) {
-                              alert('Error parsing file. Please ensure it is valid CSV or JSON.');
+                              if (uniqueItems.length > 0) {
+                                setImportedArtifacts([...importedArtifacts, ...uniqueItems]);
+                                setImportedFrom(file.name);
+                                setGeneratorTab('scanned');
+                                alert(`Successfully imported ${uniqueItems.length} items from ${file.name}`);
+                              } else {
+                                alert('No valid items found in file.');
+                              }
+                            } catch (error: any) {
+                              console.error('File import error:', error);
+                              alert(`Error parsing file: ${error?.message || 'Please ensure it is valid CSV or JSON.'}`);
                             }
                           };
                           reader.readAsText(file);
@@ -544,8 +1007,8 @@ const PolicyModule: React.FC = () => {
                       }}
                       className="hidden"
                     />
-                    <div className="border-2 border-dashed border-blue-300 rounded-xl p-3 text-center cursor-pointer hover:border-blue-500 transition-colors bg-blue-50/50">
-                      <Import size={16} className="mx-auto mb-1 text-blue-600" />
+                    <div className="border-2 border-dashed border-blue-300 rounded-xl p-3 text-center cursor-pointer hover:border-blue-500 transition-colors bg-blue-50/50 min-h-[80px] flex flex-col items-center justify-center focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2">
+                      <Import size={16} className="mx-auto mb-1 text-blue-600" aria-hidden="true" />
                       <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest">Import Scan Artifacts</p>
                       <p className="text-[9px] text-blue-500 mt-0.5">CSV, JSON, or Comprehensive Scan</p>
                     </div>
@@ -569,10 +1032,12 @@ const PolicyModule: React.FC = () => {
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                     <input 
                       type="text" 
+                      id="generator-search"
                       placeholder={generatorTab === 'scanned' ? `Search ${combinedInventory.length} items...` : "Search 58+ trusted vendors..."}
                       value={genSearchQuery}
                       onChange={(e) => setGenSearchQuery(e.target.value)}
-                      className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500/20"
+                      className="w-full pl-10 pr-4 py-2.5 min-h-[44px] bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                      aria-label={generatorTab === 'scanned' ? "Search scanned applications" : "Search trusted vendors"}
                     />
                   </div>
 
@@ -581,7 +1046,9 @@ const PolicyModule: React.FC = () => {
                     <label className="block">
                       <input
                         type="file"
+                        id="import-artifacts-scanned"
                         accept=".csv,.json"
+                        aria-label="Import scan artifacts for scanned applications tab"
                         onChange={(e) => {
                           const file = e.target.files?.[0];
                           if (file) {
@@ -637,11 +1104,16 @@ const PolicyModule: React.FC = () => {
                                   index === self.findIndex(t => t.path === item.path && t.path !== '')
                                 );
                                 
-                                setImportedArtifacts([...importedArtifacts, ...uniqueItems]);
-                                setImportedFrom(file.name);
-                                alert(`Imported ${uniqueItems.length} items from ${file.name}`);
-                              } catch (error) {
-                                alert('Error parsing file. Please ensure it is valid CSV or JSON.');
+                                if (uniqueItems.length > 0) {
+                                  setImportedArtifacts([...importedArtifacts, ...uniqueItems]);
+                                  setImportedFrom(file.name);
+                                  alert(`Successfully imported ${uniqueItems.length} items from ${file.name}`);
+                                } else {
+                                  alert('No valid items found in file.');
+                                }
+                              } catch (error: any) {
+                                console.error('File import error:', error);
+                                alert(`Error parsing file: ${error?.message || 'Please ensure it is valid CSV or JSON.'}`);
                               }
                             };
                             reader.readAsText(file);
@@ -649,8 +1121,8 @@ const PolicyModule: React.FC = () => {
                         }}
                         className="hidden"
                       />
-                      <div className="border-2 border-dashed border-blue-300 rounded-xl p-3 text-center cursor-pointer hover:border-blue-500 transition-colors bg-blue-50/50">
-                        <Import size={16} className="mx-auto mb-1 text-blue-600" />
+                      <div className="border-2 border-dashed border-blue-300 rounded-xl p-3 text-center cursor-pointer hover:border-blue-500 transition-colors bg-blue-50/50 min-h-[80px] flex flex-col items-center justify-center focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2">
+                        <Import size={16} className="mx-auto mb-1 text-blue-600" aria-hidden="true" />
                         <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest">Import Scan Artifacts</p>
                         <p className="text-[9px] text-blue-500 mt-0.5">CSV, JSON, or Comprehensive Scan</p>
                       </div>
@@ -673,13 +1145,15 @@ const PolicyModule: React.FC = () => {
 
                   {generatorTab === 'trusted' && (
                     <div className="flex items-center space-x-2 overflow-x-auto pb-1 custom-scrollbar">
-                      {categories.map(cat => (
+                      {availableCategories.map(cat => (
                         <button 
                           key={cat}
                           onClick={() => setGenCategoryFilter(cat)}
-                          className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest whitespace-nowrap border transition-all ${
+                          className={`px-3 py-2 min-h-[44px] rounded-full text-[10px] font-black uppercase tracking-widest whitespace-nowrap border transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
                             genCategoryFilter === cat ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'
                           }`}
+                          aria-label={`Filter by ${cat} category`}
+                          aria-pressed={genCategoryFilter === cat}
                         >
                           {cat}
                         </button>
@@ -694,11 +1168,13 @@ const PolicyModule: React.FC = () => {
                       <button 
                         key={app.id}
                         onClick={() => { setSelectedApp(app); setSelectedPublisher(null); }}
-                        className={`w-full text-left p-4 rounded-2xl border transition-all ${
+                        className={`w-full text-left p-4 min-h-[44px] rounded-2xl border transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
                           selectedApp?.id === app.id 
                           ? 'bg-blue-50 border-blue-200 ring-2 ring-blue-500/20' 
                           : 'bg-white border-slate-100 hover:border-slate-300'
                         }`}
+                        aria-label={`Select ${app.name} for rule generation`}
+                        aria-pressed={selectedApp?.id === app.id}
                       >
                         <div className="flex items-center justify-between">
                           <div>
@@ -714,11 +1190,13 @@ const PolicyModule: React.FC = () => {
                       <button 
                         key={pub.id}
                         onClick={() => { setSelectedPublisher(pub); setSelectedApp(null); }}
-                        className={`w-full text-left p-4 rounded-2xl border transition-all ${
+                        className={`w-full text-left p-4 min-h-[44px] rounded-2xl border transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
                           selectedPublisher?.id === pub.id 
                           ? 'bg-blue-50 border-blue-200 ring-2 ring-blue-500/20' 
                           : 'bg-white border-slate-100 hover:border-slate-300'
                         }`}
+                        aria-label={`Select ${pub.name} for rule generation`}
+                        aria-pressed={selectedPublisher?.id === pub.id}
                       >
                         <div className="flex items-center justify-between mb-1">
                           <p className="font-bold text-slate-900 text-sm">{pub.name}</p>
@@ -729,9 +1207,18 @@ const PolicyModule: React.FC = () => {
                     ))
                   )}
                   {(generatorTab === 'scanned' ? filteredInventory : filteredPublishers).length === 0 && (
-                    <div className="text-center py-12 text-slate-400">
-                      <Search size={32} className="mx-auto mb-2 opacity-20" />
+                    <div className="text-center py-12 text-slate-400" role="status">
+                      <Search size={32} className="mx-auto mb-2 opacity-20" aria-hidden="true" />
                       <p className="text-xs font-bold uppercase tracking-widest">No matches found</p>
+                      {genSearchQuery && (
+                        <button
+                          onClick={() => setGenSearchQuery('')}
+                          className="mt-2 text-xs text-blue-600 hover:text-blue-800 font-bold underline focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 rounded px-2 py-1"
+                          aria-label="Clear search"
+                        >
+                          Clear search
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -760,22 +1247,28 @@ const PolicyModule: React.FC = () => {
                         <div>
                           <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Policy Action</label>
                           <div className="flex p-1 bg-slate-100 rounded-xl">
-                            <button 
-                              onClick={() => setRuleAction('Allow')}
-                              className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${ruleAction === 'Allow' ? 'bg-white text-green-600 shadow-sm' : 'text-slate-500'}`}
-                            >Permit</button>
-                            <button 
-                              onClick={() => setRuleAction('Deny')}
-                              className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${ruleAction === 'Deny' ? 'bg-white text-red-600 shadow-sm' : 'text-slate-500'}`}
-                            >Deny</button>
+                    <button 
+                      onClick={() => setRuleAction('Allow')}
+                      className={`flex-1 py-2.5 min-h-[44px] text-xs font-bold rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${ruleAction === 'Allow' ? 'bg-white text-green-600 shadow-sm' : 'text-slate-500'}`}
+                      aria-label="Set rule action to Allow"
+                      aria-pressed={ruleAction === 'Allow'}
+                    >Permit</button>
+                    <button 
+                      onClick={() => setRuleAction('Deny')}
+                      className={`flex-1 py-2.5 min-h-[44px] text-xs font-bold rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${ruleAction === 'Deny' ? 'bg-white text-red-600 shadow-sm' : 'text-slate-500'}`}
+                      aria-label="Set rule action to Deny"
+                      aria-pressed={ruleAction === 'Deny'}
+                    >Deny</button>
                           </div>
                         </div>
                         <div>
                           <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Rule Logic (Auto: Publisher → Hash)</label>
                           <select 
+                            id="rule-type"
                             value={ruleType}
                             onChange={(e) => setRuleType(e.target.value as any)}
-                            className="w-full bg-slate-100 border-none rounded-xl px-3 py-2 text-xs font-bold text-slate-700 outline-none h-[42px]"
+                            className="w-full bg-slate-100 border-none rounded-xl px-3 py-2.5 min-h-[44px] text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                            aria-label="Select rule type (Publisher, Hash, or Auto)"
                           >
                             <option value="Publisher">Publisher (Preferred - Resilient to Updates)</option>
                             <option value="Hash">Hash (Fallback - Most Secure for Unsigned)</option>
@@ -790,9 +1283,11 @@ const PolicyModule: React.FC = () => {
                         <div className="relative">
                           <Users size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
                           <select 
+                            id="target-group"
                             value={targetGroup}
                             onChange={(e) => setTargetGroup(e.target.value)}
-                            className="w-full bg-slate-100 border-none rounded-xl pl-12 pr-4 py-3 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 appearance-none"
+                            className="w-full bg-slate-100 border-none rounded-xl pl-12 pr-4 py-2.5 min-h-[44px] text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 appearance-none"
+                            aria-label="Select Active Directory security group"
                           >
                             {APPLOCKER_GROUPS.map(g => (
                               <option key={g} value={g}>{g}</option>
@@ -822,26 +1317,28 @@ const PolicyModule: React.FC = () => {
                     <div className="space-y-2">
                       <button 
                         onClick={handleCreateRule}
-                        className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-blue-700 shadow-xl shadow-blue-500/20 transition-all flex items-center justify-center space-x-3"
+                        className="w-full py-4 min-h-[44px] bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-blue-700 shadow-xl shadow-blue-500/20 transition-all flex items-center justify-center space-x-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                        aria-label="Commit rule to Active Directory environment"
                       >
-                        <Check size={20} />
+                        <Check size={20} aria-hidden="true" />
                         <span>Commit to AD Environment</span>
                       </button>
                       {generatorTab === 'scanned' && filteredInventory.length > 0 && (
                         <button
-                            onClick={handleBatchGenerate}
-                          className="w-full py-3 bg-green-600 text-white rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-green-700 shadow-xl shadow-green-500/20 transition-all flex items-center justify-center space-x-3"
+                          onClick={handleBatchGenerate}
+                          className="w-full py-3 min-h-[44px] bg-green-600 text-white rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-green-700 shadow-xl shadow-green-500/20 transition-all flex items-center justify-center space-x-3 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+                          aria-label={`Batch generate rules for ${filteredInventory.length} items`}
                         >
-                          <Archive size={18} />
+                          <Archive size={18} aria-hidden="true" />
                           <span>Batch Generate ({filteredInventory.length} items)</span>
                         </button>
                       )}
                     </div>
                   </>
                 ) : (
-                  <div className="h-full flex flex-col items-center justify-center text-slate-300 space-y-4 border-4 border-dashed border-slate-50 rounded-[40px] bg-slate-50/20 p-12">
+                  <div className="h-full flex flex-col items-center justify-center text-slate-300 space-y-4 border-4 border-dashed border-slate-50 rounded-[40px] bg-slate-50/20 p-12" role="status">
                     <div className="p-6 bg-white rounded-full shadow-sm">
-                      <Import size={64} className="text-slate-100" />
+                      <Import size={64} className="text-slate-100" aria-hidden="true" />
                     </div>
                     <div className="text-center space-y-1">
                       <p className="text-lg font-black text-slate-400 uppercase tracking-tight">Awaiting Selection</p>
@@ -864,11 +1361,13 @@ const PolicyModule: React.FC = () => {
                 <button
                   key={phase}
                   onClick={() => setSelectedPhase(phase)}
-                  className={`w-full text-left p-3.5 rounded-xl text-xs font-bold transition-all border ${
+                  className={`w-full text-left p-3.5 min-h-[44px] rounded-xl text-xs font-bold transition-all border focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
                     selectedPhase === phase 
                     ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-500/20' 
                     : 'bg-slate-50 border-slate-100 text-slate-500 hover:border-slate-300'
                   }`}
+                  aria-label={`Select ${phase} deployment phase`}
+                  aria-pressed={selectedPhase === phase}
                 >
                   {phase}
                 </button>

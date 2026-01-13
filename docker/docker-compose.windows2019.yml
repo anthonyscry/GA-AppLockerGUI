@@ -1,0 +1,88 @@
+version: '3.8'
+
+# Windows Server 2019 Docker Compose for AppLocker Testing
+# Requires: Windows 10/11 Pro/Enterprise or Windows Server 2019+ with Windows containers enabled
+
+services:
+  # Windows Server 2019 Domain Controller
+  dc-windows2019:
+    build:
+      context: .
+      dockerfile: Dockerfile.windows2019-dc
+    image: ga-applocker-dc-windows2019:latest
+    container_name: ga-applocker-dc-2019
+    hostname: DC01
+    networks:
+      - applocker-network
+    environment:
+      - DOMAIN_NAME=applocker.local
+      - DOMAIN_NETBIOS=APPLOCKER
+      - DOMAIN_ADMIN_PASSWORD=SecurePass123!
+      - SAFE_MODE_PASSWORD=SafeMode123!
+      - DNS_FORWARDER=8.8.8.8
+    volumes:
+      - dc-data-2019:C:\Windows\NTDS
+      - dc-sysvol-2019:C:\Windows\SYSVOL
+      - dc-logs-2019:C:\logs
+      - ./scripts:C:\scripts:ro
+      - ./test-results:C:\test-results
+    ports:
+      - "53:53/udp"
+      - "53:53/tcp"
+      - "88:88/udp"
+      - "88:88/tcp"
+      - "135:135/tcp"
+      - "389:389/tcp"
+      - "389:389/udp"
+      - "445:445/tcp"
+      - "464:464/tcp"
+      - "636:636/tcp"
+      - "3268:3268/tcp"
+      - "3269:3269/tcp"
+    restart: unless-stopped
+    command: powershell -Command "Start-Sleep -Seconds 10; C:\scripts\setup-dc-windows.ps1; while ($true) { Start-Sleep -Seconds 3600 }"
+
+  # Windows Server 2019 Client with AppLocker
+  client-windows2019:
+    build:
+      context: .
+      dockerfile: Dockerfile.windows2019-client
+    image: ga-applocker-client-windows2019:latest
+    container_name: ga-applocker-client-2019
+    hostname: CLIENT01
+    networks:
+      - applocker-network
+    environment:
+      - DOMAIN_NAME=applocker.local
+      - DOMAIN_ADMIN_USER=Administrator
+      - DOMAIN_ADMIN_PASSWORD=SecurePass123!
+      - DNS_SERVER=dc-windows2019
+      - DC_HOSTNAME=DC01
+    depends_on:
+      - dc-windows2019
+    volumes:
+      - client-data-2019:C:\Data
+      - client-logs-2019:C:\logs
+      - ./scripts:C:\scripts:ro
+      - ./test-apps:C:\test-apps:ro
+      - ./test-results:C:\test-results
+    ports:
+      - "5985:5985"  # WinRM HTTP
+      - "5986:5986"  # WinRM HTTPS
+      - "3389:3389"  # RDP (optional)
+    restart: unless-stopped
+    command: powershell -Command "Start-Sleep -Seconds 90; C:\scripts\setup-client-windows.ps1; C:\scripts\run-functionality-tests.ps1"
+
+networks:
+  applocker-network:
+    driver: nat
+    ipam:
+      config:
+        - subnet: 172.25.0.0/16
+
+volumes:
+  dc-data-2019:
+  dc-sysvol-2019:
+  dc-logs-2019:
+  client-data-2019:
+  client-logs-2019:

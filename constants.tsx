@@ -21,11 +21,11 @@ import { ADUser, InventoryItem, TrustedPublisher, MachineScan, AppEvent } from '
 export const NAVIGATION = [
   { id: 'DASHBOARD', label: 'Dashboard', icon: <LayoutDashboard size={20} /> },
   { id: 'SCAN', label: 'Remote Scan', icon: <Search size={20} /> },
+  { id: 'SOFTWARE_COMPARE', label: 'Software Comparison', icon: <FileCode size={20} /> },
   { id: 'POLICY', label: 'Policy Lab', icon: <ShieldCheck size={20} /> },
   { id: 'EVENTS', label: 'Event Monitor', icon: <Activity size={20} /> },
   { id: 'AD_MANAGEMENT', label: 'AD Manager', icon: <Users size={20} /> },
   { id: 'COMPLIANCE', label: 'Compliance', icon: <ClipboardCheck size={20} /> },
-  { id: 'INVENTORY_COMPARE', label: 'Inventory Compare', icon: <FileCode size={20} /> },
 ];
 
 export const MOCK_MACHINES: MachineScan[] = [];

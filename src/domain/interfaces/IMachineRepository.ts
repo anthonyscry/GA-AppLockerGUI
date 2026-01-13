@@ -12,9 +12,18 @@ export interface MachineFilter {
   riskLevel?: string;
 }
 
+export interface ScanCredentials {
+  username?: string;
+  password?: string;
+  domain?: string;
+  useCurrentUser?: boolean;
+}
+
 export interface ScanOptions {
   targetOUs?: string[];
   timeout?: number;
+  credentials?: ScanCredentials;
+  computerNames?: string[];
 }
 
 export interface IMachineRepository {

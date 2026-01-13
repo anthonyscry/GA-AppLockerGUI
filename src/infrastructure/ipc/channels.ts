@@ -46,6 +46,11 @@ export const IPCChannels = {
     GET_HISTORICAL_REPORTS: 'compliance:getHistoricalReports',
     VALIDATE_EVIDENCE: 'compliance:validateEvidence',
   },
+  DIALOG: {
+    SHOW_OPEN_DIALOG: 'dialog:showOpenDialog',
+    SHOW_SAVE_DIALOG: 'dialog:showSaveDialog',
+    SHOW_OPEN_DIRECTORY_DIALOG: 'dialog:showOpenDirectoryDialog',
+  },
 } as const;
 
 export type IPCChannel = typeof IPCChannels[keyof typeof IPCChannels][keyof typeof IPCChannels[keyof typeof IPCChannels]];

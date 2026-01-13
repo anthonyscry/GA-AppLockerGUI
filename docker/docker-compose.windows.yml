@@ -1,0 +1,106 @@
+version: '3.8'
+
+# Windows Container Setup for True AppLocker Testing
+# Requires: Windows 10/11 Pro/Enterprise or Windows Server 2019+
+# Enable Windows containers in Docker Desktop before using
+
+services:
+  # Windows Server Core Domain Controller
+  domain-controller-windows:
+    image: mcr.microsoft.com/windows/servercore:ltsc2022
+    container_name: ga-applocker-dc-win
+    hostname: DC01
+    networks:
+      - applocker-network
+    environment:
+      - DOMAIN_NAME=applocker.local
+      - DOMAIN_NETBIOS=APPLOCKER
+      - DOMAIN_ADMIN_PASSWORD=SecurePass123!
+      - SAFE_MODE_PASSWORD=SafeMode123!
+    volumes:
+      - dc-data-win:C:\Windows\NTDS
+      - dc-sysvol-win:C:\Windows\SYSVOL
+      - ./scripts:/scripts:ro
+    ports:
+      - "53:53/udp"
+      - "53:53/tcp"
+      - "88:88/udp"
+      - "88:88/tcp"
+      - "135:135/tcp"
+      - "389:389/tcp"
+      - "389:389/udp"
+      - "445:445/tcp"
+      - "464:464/tcp"
+      - "636:636/tcp"
+      - "3268:3268/tcp"
+      - "3269:3269/tcp"
+    restart: unless-stopped
+    command: powershell -Command "Start-Sleep -Seconds 30; C:\scripts\setup-dc-windows.ps1"
+
+  # Windows 10/11 Enterprise Client with AppLocker
+  windows-client-enterprise:
+    image: mcr.microsoft.com/windows:ltsc2022
+    container_name: ga-applocker-client-win
+    hostname: CLIENT01
+    networks:
+      - applocker-network
+    environment:
+      - DOMAIN_NAME=applocker.local
+      - DOMAIN_ADMIN_USER=Administrator
+      - DOMAIN_ADMIN_PASSWORD=SecurePass123!
+      - DNS_SERVER=domain-controller-windows
+    depends_on:
+      - domain-controller-windows
+    volumes:
+      - client-data-win:C:\Data
+      - ./scripts:/scripts:ro
+      - ./test-apps:/test-apps:ro
+    ports:
+      - "5985:5985"  # WinRM HTTP
+      - "5986:5986"  # WinRM HTTPS
+      - "3389:3389"  # RDP (optional)
+    restart: unless-stopped
+    command: powershell -Command "Start-Sleep -Seconds 60; C:\scripts\setup-client-windows.ps1"
+
+  # Application Development Container (Windows)
+  app-dev-windows:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.app.windows
+    container_name: ga-applocker-app-win
+    hostname: APP01
+    networks:
+      - applocker-network
+    environment:
+      - NODE_ENV=development
+      - DOMAIN_NAME=applocker.local
+      - DOMAIN_ADMIN_USER=Administrator
+      - DOMAIN_ADMIN_PASSWORD=SecurePass123!
+      - DNS_SERVER=domain-controller-windows
+    depends_on:
+      - domain-controller-windows
+      - windows-client-enterprise
+    volumes:
+      - ../:C:\app
+      - app-node-modules-win:C:\app\node_modules
+      - ./scripts:/scripts:ro
+    ports:
+      - "3000:3000"  # Vite dev server
+      - "5173:5173"  # Alternative Vite port
+    working_dir: C:\app
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+
+networks:
+  applocker-network:
+    driver: nat
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
+
+volumes:
+  dc-data-win:
+  dc-sysvol-win:
+  client-data-win:
+  app-node-modules-win:

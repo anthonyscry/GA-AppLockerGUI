@@ -1,8 +1,55 @@
 
-import React from 'react';
-import { ClipboardCheck, Download, ShieldCheck, HelpCircle } from 'lucide-react';
+import React, { useState } from 'react';
+import { ClipboardCheck, Download, ShieldCheck, HelpCircle, Loader2, FolderOpen } from 'lucide-react';
+import { useAppServices } from '../src/presentation/contexts/AppContext';
+import { useAsync } from '../src/presentation/hooks/useAsync';
+import { LoadingState } from './ui/LoadingState';
+import { ErrorState } from './ui/ErrorState';
+import { showOpenDirectoryDialog } from '../src/infrastructure/ipc/fileDialog';
 
 const ComplianceModule: React.FC = () => {
+  const { compliance } = useAppServices();
+  const [isGenerating, setIsGenerating] = useState(false);
+  
+  // Fetch evidence status
+  const { data: evidenceStatus, loading: statusLoading, error: statusError, refetch: refetchStatus } = useAsync(
+    () => compliance.getEvidenceStatus()
+  );
+  
+  // Fetch historical reports
+  const { data: historicalReports, loading: reportsLoading, error: reportsError } = useAsync(
+    () => compliance.getHistoricalReports()
+  );
+
+  const handleGenerateEvidence = async () => {
+    setIsGenerating(true);
+    try {
+      const outputPath = await compliance.generateEvidencePackage();
+      alert(`Evidence package generated successfully!\n\nOutput: ${outputPath}`);
+      await refetchStatus();
+    } catch (error) {
+      console.error('Failed to generate evidence package:', error);
+      alert(`Failed to generate evidence package: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  // Show loading state if data is loading
+  if (statusLoading || reportsLoading) {
+    return <LoadingState message="Loading compliance data..." />;
+  }
+
+  // Show error state if there's an error
+  if (statusError || reportsError) {
+    return (
+      <ErrorState
+        title="Failed to load compliance data"
+        message={statusError?.message || reportsError?.message || 'Unknown error occurred'}
+        onRetry={refetchStatus}
+      />
+    );
+  }
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -11,9 +58,24 @@ const ComplianceModule: React.FC = () => {
           <h2 className="text-2xl font-bold text-slate-900">Compliance & Audit</h2>
           <p className="text-slate-500 text-sm">Generate CORA evidence packages and regulatory reports.</p>
         </div>
-        <button className="bg-blue-600 text-white px-6 py-2.5 rounded-xl font-bold shadow-lg shadow-blue-500/20 hover:bg-blue-700 flex items-center space-x-2">
-          <ShieldCheck size={20} />
-          <span>New Evidence Bundle</span>
+        <button 
+          onClick={handleGenerateEvidence}
+          disabled={isGenerating}
+          className="bg-blue-600 text-white px-6 py-2.5 rounded-xl font-bold shadow-lg shadow-blue-500/20 hover:bg-blue-700 flex items-center space-x-2 min-h-[44px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          aria-label="Create new evidence bundle"
+          aria-busy={isGenerating}
+        >
+          {isGenerating ? (
+            <>
+              <Loader2 size={20} className="animate-spin" aria-hidden="true" />
+              <span>Generating...</span>
+            </>
+          ) : (
+            <>
+              <ShieldCheck size={20} aria-hidden="true" />
+              <span>New Evidence Bundle</span>
+            </>
+          )}
         </button>
       </div>
 
@@ -33,22 +95,55 @@ const ComplianceModule: React.FC = () => {
             <div className="space-y-3 mt-6">
               <div className="flex items-center justify-between">
                 <span className="text-sm text-slate-300">Policy Definitions</span>
-                <span className="text-xs font-bold text-green-400 bg-green-400/10 px-2 py-0.5 rounded">COMPLETE</span>
+                <span className={`text-xs font-bold px-2 py-0.5 rounded ${
+                  evidenceStatus?.policyDefinitions === 'COMPLETE' 
+                    ? 'text-green-400 bg-green-400/10' 
+                    : 'text-amber-400 bg-amber-400/10'
+                }`}>
+                  {evidenceStatus?.policyDefinitions || 'UNKNOWN'}
+                </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-slate-300">Audit Logs (Last 30 Days)</span>
-                <span className="text-xs font-bold text-green-400 bg-green-400/10 px-2 py-0.5 rounded">SYNCED</span>
+                <span className={`text-xs font-bold px-2 py-0.5 rounded ${
+                  evidenceStatus?.auditLogs === 'SYNCED' 
+                    ? 'text-green-400 bg-green-400/10' 
+                    : 'text-amber-400 bg-amber-400/10'
+                }`}>
+                  {evidenceStatus?.auditLogs || 'UNKNOWN'}
+                </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-slate-300">System Inventory Snapshots</span>
-                <span className="text-xs font-bold text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded">STALE (3d)</span>
+                <span className={`text-xs font-bold px-2 py-0.5 rounded ${
+                  evidenceStatus?.systemSnapshots === 'SYNCED' 
+                    ? 'text-green-400 bg-green-400/10' 
+                    : 'text-amber-400 bg-amber-400/10'
+                }`}>
+                  {evidenceStatus?.systemSnapshots || 'UNKNOWN'}
+                </span>
               </div>
             </div>
           </div>
           
-          <button className="mt-8 w-full py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-500 transition-all flex items-center justify-center space-x-2 shadow-xl shadow-blue-500/20">
-            <span>Export Evidence Package</span>
-            <Download size={18} />
+          <button 
+            onClick={handleGenerateEvidence}
+            disabled={isGenerating}
+            className="mt-8 w-full py-3 min-h-[44px] bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-500 transition-all flex items-center justify-center space-x-2 shadow-xl shadow-blue-500/20 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            aria-label="Export evidence package for compliance review"
+            aria-busy={isGenerating}
+          >
+            {isGenerating ? (
+              <>
+                <Loader2 size={18} className="animate-spin" aria-hidden="true" />
+                <span>Generating...</span>
+              </>
+            ) : (
+              <>
+                <span>Export Evidence Package</span>
+                <Download size={18} aria-hidden="true" />
+              </>
+            )}
           </button>
         </div>
       </div>
@@ -56,11 +151,61 @@ const ComplianceModule: React.FC = () => {
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="p-4 border-b border-slate-100 flex items-center justify-between">
           <h4 className="font-bold text-slate-800">Historical Reports</h4>
-          <HelpCircle size={18} className="text-slate-300" />
+          <button
+            className="p-2 min-w-[44px] min-h-[44px] text-slate-300 hover:text-blue-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            aria-label="Help: Historical reports information"
+            title="Historical reports are stored in the configured output directory"
+          >
+            <HelpCircle size={18} aria-hidden="true" />
+          </button>
         </div>
-        <div className="p-6 text-center">
-          <p className="text-slate-400 text-sm mb-4">No historical reports found in the current output directory.</p>
-          <button className="text-blue-600 font-bold text-sm hover:underline">Browse Repository</button>
+        <div className="p-6">
+          {historicalReports && historicalReports.length > 0 ? (
+            <div className="space-y-2">
+              {historicalReports.map((report, index) => (
+                <div key={index} className="p-4 bg-slate-50 rounded-xl border border-slate-200">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-bold text-slate-900 text-sm">{report.name || `Report ${index + 1}`}</p>
+                      <p className="text-xs text-slate-500 mt-1">
+                        Generated: {report.createdAt ? new Date(report.createdAt).toLocaleDateString() : 'Unknown'}
+                      </p>
+                    </div>
+                      <a
+                      href={report.path}
+                      download
+                      className="text-blue-600 font-bold text-sm hover:underline min-h-[44px] px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 rounded inline-block"
+                      aria-label={`Download ${report.name || `report ${index + 1}`}`}
+                    >
+                      Download
+                    </a>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center">
+              <p className="text-slate-400 text-sm mb-4">No historical reports found in the current output directory.</p>
+              <button 
+                onClick={async () => {
+                  const dirPath = await showOpenDirectoryDialog({
+                    title: 'Select Compliance Reports Directory',
+                    defaultPath: 'C:\\Compliance'
+                  });
+                  if (dirPath) {
+                    alert(`Selected directory: ${dirPath}\n\nHistorical reports will be loaded from this location.`);
+                    // Refresh reports after directory selection
+                    window.location.reload();
+                  }
+                }}
+                className="flex items-center space-x-2 text-blue-600 font-bold text-sm hover:underline min-h-[44px] px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 rounded"
+                aria-label="Browse repository for historical reports"
+              >
+                <FolderOpen size={16} aria-hidden="true" />
+                <span>Browse Repository</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

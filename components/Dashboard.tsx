@@ -8,7 +8,8 @@ import {
   TrendingDown,
   TrendingUp,
   FileSearch,
-  Loader2
+  Loader2,
+  RefreshCw
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -35,12 +36,12 @@ const Dashboard: React.FC = () => {
   const { machine, event } = useAppServices();
   
   // Fetch machines
-  const { data: machines, loading: machinesLoading, error: machinesError } = useAsync(
+  const { data: machines, loading: machinesLoading, error: machinesError, refetch: refetchMachines } = useAsync(
     () => machine.getAllMachines()
   );
   
   // Fetch events
-  const { data: events, loading: eventsLoading, error: eventsError } = useAsync(
+  const { data: events, loading: eventsLoading, error: eventsError, refetch: refetchEvents } = useAsync(
     () => event.getAllEvents()
   );
   
@@ -57,17 +58,34 @@ const Dashboard: React.FC = () => {
 
   if (machinesLoading || eventsLoading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="animate-spin text-blue-600" size={32} />
+      <div className="flex items-center justify-center h-64" role="status" aria-live="polite">
+        <div className="flex flex-col items-center space-y-4">
+          <Loader2 className="animate-spin text-blue-600" size={32} aria-hidden="true" />
+          <span className="sr-only">Loading dashboard data</span>
+          <span className="text-slate-600 font-medium" aria-hidden="true">Loading dashboard data...</span>
+        </div>
       </div>
     );
   }
 
   if (machinesError || eventsError) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-xl p-6">
-        <p className="text-red-600 font-bold">Error loading dashboard data</p>
-        <p className="text-red-500 text-sm mt-2">{machinesError?.message || eventsError?.message}</p>
+      <div role="alert" className="bg-red-50 border-l-4 border-red-500 p-6 rounded-xl">
+        <div className="flex items-start">
+          <ShieldAlert className="text-red-500 mr-3 mt-0.5 shrink-0" size={20} aria-hidden="true" />
+          <div className="flex-1">
+            <h3 className="font-bold text-red-800">Unable to load dashboard data</h3>
+            <p className="text-red-700 text-sm mt-1">{machinesError?.message || eventsError?.message}</p>
+            <button 
+              onClick={() => { if (machinesError) refetchMachines(); if (eventsError) refetchEvents(); }}
+              className="mt-3 text-sm font-bold text-red-800 hover:text-red-900 underline flex items-center space-x-1 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 rounded px-2 py-1"
+              aria-label="Retry loading dashboard data"
+            >
+              <RefreshCw size={14} aria-hidden="true" />
+              <span>Retry</span>
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
@@ -107,7 +125,11 @@ const Dashboard: React.FC = () => {
         <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-slate-200">
           <div className="flex items-center justify-between mb-6">
             <h3 className="font-semibold text-slate-800 text-sm uppercase tracking-wider">Audit Event Ingestion (8003/8004)</h3>
-            <select className="text-[10px] font-bold bg-slate-100 border-none rounded px-2 py-1 outline-none uppercase tracking-widest text-slate-500">
+            <select 
+              id="chart-timeframe"
+              className="text-[10px] font-bold bg-slate-100 border-none rounded px-2 py-1.5 min-h-[44px] outline-none uppercase tracking-widest text-slate-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+              aria-label="Select chart timeframe"
+            >
               <option>Last 7 Days</option>
               <option>Last 30 Days</option>
             </select>
@@ -149,7 +171,10 @@ const Dashboard: React.FC = () => {
               </div>
             ))}
           </div>
-          <button className="mt-8 w-full text-center py-2.5 text-[10px] font-black uppercase tracking-widest text-blue-600 bg-blue-50 rounded-xl hover:bg-blue-100 transition-all border border-blue-100">
+          <button 
+            className="mt-8 w-full text-center py-2.5 min-h-[44px] text-[10px] font-black uppercase tracking-widest text-blue-600 bg-blue-50 rounded-xl hover:bg-blue-100 transition-all border border-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            aria-label="Export unique blocked applications to CSV"
+          >
             Export UniqueBlockedApps.csv
           </button>
         </div>
@@ -158,7 +183,13 @@ const Dashboard: React.FC = () => {
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
           <h3 className="font-bold text-slate-800 text-sm uppercase tracking-widest">Recent Policy Audit Activity</h3>
-          <ArrowUpRight size={18} className="text-slate-400 cursor-pointer hover:text-blue-500" />
+          <button
+            className="p-2 min-w-[44px] min-h-[44px] text-slate-400 hover:text-blue-500 rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            aria-label="View all policy audit activity"
+            title="View all events"
+          >
+            <ArrowUpRight size={18} aria-hidden="true" />
+          </button>
         </div>
         <table className="w-full text-sm text-left">
           <thead className="bg-slate-50 text-slate-400 font-bold text-[10px] uppercase tracking-widest">
@@ -187,8 +218,12 @@ const Dashboard: React.FC = () => {
               ))
             ) : (
               <tr>
-                <td colSpan={4} className="px-6 py-8 text-center text-slate-400 text-sm">
-                  No recent events
+                <td colSpan={4} className="px-6 py-8">
+                  <div className="text-center" role="status">
+                    <Activity className="mx-auto text-slate-300 mb-2" size={32} aria-hidden="true" />
+                    <p className="text-slate-500 text-sm font-medium">No recent events</p>
+                    <p className="text-slate-400 text-xs mt-1">Events will appear here as they are logged</p>
+                  </div>
                 </td>
               </tr>
             )}
@@ -206,7 +241,7 @@ const StatCard: React.FC<{ label: string, value: string, icon: React.ReactNode, 
       {trendIcon && <div className="flex items-center space-x-1">{trendIcon}</div>}
     </div>
     <div className="space-y-1">
-      <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">{label}</p>
+      <p className="text-slate-600 text-[10px] font-black uppercase tracking-widest">{label}</p>
       <h2 className="text-2xl font-black text-slate-900">{value}</h2>
       {trend && <p className="text-[10px] text-slate-400 font-medium italic">{trend}</p>}
     </div>

@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { Activity, Download, Trash2, Calendar, Filter, ExternalLink, Loader2 } from 'lucide-react';
+import { Activity, Download, Trash2, Calendar, Filter, ExternalLink, Loader2, ShieldAlert, RefreshCw } from 'lucide-react';
 import { useAppServices } from '../src/presentation/contexts/AppContext';
 import { useAsync } from '../src/presentation/hooks/useAsync';
 import { useDebounce } from '../src/presentation/hooks/useDebounce';
 import { AppEvent } from '../src/shared/types';
 import { EventFilter } from '../src/domain/interfaces/IEventRepository';
+import { showSaveDialog } from '../src/infrastructure/ipc/fileDialog';
 
 const EventsModule: React.FC = () => {
   const { event } = useAppServices();
@@ -36,34 +37,72 @@ const EventsModule: React.FC = () => {
     try {
       if (!events) return;
       const csv = await event.exportToCSV(events);
-      // Create download link
-      const blob = new Blob([csv], { type: 'text/csv' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `applocker-events-${new Date().toISOString().split('T')[0]}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
+      
+      // Use file dialog to save
+      const filePath = await showSaveDialog({
+        title: 'Export Events to CSV',
+        defaultPath: `applocker-events-${new Date().toISOString().split('T')[0]}.csv`,
+        filters: [
+          { name: 'CSV Files', extensions: ['csv'] },
+          { name: 'All Files', extensions: ['*'] }
+        ]
+      });
+
+      if (filePath) {
+        // In Electron, write file via IPC
+        const electron = (window as any).electron;
+        if (electron?.ipc) {
+          await electron.ipc.invoke('fs:writeFile', filePath, csv);
+          alert(`Events exported successfully to:\n${filePath}`);
+        } else {
+          // Fallback to browser download
+          const blob = new Blob([csv], { type: 'text/csv' });
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = filePath.split(/[/\\]/).pop() || 'applocker-events.csv';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          window.URL.revokeObjectURL(url);
+        }
+      }
     } catch (error) {
       console.error('Failed to export CSV:', error);
+      alert(`Failed to export CSV: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
   if (eventsLoading || statsLoading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="animate-spin text-blue-600" size={32} />
+      <div className="flex items-center justify-center h-64" role="status" aria-live="polite">
+        <div className="flex flex-col items-center space-y-4">
+          <Loader2 className="animate-spin text-blue-600" size={32} aria-hidden="true" />
+          <span className="sr-only">Loading events</span>
+          <span className="text-slate-600 font-medium" aria-hidden="true">Loading events...</span>
+        </div>
       </div>
     );
   }
 
   if (eventsError) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-xl p-6">
-        <p className="text-red-600 font-bold">Error loading events</p>
-        <p className="text-red-500 text-sm mt-2">{eventsError.message}</p>
+      <div role="alert" className="bg-red-50 border-l-4 border-red-500 p-6 rounded-xl">
+        <div className="flex items-start">
+          <ShieldAlert className="text-red-500 mr-3 mt-0.5 shrink-0" size={20} aria-hidden="true" />
+          <div className="flex-1">
+            <h3 className="font-bold text-red-800">Unable to load events</h3>
+            <p className="text-red-700 text-sm mt-1">{eventsError.message}</p>
+            <button 
+              onClick={() => refetchEvents()}
+              className="mt-3 text-sm font-bold text-red-800 hover:text-red-900 underline flex items-center space-x-1 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 rounded px-2 py-1"
+              aria-label="Retry loading events"
+            >
+              <RefreshCw size={14} aria-hidden="true" />
+              <span>Retry</span>
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
@@ -76,15 +115,19 @@ const EventsModule: React.FC = () => {
           <p className="text-slate-500 text-sm">Real-time AppLocker audit event ingestion (8003/8004).</p>
         </div>
         <div className="flex space-x-3">
-          <button className="flex items-center space-x-2 bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-lg hover:bg-slate-50">
-            <Calendar size={18} />
+          <button 
+            className="flex items-center space-x-2 bg-white border border-slate-200 text-slate-600 px-4 py-2.5 rounded-lg hover:bg-slate-50 min-h-[44px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            aria-label="Filter events from last 24 hours"
+          >
+            <Calendar size={18} aria-hidden="true" />
             <span>Last 24 Hours</span>
           </button>
           <button 
             onClick={handleExportCSV}
-            className="flex items-center space-x-2 bg-slate-900 text-white px-4 py-2 rounded-lg hover:bg-slate-800"
+            className="flex items-center space-x-2 bg-slate-900 text-white px-4 py-2.5 rounded-lg hover:bg-slate-800 min-h-[44px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            aria-label="Export events to CSV file"
           >
-            <Download size={18} />
+            <Download size={18} aria-hidden="true" />
             <span>Export CSV</span>
           </button>
         </div>
@@ -102,19 +145,21 @@ const EventsModule: React.FC = () => {
             <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
             <input 
               type="text" 
+              id="events-search"
               placeholder="Filter events..." 
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-1.5 bg-white border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500/20" 
+              className="w-full pl-9 pr-4 py-2.5 min-h-[44px] bg-white border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2" 
+              aria-label="Search and filter events"
             />
           </div>
           {searchQuery && (
             <button 
               onClick={() => setSearchQuery('')}
-              className="p-2 text-slate-400 hover:text-red-500 transition-colors"
+              className="p-3 min-w-[44px] min-h-[44px] text-slate-400 hover:text-red-500 transition-colors rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
               aria-label="Clear search"
             >
-              <Trash2 size={20} />
+              <Trash2 size={20} aria-hidden="true" />
             </button>
           )}
         </div>
@@ -147,16 +192,31 @@ const EventsModule: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 text-slate-500 italic">{event.publisher}</td>
                     <td className="px-6 py-4 text-right">
-                      <button className="opacity-0 group-hover:opacity-100 text-blue-600 p-2 hover:bg-blue-50 rounded-lg transition-all">
-                        <ExternalLink size={16} />
+                      <button 
+                        className="opacity-0 group-hover:opacity-100 text-blue-600 p-3 min-w-[44px] min-h-[44px] hover:bg-blue-50 rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                        aria-label="View event details"
+                      >
+                        <ExternalLink size={16} aria-hidden="true" />
                       </button>
                     </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={6} className="px-6 py-8 text-center text-slate-400 text-sm">
-                    {searchQuery ? 'No events match your search' : 'No events found'}
+                  <td colSpan={6} className="px-6 py-8">
+                    <div className="text-center" role="status">
+                      <Activity className="mx-auto text-slate-300 mb-2" size={32} aria-hidden="true" />
+                      <p className="text-slate-500 text-sm font-medium">{searchQuery ? 'No events match your search' : 'No events found'}</p>
+                      {searchQuery && (
+                        <button
+                          onClick={() => setSearchQuery('')}
+                          className="mt-2 text-xs text-blue-600 hover:text-blue-800 font-bold underline focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 rounded px-2 py-1"
+                          aria-label="Clear search to show all events"
+                        >
+                          Clear search
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               )}
@@ -164,7 +224,12 @@ const EventsModule: React.FC = () => {
           </table>
         </div>
         <div className="p-4 bg-slate-50 border-t border-slate-100 text-center">
-          <button className="text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors uppercase tracking-widest">Load Older Events</button>
+          <button 
+            className="text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors uppercase tracking-widest min-h-[44px] px-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 rounded"
+            aria-label="Load older events"
+          >
+            Load Older Events
+          </button>
         </div>
       </div>
     </div>

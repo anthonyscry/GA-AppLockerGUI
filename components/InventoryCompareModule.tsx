@@ -25,7 +25,7 @@ interface ComparisonResult {
   }>;
 }
 
-const InventoryCompareModule: React.FC = () => {
+const SoftwareComparisonModule: React.FC = () => {
   const [inventoryA, setInventoryA] = useState<InventoryItem[]>([]);
   const [inventoryB, setInventoryB] = useState<InventoryItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -104,9 +104,9 @@ const InventoryCompareModule: React.FC = () => {
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       items = items.filter(item => 
-        item.name.toLowerCase().includes(query) ||
-        item.publisher.toLowerCase().includes(query) ||
-        item.path.toLowerCase().includes(query)
+        (item.name?.toLowerCase() || '').includes(query) ||
+        (item.publisher?.toLowerCase() || '').includes(query) ||
+        (item.path?.toLowerCase() || '').includes(query)
       );
     }
 
@@ -171,9 +171,10 @@ const InventoryCompareModule: React.FC = () => {
         {(inventoryA.length > 0 || inventoryB.length > 0) && (
           <button
             onClick={exportComparison}
-            className="bg-blue-600 text-white px-5 py-2 rounded-xl font-bold text-sm hover:bg-blue-700 shadow-lg shadow-blue-500/20 transition-all flex items-center space-x-2"
+            className="bg-blue-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-blue-700 shadow-lg shadow-blue-500/20 transition-all flex items-center space-x-2 min-h-[44px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            aria-label="Export comparison results to CSV"
           >
-            <Download size={18} />
+            <Download size={18} aria-hidden="true" />
             <span>Export Comparison</span>
           </button>
         )}
@@ -201,8 +202,8 @@ const InventoryCompareModule: React.FC = () => {
               }}
               className="hidden"
             />
-            <div className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center cursor-pointer hover:border-blue-500 transition-colors">
-              <Upload size={32} className="mx-auto mb-2 text-slate-400" />
+            <div className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center cursor-pointer hover:border-blue-500 transition-colors min-h-[120px] flex flex-col items-center justify-center focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2">
+              <Upload size={32} className="mx-auto mb-2 text-slate-400" aria-hidden="true" />
               <p className="text-sm font-bold text-slate-600">Click to upload CSV/JSON</p>
               <p className="text-xs text-slate-400 mt-1">or drag and drop</p>
             </div>
@@ -229,8 +230,8 @@ const InventoryCompareModule: React.FC = () => {
               }}
               className="hidden"
             />
-            <div className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center cursor-pointer hover:border-green-500 transition-colors">
-              <Upload size={32} className="mx-auto mb-2 text-slate-400" />
+            <div className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center cursor-pointer hover:border-green-500 transition-colors min-h-[120px] flex flex-col items-center justify-center focus-within:ring-2 focus-within:ring-green-500 focus-within:ring-offset-2">
+              <Upload size={32} className="mx-auto mb-2 text-slate-400" aria-hidden="true" />
               <p className="text-sm font-bold text-slate-600">Click to upload CSV/JSON</p>
               <p className="text-xs text-slate-400 mt-1">or drag and drop</p>
             </div>
@@ -282,16 +283,20 @@ const InventoryCompareModule: React.FC = () => {
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                 <input
                   type="text"
+                  id="comparison-search"
                   placeholder="Search..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500/20"
+                  className="pl-10 pr-4 py-2.5 min-h-[44px] bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                  aria-label="Search comparison results"
                 />
               </div>
               <select
+                id="comparison-filter"
                 value={filterType}
                 onChange={(e) => setFilterType(e.target.value as any)}
-                className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold outline-none"
+                className="px-3 py-2.5 min-h-[44px] bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                aria-label="Filter comparison results"
               >
                 <option value="all">All Items</option>
                 <option value="onlyA">Only in A</option>
@@ -342,4 +347,4 @@ const InventoryCompareModule: React.FC = () => {
   );
 };
 
-export default InventoryCompareModule;
+export default SoftwareComparisonModule;

@@ -45,7 +45,16 @@ param(
     [switch]$IncludeWritablePaths,
     
     [Parameter(Mandatory = $false)]
-    [switch]$IncludeSystemPaths = $true
+    [switch]$IncludeSystemPaths = $true,
+    
+    [Parameter(Mandatory = $false)]
+    [string]$Username,
+    
+    [Parameter(Mandatory = $false)]
+    [string]$Password,
+    
+    [Parameter(Mandatory = $false)]
+    [string]$Domain
 )
 
 $ErrorActionPreference = "Stop"
@@ -54,6 +63,20 @@ function Write-Log {
     param([string]$Message, [string]$Level = "INFO")
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     Write-Host "[$timestamp] [$Level] $Message"
+}
+
+# Create credential object if provided
+$Credential = $null
+if ($Username -and $Password) {
+    $SecurePassword = ConvertTo-SecureString -String $Password -AsPlainText -Force
+    if ($Domain) {
+        $Credential = New-Object System.Management.Automation.PSCredential("$Domain\$Username", $SecurePassword)
+    } else {
+        $Credential = New-Object System.Management.Automation.PSCredential($Username, $SecurePassword)
+    }
+    Write-Log "Using provided credentials for remote operations" "INFO"
+} else {
+    Write-Log "Using current user credentials for remote operations" "INFO"
 }
 
 function Get-FilePublisher {

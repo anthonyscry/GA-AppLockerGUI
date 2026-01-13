@@ -1,0 +1,29 @@
+# Windows Server 2019 Domain Controller
+# For AppLocker testing with true Windows AD DS
+
+FROM mcr.microsoft.com/windows/servercore:ltsc2019
+
+LABEL maintainer="GA-ASI ISSO Team"
+LABEL description="Windows Server 2019 Domain Controller for AppLocker Testing"
+
+# Set PowerShell execution policy
+SHELL ["powershell", "-Command", "$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue';"]
+
+# Install Windows features required for AD DS
+RUN Install-WindowsFeature -Name AD-Domain-Services, DNS, RSAT-AD-PowerShell, RSAT-DNS-Server -IncludeManagementTools
+
+# Copy setup scripts
+COPY scripts/setup-dc-windows.ps1 C:/scripts/setup-dc-windows.ps1
+COPY scripts/test-functions.ps1 C:/scripts/test-functions.ps1
+
+# Create directories
+RUN New-Item -ItemType Directory -Force -Path C:\scripts, C:\logs, C:\test-results | Out-Null
+
+# Expose AD DS ports
+EXPOSE 53/udp 53/tcp 88/udp 88/tcp 135/tcp 389/tcp 389/udp 445/tcp 464/tcp 636/tcp 3268/tcp 3269/tcp
+
+# Set working directory
+WORKDIR C:/scripts
+
+# Default command - setup AD DS
+CMD ["powershell", "-File", "C:/scripts/setup-dc-windows.ps1"]

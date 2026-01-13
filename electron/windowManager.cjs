@@ -114,17 +114,23 @@ class WindowManager {
 
     this.mainWindow.on('close', (event) => {
       // Clean up any pending operations before close
-      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-        try {
-          // Remove all listeners to prevent errors
-          this.mainWindow.webContents.removeAllListeners();
-          // Close DevTools if open
-          if (this.mainWindow.webContents.isDevToolsOpened()) {
-            this.mainWindow.webContents.closeDevTools();
+      try {
+        // Guard against destroyed window or webContents
+        if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+          const webContents = this.mainWindow.webContents;
+          // Check if webContents exists and is not destroyed
+          if (webContents && !webContents.isDestroyed()) {
+            // Remove all listeners to prevent errors
+            webContents.removeAllListeners();
+            // Close DevTools if open
+            if (webContents.isDevToolsOpened()) {
+              webContents.closeDevTools();
+            }
           }
-        } catch (e) {
-          // Ignore errors during cleanup - window may already be destroyed
         }
+      } catch (e) {
+        // Ignore errors during cleanup - window or webContents may already be destroyed
+        console.log('[WindowManager] Cleanup during close (expected):', e.message);
       }
     });
     

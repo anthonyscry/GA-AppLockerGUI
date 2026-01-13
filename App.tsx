@@ -7,7 +7,7 @@ import PolicyModule from './components/PolicyModule';
 import EventsModule from './components/EventsModule';
 import ADManagementModule from './components/ADManagementModule';
 import ComplianceModule from './components/ComplianceModule';
-import InventoryCompareModule from './components/InventoryCompareModule';
+import SoftwareComparisonModule from './components/InventoryCompareModule';
 import { Bell, Search, HelpCircle, User, X, Globe, Terminal, FileText } from 'lucide-react';
 import { NAVIGATION } from './constants';
 
@@ -131,16 +131,24 @@ const App: React.FC = () => {
       case AppView.EVENTS: return <EventsModule />;
       case AppView.AD_MANAGEMENT: return <ADManagementModule />;
       case AppView.COMPLIANCE: return <ComplianceModule />;
-      case AppView.INVENTORY_COMPARE: return <InventoryCompareModule />;
+      case AppView.SOFTWARE_COMPARE: return <SoftwareComparisonModule />;
       default: return <Dashboard />;
     }
   };
 
   return (
     <div className="min-h-screen bg-slate-50 flex">
+      {/* Skip to main content link for keyboard users */}
+      <a 
+        href="#main-content" 
+        className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:bg-blue-600 focus:text-white focus:px-4 focus:py-2 focus:rounded-lg focus:shadow-lg"
+      >
+        Skip to main content
+      </a>
+      
       <Sidebar currentView={currentView} setView={setCurrentView} />
       
-      <main className="flex-1 ml-64 p-8">
+      <main id="main-content" className="flex-1 ml-64 p-8">
         <header className="flex items-center justify-between mb-8 sticky top-0 z-20 bg-slate-50/80 backdrop-blur-md py-2 border-b border-transparent">
           <div className="flex items-center space-x-4">
             <h2 className="text-xl font-black text-slate-900 uppercase tracking-tight">
@@ -157,23 +165,25 @@ const App: React.FC = () => {
 
           <div className="flex items-center space-x-4">
             <button 
-              className="p-2 text-slate-500 hover:text-slate-900 hover:bg-white rounded-lg transition-all border border-transparent hover:border-slate-200"
-              aria-label="Search"
+              className="p-3 min-w-[44px] min-h-[44px] text-slate-500 hover:text-slate-900 hover:bg-white rounded-lg transition-all border border-transparent hover:border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+              aria-label="Search applications and policies"
+              title="Search (Ctrl+F)"
             >
               <Search size={20} aria-hidden="true" />
             </button>
             <button 
-              className="p-2 text-slate-500 hover:text-slate-900 hover:bg-white rounded-lg transition-all border border-transparent hover:border-slate-200 relative"
-              aria-label="Notifications"
+              className="p-3 min-w-[44px] min-h-[44px] text-slate-500 hover:text-slate-900 hover:bg-white rounded-lg transition-all border border-transparent hover:border-slate-200 relative focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+              aria-label="View notifications"
+              title="Notifications"
             >
               <Bell size={20} aria-hidden="true" />
               <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-slate-50" aria-label="Unread notifications" />
             </button>
             <button 
               onClick={() => setShowAbout(true)}
-              className="p-2 text-slate-500 hover:text-blue-600 hover:bg-white rounded-lg transition-all border border-transparent hover:border-slate-200"
+              className="p-3 min-w-[44px] min-h-[44px] text-slate-500 hover:text-blue-600 hover:bg-white rounded-lg transition-all border border-transparent hover:border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
               aria-label="Open help and about dialog"
-              title="Help & About"
+              title="Help & About (F1)"
             >
               <HelpCircle size={20} aria-hidden="true" />
             </button>

@@ -8,12 +8,24 @@ import { ipcClient } from '../ipc/ipcClient';
 import { IPCChannels } from '../ipc/channels';
 import { logger } from '../logging/Logger';
 import { ExternalServiceError } from '../../domain/errors';
+import { cacheManager } from '../cache/CacheManager';
 
 export class PolicyRepository implements IPolicyRepository {
   async getInventory(): Promise<InventoryItem[]> {
+    // Check cache first
+    const cacheKey = 'policy:inventory';
+    const cached = cacheManager.get<InventoryItem[]>(cacheKey);
+    if (cached) {
+      logger.debug('Returning cached inventory');
+      return cached;
+    }
+
     try {
       const inventory = await ipcClient.invoke<InventoryItem[]>(IPCChannels.POLICY.GET_INVENTORY);
-      return inventory || [];
+      const result = inventory || [];
+      // Cache for 5 minutes
+      cacheManager.set(cacheKey, result, 300000);
+      return result;
     } catch (error) {
       logger.error('Failed to fetch inventory', error as Error);
       throw new ExternalServiceError('Policy Service', 'Failed to fetch inventory', error as Error);
@@ -21,9 +33,20 @@ export class PolicyRepository implements IPolicyRepository {
   }
 
   async getTrustedPublishers(): Promise<TrustedPublisher[]> {
+    // Check cache first
+    const cacheKey = 'policy:trustedPublishers';
+    const cached = cacheManager.get<TrustedPublisher[]>(cacheKey);
+    if (cached) {
+      logger.debug('Returning cached trusted publishers');
+      return cached;
+    }
+
     try {
       const publishers = await ipcClient.invoke<TrustedPublisher[]>(IPCChannels.POLICY.GET_TRUSTED_PUBLISHERS);
-      return publishers || [];
+      const result = publishers || [];
+      // Cache for 10 minutes (publishers change infrequently)
+      cacheManager.set(cacheKey, result, 600000);
+      return result;
     } catch (error) {
       logger.error('Failed to fetch trusted publishers', error as Error);
       throw new ExternalServiceError('Policy Service', 'Failed to fetch trusted publishers', error as Error);
@@ -63,6 +86,89 @@ export class PolicyRepository implements IPolicyRepository {
     } catch (error) {
       logger.error('Failed to run health check', error as Error);
       throw new ExternalServiceError('Policy Service', 'Failed to run health check', error as Error);
+    }
+  }
+
+  async batchGenerateRules(
+    items: InventoryItem[],
+    outputPath: string,
+    options?: {
+      ruleAction?: 'Allow' | 'Deny';
+      targetGroup?: string;
+      collectionType?: string;
+      groupByPublisher?: boolean;
+    }
+  ): Promise<{ success: boolean; outputPath?: string; error?: string }> {
+    try {
+      logger.info('Batch generating rules', { itemCount: items.length, outputPath });
+      const result = await ipcClient.invoke<{ success: boolean; outputPath?: string; error?: string }>(
+        IPCChannels.POLICY.BATCH_GENERATE_RULES,
+        items,
+        outputPath,
+        options
+      );
+      return result;
+    } catch (error) {
+      logger.error('Failed to batch generate rules', error as Error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  }
+
+  async createPublisherRule(
+    publisher: string,
+    outputPath: string,
+    options?: {
+      action?: 'Allow' | 'Deny';
+      targetGroup?: string;
+      collectionType?: string;
+    }
+  ): Promise<{ success: boolean; outputPath?: string; error?: string }> {
+    try {
+      logger.info('Creating publisher rule', { publisher, outputPath });
+      // Use the existing IPC channel from ipcHandlers.cjs
+      const result = await (window as any).electron?.ipc?.invoke?.(
+        'policy:createPublisherRule',
+        { publisher, ...options },
+        outputPath
+      );
+      return result || { success: false, error: 'IPC not available' };
+    } catch (error) {
+      logger.error('Failed to create publisher rule', error as Error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  }
+
+  async batchCreatePublisherRules(
+    publishers: string[],
+    outputPath: string,
+    options?: {
+      action?: 'Allow' | 'Deny';
+      targetGroup?: string;
+      collectionType?: string;
+    }
+  ): Promise<{ success: boolean; outputPath?: string; error?: string }> {
+    try {
+      logger.info('Batch creating publisher rules', { publisherCount: publishers.length, outputPath });
+      // Use the existing IPC channel from ipcHandlers.cjs
+      const result = await (window as any).electron?.ipc?.invoke?.(
+        'policy:batchCreatePublisherRules',
+        publishers,
+        outputPath,
+        options
+      );
+      return result || { success: false, error: 'IPC not available' };
+    } catch (error) {
+      logger.error('Failed to batch create publisher rules', error as Error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
     }
   }
 }

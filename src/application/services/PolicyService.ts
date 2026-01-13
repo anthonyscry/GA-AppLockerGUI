@@ -5,6 +5,8 @@
 
 import { IPolicyRepository } from '../../domain/interfaces/IPolicyRepository';
 import { PolicyPhase, InventoryItem, TrustedPublisher, PolicyRule } from '../../shared/types';
+import { RuleTemplate } from '../../shared/types/template';
+import { DEFAULT_TEMPLATES, TEMPLATE_CATEGORIES } from '../../infrastructure/templates/defaultTemplates';
 import { logger } from '../../infrastructure/logging/Logger';
 
 export interface HealthCheckResult {
@@ -118,5 +120,177 @@ export class PolicyService {
     ${phase.includes('Phase 2') ? '<FilePathRule Id="..." Name="Script-Allow" Action="Allow">...</FilePathRule>' : '<!-- Scripts Restricted in Phase 1 -->'}
   </RuleCollection>
 </AppLockerPolicy>`;
+  }
+
+  /**
+   * Batch generate rules for multiple inventory items
+   */
+  async batchGenerateRules(
+    items: InventoryItem[],
+    outputPath: string,
+    options: {
+      ruleAction?: 'Allow' | 'Deny';
+      targetGroup?: string;
+      collectionType?: string;
+      groupByPublisher?: boolean;
+    } = {}
+  ): Promise<{ success: boolean; outputPath?: string; error?: string }> {
+    logger.info('Batch generating rules', { itemCount: items.length, outputPath });
+    return this.repository.batchGenerateRules(items, outputPath, options);
+  }
+
+  /**
+   * Group inventory items by publisher
+   */
+  groupByPublisher(items: InventoryItem[]): Record<string, InventoryItem[]> {
+    const groups: Record<string, InventoryItem[]> = {};
+    items.forEach(item => {
+      const publisher = item.publisher || 'Unknown';
+      if (!groups[publisher]) {
+        groups[publisher] = [];
+      }
+      groups[publisher].push(item);
+    });
+    return groups;
+  }
+
+  /**
+   * Detect duplicates in inventory items
+   */
+  detectDuplicates(items: InventoryItem[]): {
+    pathDuplicates: Array<[string, InventoryItem[]]>;
+    publisherDuplicates: Array<[string, InventoryItem[]]>;
+    pathDupCount: number;
+    pubDupCount: number;
+    totalItems: number;
+  } {
+    const pathDupes: Record<string, InventoryItem[]> = {};
+    const publisherDupes: Record<string, InventoryItem[]> = {};
+    
+    items.forEach(item => {
+      // Group by path
+      if (item.path) {
+        if (!pathDupes[item.path]) pathDupes[item.path] = [];
+        pathDupes[item.path].push(item);
+      }
+      
+      // Group by publisher + name
+      const pubKey = `${item.publisher}|${item.name}`;
+      if (!publisherDupes[pubKey]) publisherDupes[pubKey] = [];
+      publisherDupes[pubKey].push(item);
+    });
+    
+    const pathDuplicates = Object.entries(pathDupes).filter(([_, arr]) => arr.length > 1);
+    const publisherDuplicates = Object.entries(publisherDupes).filter(([_, arr]) => arr.length > 1);
+    
+    return {
+      pathDuplicates,
+      publisherDuplicates,
+      pathDupCount: pathDuplicates.length,
+      pubDupCount: publisherDuplicates.length,
+      totalItems: items.length,
+    };
+  }
+
+  /**
+   * Create publisher rule for grouped items
+   */
+  async createPublisherRule(
+    publisher: string,
+    outputPath: string,
+    options: {
+      action?: 'Allow' | 'Deny';
+      targetGroup?: string;
+      collectionType?: string;
+    } = {}
+  ): Promise<{ success: boolean; outputPath?: string; error?: string }> {
+    logger.info('Creating publisher rule', { publisher, outputPath });
+    return this.repository.createPublisherRule(publisher, outputPath, options);
+  }
+
+  /**
+   * Batch create publisher rules
+   */
+  async batchCreatePublisherRules(
+    publishers: string[],
+    outputPath: string,
+    options: {
+      action?: 'Allow' | 'Deny';
+      targetGroup?: string;
+      collectionType?: string;
+    } = {}
+  ): Promise<{ success: boolean; outputPath?: string; error?: string }> {
+    logger.info('Batch creating publisher rules', { publisherCount: publishers.length, outputPath });
+    return this.repository.batchCreatePublisherRules(publishers, outputPath, options);
+  }
+
+  /**
+   * Get all rule templates
+   */
+  async getRuleTemplates(): Promise<RuleTemplate[]> {
+    logger.info('Fetching rule templates');
+    // In production, this would fetch from repository/storage
+    // For now, return default templates
+    return DEFAULT_TEMPLATES;
+  }
+
+  /**
+   * Get templates by category
+   */
+  async getTemplatesByCategory(category: string): Promise<RuleTemplate[]> {
+    const templates = await this.getRuleTemplates();
+    if (category === 'all') return templates;
+    return templates.filter(t => t.category.toLowerCase() === category.toLowerCase());
+  }
+
+  /**
+   * Get template by ID
+   */
+  async getTemplateById(id: string): Promise<RuleTemplate | null> {
+    const templates = await this.getRuleTemplates();
+    return templates.find(t => t.id === id) || null;
+  }
+
+  /**
+   * Get template categories
+   */
+  async getTemplateCategories() {
+    return TEMPLATE_CATEGORIES;
+  }
+
+  /**
+   * Create rule from template
+   */
+  async createRuleFromTemplate(
+    templateId: string,
+    outputPath: string,
+    options: {
+      targetGroup?: string;
+      collectionType?: string;
+    } = {}
+  ): Promise<{ success: boolean; outputPath?: string; error?: string }> {
+    logger.info('Creating rule from template', { templateId, outputPath });
+    
+    const template = await this.getTemplateById(templateId);
+    if (!template) {
+      return {
+        success: false,
+        error: `Template ${templateId} not found`,
+      };
+    }
+
+    if (template.ruleType === 'Publisher' && template.publisher) {
+      return this.repository.createPublisherRule(template.publisher, outputPath, {
+        action: template.action,
+        targetGroup: options.targetGroup,
+        collectionType: options.collectionType,
+      });
+    }
+
+    // For path rules, would need to call a different repository method
+    return {
+      success: false,
+      error: 'Path rule creation not yet implemented',
+    };
   }
 }

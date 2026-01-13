@@ -1,0 +1,38 @@
+# Linux-based development container for GA-AppLocker Dashboard
+# This is a lighter alternative for testing when Windows containers aren't available
+
+FROM node:20
+
+LABEL maintainer="GA-ASI ISSO Team"
+LABEL description="Linux development environment for GA-AppLocker Dashboard"
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    git \
+    python3 \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install PowerShell Core for Linux
+RUN curl -L https://github.com/PowerShell/PowerShell/releases/download/v7.4.0/powershell_7.4.0-1.deb_amd64.deb -o /tmp/powershell.deb && \
+    dpkg -i /tmp/powershell.deb || apt-get install -f -y && \
+    rm /tmp/powershell.deb
+
+# Set working directory
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci
+
+# Copy application files (will be mounted as volume in docker-compose)
+# COPY . .
+
+# Expose development ports
+EXPOSE 3000 5173
+
+# Default command
+CMD ["npm", "run", "dev"]
