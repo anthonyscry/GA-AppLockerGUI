@@ -112,20 +112,11 @@ export const COMMON_PUBLISHERS: TrustedPublisher[] = [
 export const MOCK_AD_USERS: ADUser[] = [];
 
 export const APPLOCKER_GROUPS = [
-  // Workstation Groups
-  'AppLocker-WS-Audit',
-  'AppLocker-WS-Enforce',
-  // Server Groups
-  'AppLocker-SRV-Audit',
-  'AppLocker-SRV-Enforce',
-  // Role-Based Groups
+  // User Role-Based Groups
   'AppLocker-Admins',
-  'AppLocker-Installers',
-  'AppLocker-ServiceAccounts',
+  'AppLocker-Auditor',
+  'AppLocker-Bypass',
   'AppLocker-StandardUsers',
-  // Exception Groups
-  'AppLocker-Exceptions-Global',
-  'AppLocker-Exceptions-Developers',
 ];
 
 export const MOCK_EVENTS: AppEvent[] = [];

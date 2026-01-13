@@ -578,62 +578,42 @@ const ScanModule: React.FC = () => {
         </div>
       </div>
 
-      {/* OU-Based Auto-Grouping Summary */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <div className="p-2 bg-blue-50 rounded-lg text-blue-600">
-                <Server size={16} />
-              </div>
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Workstations</p>
-                <p className="text-xl font-black text-slate-900">{machineGroups.workstations.length}</p>
-              </div>
-            </div>
-            <span className="text-[9px] font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded">WS Policy</span>
+      {/* OU-Based Auto-Grouping Summary - Compact */}
+      <div className="grid grid-cols-4 gap-2">
+        <div className="bg-white px-3 py-2 rounded-lg border border-slate-200 shadow-sm flex items-center space-x-2">
+          <div className="p-1.5 bg-blue-50 rounded text-blue-600">
+            <Server size={12} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[8px] font-black uppercase tracking-wide text-slate-400">Workstations</p>
+            <p className="text-sm font-black text-slate-900">{machineGroups.workstations.length}</p>
           </div>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <div className="p-2 bg-purple-50 rounded-lg text-purple-600">
-                <Server size={16} />
-              </div>
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Servers</p>
-                <p className="text-xl font-black text-slate-900">{machineGroups.servers.length}</p>
-              </div>
-            </div>
-            <span className="text-[9px] font-bold text-purple-600 bg-purple-50 px-2 py-1 rounded">SRV Policy</span>
+        <div className="bg-white px-3 py-2 rounded-lg border border-slate-200 shadow-sm flex items-center space-x-2">
+          <div className="p-1.5 bg-purple-50 rounded text-purple-600">
+            <Server size={12} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[8px] font-black uppercase tracking-wide text-slate-400">Servers</p>
+            <p className="text-sm font-black text-slate-900">{machineGroups.servers.length}</p>
           </div>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <div className="p-2 bg-amber-50 rounded-lg text-amber-600">
-                <ShieldCheck size={16} />
-              </div>
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Domain Controllers</p>
-                <p className="text-xl font-black text-slate-900">{machineGroups.domainControllers.length}</p>
-              </div>
-            </div>
-            <span className="text-[9px] font-bold text-amber-600 bg-amber-50 px-2 py-1 rounded">DC Policy</span>
+        <div className="bg-white px-3 py-2 rounded-lg border border-slate-200 shadow-sm flex items-center space-x-2">
+          <div className="p-1.5 bg-amber-50 rounded text-amber-600">
+            <ShieldCheck size={12} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[8px] font-black uppercase tracking-wide text-slate-400">DCs</p>
+            <p className="text-sm font-black text-slate-900">{machineGroups.domainControllers.length}</p>
           </div>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <div className="p-2 bg-slate-50 rounded-lg text-slate-600">
-                <Server size={16} />
-              </div>
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Unclassified</p>
-                <p className="text-xl font-black text-slate-900">{machineGroups.unknown.length}</p>
-              </div>
-            </div>
-            <span className="text-[9px] font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded">Review</span>
+        <div className="bg-white px-3 py-2 rounded-lg border border-slate-200 shadow-sm flex items-center space-x-2">
+          <div className="p-1.5 bg-slate-50 rounded text-slate-500">
+            <Server size={12} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[8px] font-black uppercase tracking-wide text-slate-400">Unclassified</p>
+            <p className="text-sm font-black text-slate-900">{machineGroups.unknown.length}</p>
           </div>
         </div>
       </div>
