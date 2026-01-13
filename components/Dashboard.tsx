@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { 
   Users, 
   ShieldAlert, 
@@ -9,7 +9,8 @@ import {
   TrendingUp,
   FileSearch,
   Loader2,
-  RefreshCw
+  RefreshCw,
+  Download
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -23,14 +24,7 @@ import {
 import { useAppServices } from '../src/presentation/contexts/AppContext';
 import { useAsync } from '../src/presentation/hooks/useAsync';
 import { AppEvent, MachineScan } from '../src/shared/types';
-
-const statsData = [
-  { name: 'Mon', allowed: 400, blocked: 24 },
-  { name: 'Tue', allowed: 300, blocked: 13 },
-  { name: 'Wed', allowed: 200, blocked: 98 },
-  { name: 'Thu', allowed: 278, blocked: 39 },
-  { name: 'Fri', allowed: 189, blocked: 48 },
-];
+import { showSaveDialog } from '../src/infrastructure/ipc/fileDialog';
 
 const Dashboard: React.FC = () => {
   const { machine, event } = useAppServices();
@@ -50,11 +44,146 @@ const Dashboard: React.FC = () => {
     () => event.getEventStats()
   );
 
-  // Calculate health score (simulated for now)
-  const healthScore = 86;
+  // Calculate unique blocked paths with counts
+  const blockedPathStats = useMemo(() => {
+    if (!events) return [];
+    const pathCounts: Record<string, number> = {};
+    events
+      .filter((e: AppEvent) => e.eventId === 8004)
+      .forEach((e: AppEvent) => {
+        pathCounts[e.path] = (pathCounts[e.path] || 0) + 1;
+      });
+    return Object.entries(pathCounts)
+      .map(([path, count]) => ({ path, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 4);
+  }, [events]);
+
+  // Calculate chart data from actual events (group by day)
+  const chartData = useMemo(() => {
+    if (!events || events.length === 0) {
+      return [
+        { name: 'Mon', allowed: 0, blocked: 0 },
+        { name: 'Tue', allowed: 0, blocked: 0 },
+        { name: 'Wed', allowed: 0, blocked: 0 },
+        { name: 'Thu', allowed: 0, blocked: 0 },
+        { name: 'Fri', allowed: 0, blocked: 0 },
+      ];
+    }
+    
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const dayCounts: Record<string, { allowed: number; blocked: number }> = {};
+    
+    events.forEach((e: AppEvent) => {
+      const date = new Date(e.timestamp);
+      const dayName = days[date.getDay()];
+      if (!dayCounts[dayName]) {
+        dayCounts[dayName] = { allowed: 0, blocked: 0 };
+      }
+      if (e.eventId === 8004) {
+        dayCounts[dayName].blocked++;
+      } else {
+        dayCounts[dayName].allowed++;
+      }
+    });
+    
+    // Return last 5 weekdays
+    return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].map(day => ({
+      name: day,
+      allowed: dayCounts[day]?.allowed || 0,
+      blocked: dayCounts[day]?.blocked || 0,
+    }));
+  }, [events]);
+
+  // Calculate health score based on blocked vs allowed ratio
+  const healthScore = useMemo(() => {
+    if (!eventStats) return 100;
+    const total = (eventStats.totalBlocked || 0) + (eventStats.totalAudit || 0) + (eventStats.totalAllowed || 0);
+    if (total === 0) return 100;
+    const blockedRatio = eventStats.totalBlocked / total;
+    return Math.max(0, Math.round(100 - (blockedRatio * 100)));
+  }, [eventStats]);
 
   // Get recent events (last 5)
   const recentEvents = events?.slice(0, 5) || [];
+
+  // Export unique blocked apps to CSV
+  const handleExportBlockedApps = async () => {
+    try {
+      if (!events) {
+        alert('No events to export');
+        return;
+      }
+      
+      // Get unique blocked paths with counts
+      const pathCounts: Record<string, { count: number; publisher: string; machine: string; lastSeen: string }> = {};
+      events
+        .filter((e: AppEvent) => e.eventId === 8004)
+        .forEach((e: AppEvent) => {
+          if (!pathCounts[e.path]) {
+            pathCounts[e.path] = { count: 0, publisher: e.publisher, machine: e.machine, lastSeen: e.timestamp };
+          }
+          pathCounts[e.path].count++;
+          if (e.timestamp > pathCounts[e.path].lastSeen) {
+            pathCounts[e.path].lastSeen = e.timestamp;
+          }
+        });
+      
+      if (Object.keys(pathCounts).length === 0) {
+        alert('No blocked applications found');
+        return;
+      }
+      
+      // Create CSV
+      const headers = ['Path', 'Block Count', 'Publisher', 'Last Machine', 'Last Seen'];
+      const rows = Object.entries(pathCounts)
+        .sort((a, b) => b[1].count - a[1].count)
+        .map(([path, data]) => [
+          path,
+          data.count.toString(),
+          data.publisher,
+          data.machine,
+          data.lastSeen
+        ]);
+      
+      const csv = [
+        headers.join(','),
+        ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+      ].join('\n');
+      
+      // Save file
+      const filePath = await showSaveDialog({
+        title: 'Export Unique Blocked Apps',
+        defaultPath: `UniqueBlockedApps-${new Date().toISOString().split('T')[0]}.csv`,
+        filters: [
+          { name: 'CSV Files', extensions: ['csv'] },
+          { name: 'All Files', extensions: ['*'] }
+        ]
+      });
+
+      if (filePath) {
+        const electron = (window as any).electron;
+        if (electron?.ipc) {
+          await electron.ipc.invoke('fs:writeFile', filePath, csv);
+          alert(`Exported ${Object.keys(pathCounts).length} unique blocked apps to:\n${filePath}`);
+        } else {
+          // Fallback to browser download
+          const blob = new Blob([csv], { type: 'text/csv' });
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = filePath.split(/[/\\]/).pop() || 'UniqueBlockedApps.csv';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          window.URL.revokeObjectURL(url);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to export blocked apps:', error);
+      alert(`Failed to export: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
 
   if (machinesLoading || eventsLoading) {
     return (
@@ -136,7 +265,7 @@ const Dashboard: React.FC = () => {
           </div>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={statsData}>
+              <BarChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 11}} dy={10} />
                 <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 11}} />
@@ -154,28 +283,41 @@ const Dashboard: React.FC = () => {
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col">
           <h3 className="font-semibold text-slate-800 text-sm uppercase tracking-wider mb-4">High Risk Blocked Paths</h3>
           <div className="flex-1 space-y-5">
-            {[
-              { path: '%TEMP%\\installer.exe', count: 42, color: 'bg-red-500' },
-              { path: '%USERPROFILE%\\Downloads\\crack.zip', count: 18, color: 'bg-amber-500' },
-              { path: 'C:\\Public\\vbs_script.vbs', count: 15, color: 'bg-orange-400' },
-              { path: 'C:\\Windows\\System32\\mshta.exe', count: 9, color: 'bg-slate-500' },
-            ].map((item, i) => (
-              <div key={i}>
-                <div className="flex justify-between text-[11px] mb-1.5">
-                  <span className="font-mono text-slate-500 truncate mr-4">{item.path}</span>
-                  <span className="font-black text-slate-900">{item.count}</span>
-                </div>
-                <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                  <div className={`${item.color} h-full transition-all duration-1000`} style={{ width: `${(item.count/42)*100}%` }} />
+            {blockedPathStats.length > 0 ? (
+              blockedPathStats.map((item, i) => {
+                const maxCount = blockedPathStats[0]?.count || 1;
+                const colors = ['bg-red-500', 'bg-amber-500', 'bg-orange-400', 'bg-slate-500'];
+                return (
+                  <div key={i}>
+                    <div className="flex justify-between text-[11px] mb-1.5">
+                      <span className="font-mono text-slate-500 truncate mr-4" title={item.path}>
+                        {item.path.length > 40 ? '...' + item.path.slice(-37) : item.path}
+                      </span>
+                      <span className="font-black text-slate-900">{item.count}</span>
+                    </div>
+                    <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                      <div className={`${colors[i] || colors[3]} h-full transition-all duration-1000`} style={{ width: `${(item.count/maxCount)*100}%` }} />
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="flex-1 flex items-center justify-center text-slate-400 text-sm">
+                <div className="text-center">
+                  <ShieldAlert className="mx-auto mb-2 opacity-30" size={32} />
+                  <p className="font-medium">No blocked paths yet</p>
+                  <p className="text-xs mt-1">Blocked events will appear here</p>
                 </div>
               </div>
-            ))}
+            )}
           </div>
           <button 
-            className="mt-8 w-full text-center py-2.5 min-h-[44px] text-[10px] font-black uppercase tracking-widest text-blue-600 bg-blue-50 rounded-xl hover:bg-blue-100 transition-all border border-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            onClick={handleExportBlockedApps}
+            className="mt-8 w-full text-center py-2.5 min-h-[44px] text-[10px] font-black uppercase tracking-widest text-blue-600 bg-blue-50 rounded-xl hover:bg-blue-100 transition-all border border-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 flex items-center justify-center space-x-2"
             aria-label="Export unique blocked applications to CSV"
           >
-            Export UniqueBlockedApps.csv
+            <Download size={14} />
+            <span>Export UniqueBlockedApps.csv</span>
           </button>
         </div>
       </div>
