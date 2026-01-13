@@ -172,9 +172,12 @@ const PolicyModule: React.FC = () => {
 
   const filteredPublishers = useMemo(() => {
     const publishers = trustedPublishers || COMMON_PUBLISHERS;
+    if (!genSearchQuery && genCategoryFilter === 'All') return publishers;
+    const query = genSearchQuery.toLowerCase();
     return publishers.filter(p => {
-      const matchesSearch = p.name.toLowerCase().includes(genSearchQuery.toLowerCase()) ||
-                            p.publisherName.toLowerCase().includes(genSearchQuery.toLowerCase());
+      const matchesSearch = !genSearchQuery ||
+        (p.name || '').toLowerCase().includes(query) ||
+        (p.publisherName || '').toLowerCase().includes(query);
       const matchesCategory = genCategoryFilter === 'All' || p.category === genCategoryFilter;
       return matchesSearch && matchesCategory;
     });
