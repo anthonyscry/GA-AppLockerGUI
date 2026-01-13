@@ -1,24 +1,71 @@
 {
   "name": "ga-applocker-dashboard",
   "private": true,
-  "version": "0.0.0",
-  "type": "module",
+  "version": "1.2.4",
+  "description": "GA-AppLocker Dashboard - Comprehensive administrative interface for AppLocker policy management",
+  "author": "Tony Tran, ISSO, GA-ASI",
+  "main": "electron/main.cjs",
+  "homepage": "./",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "electron:dev": "electron .",
+    "electron:test": "npm run build && cross-env NODE_ENV=production electron .",
+    "electron:build": "npm run build && electron-builder",
+    "electron:build:win": "npm run build && electron-builder --win",
+    "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
+    "lucide-react": "^0.562.0",
     "react": "^19.2.3",
-    "@google/genai": "^1.35.0",
     "react-dom": "^19.2.3",
     "recharts": "^3.6.0",
-    "lucide-react": "^0.562.0"
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
+    "cross-env": "^10.1.0",
+    "electron": "^32.0.0",
+    "electron-builder": "^25.1.8",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
+  },
+  "build": {
+    "appId": "com.ga-asi.applocker",
+    "productName": "GA-AppLocker Dashboard",
+    "copyright": "Copyright © 2024 General Atomics Aeronautical Systems, Inc.",
+    "directories": {
+      "output": "release",
+      "buildResources": "assets"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "config/**/*",
+      "assets/**/*",
+      "scripts/**/*",
+      "docs/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "GA-AppLocker Dashboard"
+    }
   }
 }

@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 
+  GA-ASI AppLocker Baseline Policy Template
+  Version: 1.2.4
+  Author: GA-ASI ISSO Team
+  
+  This is a template baseline policy. Use New-GAAppLockerBaselinePolicy
+  or the GA-AppLocker Dashboard to generate your actual policy.
+  
+  IMPORTANT: Remove default rules before deploying!
+-->
+<AppLockerPolicy Version="1">
+  <RuleCollection Type="Exe" EnforcementMode="AuditOnly">
+    <!-- 
+      Example: Microsoft Windows System Files (Publisher Rule)
+      This rule allows all Microsoft-signed executables.
+    -->
+    <FilePublisherRule Id="72277d33-..." Name="Microsoft-Windows-System" Action="Allow" UserOrGroupSid="S-1-1-0">
+      <Conditions>
+        <FilePublisherCondition PublisherName="O=MICROSOFT CORPORATION*" ProductName="*" BinaryName="*">
+          <BinaryVersionRange LowSection="*" HighSection="*"/>
+        </FilePublisherCondition>
+      </Conditions>
+    </FilePublisherRule>
+    
+    <!-- 
+      Example: Program Files (Path Rule)
+      Allows executables from Program Files directory.
+      WARNING: Only use Path rules for IT-controlled, non-user-writable locations!
+    -->
+    <FilePathRule Id="a1b2c3d4-..." Name="Program-Files" Action="Allow" UserOrGroupSid="S-1-1-0">
+      <Conditions>
+        <FilePathCondition Path="%PROGRAMFILES%\*"/>
+      </Conditions>
+    </FilePathRule>
+    
+    <!-- 
+      Example: GA-ASI Code-Signed Applications (Publisher Rule)
+      Replace with your organization's code signing certificate.
+    -->
+    <FilePublisherRule Id="ga-asi-001" Name="GA-ASI-Signed-Apps" Action="Allow" UserOrGroupSid="S-1-1-0">
+      <Conditions>
+        <FilePublisherCondition PublisherName="O=GENERAL ATOMICS AERONAUTICAL SYSTEMS, INC.*" ProductName="*" BinaryName="*">
+          <BinaryVersionRange LowSection="*" HighSection="*"/>
+        </FilePublisherCondition>
+      </Conditions>
+    </FilePublisherRule>
+    
+    <!-- 
+      Bypass Prevention: Block User-Writable Locations
+      CRITICAL: These deny rules prevent execution from user-writable paths.
+    -->
+    <FilePathRule Id="deny-001" Name="Block-User-Profiles" Action="Deny" UserOrGroupSid="S-1-1-0">
+      <Conditions>
+        <FilePathCondition Path="%USERPROFILE%\*"/>
+      </Conditions>
+    </FilePathRule>
+    
+    <FilePathRule Id="deny-002" Name="Block-Temp" Action="Deny" UserOrGroupSid="S-1-1-0">
+      <Conditions>
+        <FilePathCondition Path="%TEMP%\*"/>
+      </Conditions>
+    </FilePathRule>
+  </RuleCollection>
+  
+  <!-- Script Rules (Phase 2) -->
+  <RuleCollection Type="Script" EnforcementMode="AuditOnly">
+    <!-- Example: Microsoft Signed Scripts -->
+    <FilePublisherRule Id="script-001" Name="Microsoft-Signed-Scripts" Action="Allow" UserOrGroupSid="S-1-1-0">
+      <Conditions>
+        <FilePublisherCondition PublisherName="O=MICROSOFT CORPORATION*" ProductName="*" BinaryName="*">
+          <BinaryVersionRange LowSection="*" HighSection="*"/>
+        </FilePublisherCondition>
+      </Conditions>
+    </FilePublisherRule>
+    
+    <!-- Bypass Prevention: Block User Scripts -->
+    <FilePathRule Id="script-deny-001" Name="Block-User-Scripts" Action="Deny" UserOrGroupSid="S-1-1-0">
+      <Conditions>
+        <FilePathCondition Path="%USERPROFILE%\*"/>
+      </Conditions>
+    </FilePathRule>
+  </RuleCollection>
+  
+  <!-- MSI Rules (Phase 3) -->
+  <RuleCollection Type="Msi" EnforcementMode="AuditOnly">
+    <!-- Example: Microsoft Signed Installers -->
+    <FilePublisherRule Id="msi-001" Name="Microsoft-Signed-Installers" Action="Allow" UserOrGroupSid="S-1-1-0">
+      <Conditions>
+        <FilePublisherCondition PublisherName="O=MICROSOFT CORPORATION*" ProductName="*" BinaryName="*">
+          <BinaryVersionRange LowSection="*" HighSection="*"/>
+        </FilePublisherCondition>
+      </Conditions>
+    </FilePublisherRule>
+  </RuleCollection>
+</AppLockerPolicy>

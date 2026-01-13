@@ -1,0 +1,8 @@
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <rect width="64" height="64" fill="#002868"/>
+  <g transform="translate(32,32)">
+    <!-- Four-pointed star/diamond -->
+    <polygon points="0,-20 8,0 0,20 -8,0" fill="white"/>
+    <polygon points="20,0 0,8 -20,0 0,-8" fill="white"/>
+  </g>
+</svg>

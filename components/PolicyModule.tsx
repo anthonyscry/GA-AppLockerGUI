@@ -5,9 +5,7 @@ import {
   FileCode, 
   Settings, 
   Plus, 
-  Terminal, 
   ShieldAlert,
-  ArrowRight,
   ShieldCheck,
   AlertTriangle,
   Info,
@@ -21,13 +19,10 @@ import {
   Archive,
   Users
 } from 'lucide-react';
-import { analyzeAppLockerPolicy } from '../services/geminiService';
-import { MOCK_INVENTORY, APPLOCKER_GROUPS, COMMON_PUBLISHERS } from '../constants';
+import { APPLOCKER_GROUPS, COMMON_PUBLISHERS } from '../constants';
 
 const PolicyModule: React.FC = () => {
   const [selectedPhase, setSelectedPhase] = useState<PolicyPhase>(PolicyPhase.PHASE_1);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [aiReport, setAiReport] = useState<string | null>(null);
   const [healthResults, setHealthResults] = useState<{c: number, w: number, i: number, score: number} | null>(null);
   
   // Rule Generator State
@@ -44,7 +39,7 @@ const PolicyModule: React.FC = () => {
   const [genCategoryFilter, setGenCategoryFilter] = useState('All');
 
   const filteredInventory = useMemo(() => {
-    return MOCK_INVENTORY.filter(item => 
+    return [].filter((item: InventoryItem) => 
       item.name.toLowerCase().includes(genSearchQuery.toLowerCase()) ||
       item.publisher.toLowerCase().includes(genSearchQuery.toLowerCase())
     );
@@ -60,18 +55,6 @@ const PolicyModule: React.FC = () => {
   }, [genSearchQuery, genCategoryFilter]);
 
   const categories = ['All', ...Array.from(new Set(COMMON_PUBLISHERS.map(p => p.category)))];
-
-  const handleAnalyze = async () => {
-    setIsAnalyzing(true);
-    try {
-      const report = await analyzeAppLockerPolicy(`Targeting ${selectedPhase} for Workstations in CONTOSO domain. Focus on default rules + MS signed apps.`);
-      setAiReport(report || "Analysis failed.");
-    } catch (e) {
-      setAiReport("Unable to reach AI Consultant.");
-    } finally {
-      setIsAnalyzing(false);
-    }
-  };
 
   const runHealthCheck = () => {
     const critical = 0;
@@ -434,37 +417,6 @@ const PolicyModule: React.FC = () => {
             </pre>
           </div>
 
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center space-x-4">
-                <div className="p-3 bg-blue-100 text-blue-600 rounded-2xl">
-                  <Terminal size={20} />
-                </div>
-                <div>
-                  <h3 className="font-black text-slate-900 text-sm uppercase tracking-widest">ISSO Risk Assessment</h3>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Powered by Gemini 3 Pro</p>
-                </div>
-              </div>
-              <button 
-                onClick={handleAnalyze}
-                disabled={isAnalyzing}
-                className="bg-slate-900 text-white px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition-all flex items-center space-x-2 disabled:opacity-50"
-              >
-                {isAnalyzing ? 'Processing...' : 'Run Analysis'}
-                <ArrowRight size={16} />
-              </button>
-            </div>
-            
-            {aiReport ? (
-              <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100 text-sm text-slate-700 leading-relaxed font-medium">
-                {aiReport}
-              </div>
-            ) : (
-              <div className="border-2 border-dashed border-slate-100 rounded-2xl py-12 text-center text-slate-400">
-                <p className="text-xs font-bold uppercase tracking-widest">Awaiting Analysis...</p>
-              </div>
-            )}
-          </div>
         </div>
       </div>
     </div>

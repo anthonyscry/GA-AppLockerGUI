@@ -1,0 +1,6 @@
+Name,Path,Publisher,Version,Type
+"Microsoft Word","C:\Program Files\Microsoft Office\root\Office16\WINWORD.EXE","O=MICROSOFT CORPORATION, L=REDMOND, S=WASHINGTON, C=US","16.0","EXE"
+"Microsoft Excel","C:\Program Files\Microsoft Office\root\Office16\EXCEL.EXE","O=MICROSOFT CORPORATION, L=REDMOND, S=WASHINGTON, C=US","16.0","EXE"
+"Google Chrome","C:\Program Files\Google\Chrome\Application\chrome.exe","O=GOOGLE LLC, L=MOUNTAIN VIEW, S=CALIFORNIA, C=US","120.0","EXE"
+"Adobe Acrobat Reader","C:\Program Files\Adobe\Acrobat DC\Acrobat\Acrobat.exe","O=ADOBE SYSTEMS INCORPORATED, L=SAN JOSE, S=CALIFORNIA, C=US","2023.0","EXE"
+"Visual Studio Code","C:\Users\Administrator\AppData\Local\Programs\Microsoft VS Code\Code.exe","O=MICROSOFT CORPORATION, L=REDMOND, S=WASHINGTON, C=US","1.85.0","EXE"

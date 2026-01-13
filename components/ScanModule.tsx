@@ -1,6 +1,5 @@
 
 import React, { useState, useMemo } from 'react';
-import { MOCK_MACHINES } from '../constants';
 import { 
   Search, 
   RefreshCw, 
@@ -43,7 +42,7 @@ const ScanModule: React.FC = () => {
   };
 
   const filteredMachines = useMemo(() => {
-    return MOCK_MACHINES.filter((machine) => {
+    return [].filter((machine: any) => {
       const matchesSearch = machine.hostname.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesStatus = statusFilter === 'All' || machine.status === statusFilter;
       const matchesRisk = riskFilter === 'All' || machine.riskLevel === riskFilter;

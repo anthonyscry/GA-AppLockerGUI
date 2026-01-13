@@ -1,6 +1,4 @@
-
 import React from 'react';
-import { MOCK_MACHINES, MOCK_EVENTS } from '../constants';
 import { 
   Users, 
   ShieldAlert, 
@@ -9,7 +7,8 @@ import {
   ArrowUpRight,
   TrendingDown,
   TrendingUp,
-  FileSearch
+  FileSearch,
+  Loader2
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -20,6 +19,9 @@ import {
   Tooltip, 
   ResponsiveContainer 
 } from 'recharts';
+import { useAppServices } from '../src/presentation/contexts/AppContext';
+import { useAsync } from '../src/presentation/hooks/useAsync';
+import { AppEvent, MachineScan } from '../src/shared/types';
 
 const statsData = [
   { name: 'Mon', allowed: 400, blocked: 24 },
@@ -30,23 +32,59 @@ const statsData = [
 ];
 
 const Dashboard: React.FC = () => {
-  // Documentation logic: 100 - (20 * critical) - (5 * warning) - (1 * info)
-  // Simulated: 0 critical, 2 warnings, 4 info = 100 - 10 - 4 = 86
+  const { machine, event } = useAppServices();
+  
+  // Fetch machines
+  const { data: machines, loading: machinesLoading, error: machinesError } = useAsync(
+    () => machine.getAllMachines()
+  );
+  
+  // Fetch events
+  const { data: events, loading: eventsLoading, error: eventsError } = useAsync(
+    () => event.getAllEvents()
+  );
+  
+  // Fetch event stats
+  const { data: eventStats, loading: statsLoading } = useAsync(
+    () => event.getEventStats()
+  );
+
+  // Calculate health score (simulated for now)
   const healthScore = 86;
+
+  // Get recent events (last 5)
+  const recentEvents = events?.slice(0, 5) || [];
+
+  if (machinesLoading || eventsLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="animate-spin text-blue-600" size={32} />
+      </div>
+    );
+  }
+
+  if (machinesError || eventsError) {
+    return (
+      <div className="bg-red-50 border border-red-200 rounded-xl p-6">
+        <p className="text-red-600 font-bold">Error loading dashboard data</p>
+        <p className="text-red-500 text-sm mt-2">{machinesError?.message || eventsError?.message}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard 
           label="Managed Systems" 
-          value={MOCK_MACHINES.length.toString()} 
+          value={machines?.length.toString() || '0'} 
           icon={<Users className="text-blue-600" />} 
           trend="+2 this week"
           trendIcon={<TrendingUp size={14} className="text-green-500" />}
         />
         <StatCard 
           label="Unique Blocked Apps" 
-          value="23" 
+          value={eventStats?.uniquePaths.toString() || '0'} 
           icon={<FileSearch className="text-red-500" />} 
           trend="From UniqueBlockedApps.csv"
         />
@@ -58,7 +96,7 @@ const Dashboard: React.FC = () => {
         />
         <StatCard 
           label="Blocked Events" 
-          value="142" 
+          value={eventStats?.totalBlocked.toString() || '0'} 
           icon={<ShieldAlert className="text-amber-500" />} 
           trend="-12% vs last week"
           trendIcon={<TrendingDown size={14} className="text-green-500" />}
@@ -132,20 +170,28 @@ const Dashboard: React.FC = () => {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {MOCK_EVENTS.slice(0, 5).map((event) => (
-              <tr key={event.id} className="hover:bg-slate-50/50 transition-colors">
-                <td className="px-6 py-4 text-slate-500 text-xs">{event.timestamp.split(' ')[1]}</td>
-                <td className="px-6 py-4 font-bold text-slate-900 text-xs">{event.machine}</td>
-                <td className="px-6 py-4 truncate max-w-[200px] text-slate-600 text-xs font-mono">{event.path.split('\\').pop()}</td>
-                <td className="px-6 py-4 text-right">
-                  <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider ${
-                    event.eventId === 8004 ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-blue-50 text-blue-600 border border-blue-100'
-                  }`}>
-                    {event.eventId}
-                  </span>
+            {recentEvents.length > 0 ? (
+              recentEvents.map((event) => (
+                <tr key={event.id} className="hover:bg-slate-50/50 transition-colors">
+                  <td className="px-6 py-4 text-slate-500 text-xs">{event.timestamp.split(' ')[1]}</td>
+                  <td className="px-6 py-4 font-bold text-slate-900 text-xs">{event.machine}</td>
+                  <td className="px-6 py-4 truncate max-w-[200px] text-slate-600 text-xs font-mono">{event.path.split('\\').pop()}</td>
+                  <td className="px-6 py-4 text-right">
+                    <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider ${
+                      event.eventId === 8004 ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-blue-50 text-blue-600 border border-blue-100'
+                    }`}>
+                      {event.eventId}
+                    </span>
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan={4} className="px-6 py-8 text-center text-slate-400 text-sm">
+                  No recent events
                 </td>
               </tr>
-            ))}
+            )}
           </tbody>
         </table>
       </div>

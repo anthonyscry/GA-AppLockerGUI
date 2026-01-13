@@ -5,8 +5,7 @@ export enum AppView {
   POLICY = 'POLICY',
   EVENTS = 'EVENTS',
   AD_MANAGEMENT = 'AD_MANAGEMENT',
-  COMPLIANCE = 'COMPLIANCE',
-  AI_CONSULTANT = 'AI_CONSULTANT'
+  COMPLIANCE = 'COMPLIANCE'
 }
 
 export enum PolicyPhase {

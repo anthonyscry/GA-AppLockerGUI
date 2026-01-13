@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { ADUser } from '../types';
-import { MOCK_AD_USERS, APPLOCKER_GROUPS } from '../constants';
+import { APPLOCKER_GROUPS } from '../constants';
 import { 
   Users, 
   Search, 
@@ -30,7 +30,7 @@ const ADManagementModule: React.FC = () => {
   const [activeDropGroup, setActiveDropGroup] = useState<string | null>(null);
 
   const filteredUsers = useMemo(() => {
-    return MOCK_AD_USERS.filter(u => 
+    return [].filter((u: ADUser) => 
       u.samAccountName.toLowerCase().includes(searchQuery.toLowerCase()) ||
       u.displayName.toLowerCase().includes(searchQuery.toLowerCase())
     );
@@ -74,10 +74,10 @@ const ADManagementModule: React.FC = () => {
   const handleDrop = (e: React.DragEvent, group: string) => {
     e.preventDefault();
     const userId = e.dataTransfer.getData('userId');
-    const user = MOCK_AD_USERS.find(u => u.id === userId);
-    
-    if (user) {
-      alert(`SUCCESS: Provisioning ${user.displayName} (${user.samAccountName}) into ${group}.\n\nGPUpdate will trigger on next login.`);
+    // User provisioning would happen here in production
+    // Use logger in production, console.log only in development
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`Provisioning user ${userId} into ${group}`);
     }
     
     setActiveDropGroup(null);

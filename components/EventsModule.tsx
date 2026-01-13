@@ -1,6 +1,5 @@
 
 import React, { useState } from 'react';
-import { MOCK_EVENTS } from '../constants';
 import { Activity, Download, Trash2, Calendar, Filter, ExternalLink } from 'lucide-react';
 
 const EventsModule: React.FC = () => {
@@ -52,7 +51,7 @@ const EventsModule: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {MOCK_EVENTS.map((event) => (
+              {[].map((event) => (
                 <tr key={event.id} className="hover:bg-slate-50 group">
                   <td className="px-6 py-4">
                     <span className={`flex items-center space-x-1.5 font-bold ${event.eventId === 8004 ? 'text-red-600' : 'text-blue-600'}`}>
