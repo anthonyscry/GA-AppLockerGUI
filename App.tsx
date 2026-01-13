@@ -8,7 +8,7 @@ import EventsModule from './components/EventsModule';
 import ADManagementModule from './components/ADManagementModule';
 import ComplianceModule from './components/ComplianceModule';
 import SoftwareComparisonModule from './components/InventoryCompareModule';
-import { HelpCircle, User, X, Globe, Terminal, FileText } from 'lucide-react';
+import { HelpCircle, User, X, Globe, Terminal, FileText, Activity, Monitor, AlertCircle } from 'lucide-react';
 import { NAVIGATION } from './constants';
 
 const App: React.FC = () => {
