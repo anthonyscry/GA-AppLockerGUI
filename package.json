@@ -1,7 +1,7 @@
 {
   "name": "ga-applocker-dashboard",
   "private": true,
-  "version": "1.2.9",
+  "version": "1.2.10",
   "description": "GA-AppLocker Dashboard - Comprehensive administrative interface for AppLocker policy management",
   "author": "Tony Tran, ISSO, GA-ASI",
   "main": "electron/main.cjs",
@@ -19,16 +19,9 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "test:docker": "jest --testPathIgnorePatterns= --testPathPattern=tests/integration/docker.test.ts --testEnvironment=node --runInBand --testTimeout=120000",
-    "test:docker:functional": "jest --testPathIgnorePatterns= --testPathPattern=tests/integration/docker-functional.test.ts --testEnvironment=node --runInBand --testTimeout=120000",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "test:e2e:headed": "playwright test --headed",
-    "docker:up": "cd docker && docker compose up -d --build",
-    "docker:down": "cd docker && docker compose down",
-    "docker:logs": "cd docker && docker compose logs -f",
-    "docker:test": "cd docker && powershell -ExecutionPolicy Bypass -File run-tests.ps1",
-    "docker:shell": "docker exec -it ga-applocker-app bash"
+    "test:e2e:headed": "playwright test --headed"
   },
   "dependencies": {
     "lucide-react": "^0.562.0",
