@@ -9,11 +9,47 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
-  // TODO: Load user info from Electron IPC or environment
-  const userInfo = {
-    principal: process.env.AD_PRINCIPAL || 'CONTOSO\\user',
-    branch: process.env.GIT_BRANCH || 'main',
-  };
+  const [userInfo, setUserInfo] = React.useState({
+    principal: 'Loading...',
+    branch: 'main',
+  });
+
+  React.useEffect(() => {
+    // Get actual logged-in user from Electron/Windows
+    const fetchUserInfo = async () => {
+      try {
+        const electron = (window as any).electron;
+        if (electron?.ipc) {
+          // Try to get user info from Electron IPC
+          const user = await electron.ipc.invoke('system:getUserInfo');
+          if (user) {
+            setUserInfo({
+              principal: user.principal || user.username || 'Unknown',
+              branch: user.branch || 'main',
+            });
+            return;
+          }
+        }
+        
+        // Fallback: Try environment variables or defaults
+        const domain = process.env.USERDOMAIN || process.env.COMPUTERNAME || 'WORKGROUP';
+        const username = process.env.USERNAME || 'user';
+        setUserInfo({
+          principal: `${domain}\\${username}`,
+          branch: process.env.GIT_BRANCH || 'main',
+        });
+      } catch (error) {
+        console.warn('Could not fetch user info:', error);
+        // Final fallback
+        setUserInfo({
+          principal: 'Local\\User',
+          branch: 'main',
+        });
+      }
+    };
+    
+    fetchUserInfo();
+  }, []);
 
   return (
     <aside className="w-64 bg-[#001f4d] h-screen flex flex-col fixed left-0 top-0 text-slate-200" role="navigation" aria-label="Main navigation">
@@ -63,7 +99,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
               />
               <span className="text-xs font-bold text-slate-300">System Ready</span>
             </div>
-            <span className="text-xs text-slate-500">v1.2.4</span>
+            <span className="text-xs text-slate-500">v1.2.5</span>
           </div>
           <div className="text-[10px] text-slate-400 space-y-1">
             <div>Branch: {userInfo.branch}</div>

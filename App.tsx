@@ -231,10 +231,39 @@ const App: React.FC = () => {
 
             <div id="about-description" className="flex-1 overflow-y-auto p-10 space-y-8 scroll-smooth custom-scrollbar">
               <div className="text-center space-y-3">
-                <h4 className="text-3xl font-black text-slate-900 tracking-tight">GA-AppLocker v1.2.4</h4>
+                <h4 className="text-3xl font-black text-slate-900 tracking-tight">GA-AppLocker v1.2.5</h4>
                 <div className="flex items-center justify-center space-x-2 text-slate-400 text-xs font-black uppercase tracking-widest">
                   <span>Created By</span>
-                  <span className="text-blue-600">Tony Tran</span>
+                  <span className="text-blue-600">Tony Tran, ISSO</span>
+                </div>
+              </div>
+
+              {/* Keyboard Shortcuts */}
+              <div className="space-y-4">
+                <h5 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center space-x-2">
+                  <Terminal size={14} aria-hidden="true" />
+                  <span>Keyboard Shortcuts</span>
+                </h5>
+                <div className="grid grid-cols-2 gap-2">
+                  <HelpShortcut keys={['F1']} action="Open Help" />
+                  <HelpShortcut keys={['Ctrl', '1-7']} action="Switch Tabs" />
+                  <HelpShortcut keys={['Ctrl', 'F']} action="Search" />
+                  <HelpShortcut keys={['Esc']} action="Close Dialog" />
+                </div>
+              </div>
+
+              {/* Quick Start Guide */}
+              <div className="space-y-4">
+                <h5 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center space-x-2">
+                  <FileText size={14} aria-hidden="true" />
+                  <span>Quick Start Guide</span>
+                </h5>
+                <div className="space-y-3">
+                  <AboutPoint title="1. Remote Scan" text="Scan target machines to collect software inventory and executables." />
+                  <AboutPoint title="2. Policy Lab" text="Generate AppLocker rules from scan results. Use Rule Generator or import artifacts." />
+                  <AboutPoint title="3. Event Monitor" text="Monitor 8003 (audit) and 8004 (blocked) events. Filter by type." />
+                  <AboutPoint title="4. AD Manager" text="Drag users to security groups for AppLocker policy assignment." />
+                  <AboutPoint title="5. Compliance" text="Generate CORA evidence packages for audits." />
                 </div>
               </div>
 
@@ -242,7 +271,7 @@ const App: React.FC = () => {
                 <div className="bg-slate-50 p-5 rounded-3xl border border-slate-100 flex flex-col items-center text-center space-y-2">
                   <Terminal size={24} className="text-blue-600" aria-hidden="true" />
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Toolkit Logic</p>
-                  <p className="text-xs font-bold text-slate-700">PowerShell 5.1/7.x & WinRM Core</p>
+                  <p className="text-xs font-bold text-slate-700">PowerShell 5.1/7.x & WinRM</p>
                 </div>
                 <div className="bg-slate-50 p-5 rounded-3xl border border-slate-100 flex flex-col items-center text-center space-y-2">
                   <Globe size={24} className="text-blue-600" aria-hidden="true" />
@@ -251,15 +280,33 @@ const App: React.FC = () => {
                 </div>
               </div>
 
+              {/* Security Groups Reference */}
               <div className="space-y-4">
                 <h5 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center space-x-2">
-                  <FileText size={14} aria-hidden="true" />
-                  <span>Deployment Workflow</span>
+                  <User size={14} aria-hidden="true" />
+                  <span>Security Groups Reference</span>
                 </h5>
-                <div className="space-y-3">
-                  <AboutPoint title="Phase 1-4 Methodology" text="Structured roll-out from EXE auditing to full DLL enforcement (Phase 4)." />
-                  <AboutPoint title="Audit Integrity" text="Mandatory 14-day audit log collection via event 8003/8004 before policy commit." />
-                  <AboutPoint title="CORA Readiness" text="Automated evidence package generation for NIST/HIPAA compliance reviews." />
+                <div className="space-y-2 text-xs">
+                  <div className="flex justify-between p-2 bg-slate-50 rounded-lg">
+                    <span className="font-bold">AppLocker-WS-Audit/Enforce</span>
+                    <span className="text-slate-500">Workstations</span>
+                  </div>
+                  <div className="flex justify-between p-2 bg-slate-50 rounded-lg">
+                    <span className="font-bold">AppLocker-SRV-Audit/Enforce</span>
+                    <span className="text-slate-500">Servers</span>
+                  </div>
+                  <div className="flex justify-between p-2 bg-slate-50 rounded-lg">
+                    <span className="font-bold">AppLocker-Admins</span>
+                    <span className="text-slate-500">IT Administrators</span>
+                  </div>
+                  <div className="flex justify-between p-2 bg-slate-50 rounded-lg">
+                    <span className="font-bold">AppLocker-Installers</span>
+                    <span className="text-slate-500">Software Installers</span>
+                  </div>
+                  <div className="flex justify-between p-2 bg-slate-50 rounded-lg">
+                    <span className="font-bold">AppLocker-StandardUsers</span>
+                    <span className="text-slate-500">Regular Users</span>
+                  </div>
                 </div>
               </div>
 
@@ -294,6 +341,20 @@ const AboutPoint: React.FC<{title: string, text: string}> = ({title, text}) => (
       <p className="text-xs font-black text-slate-900 uppercase tracking-tight">{title}</p>
       <p className="text-xs text-slate-500 font-medium leading-relaxed">{text}</p>
     </div>
+  </div>
+);
+
+const HelpShortcut: React.FC<{keys: string[], action: string}> = ({keys, action}) => (
+  <div className="flex items-center justify-between p-2 bg-slate-50 rounded-lg">
+    <div className="flex items-center space-x-1">
+      {keys.map((key, i) => (
+        <React.Fragment key={key}>
+          {i > 0 && <span className="text-slate-400">+</span>}
+          <kbd className="px-2 py-1 bg-white border border-slate-200 rounded text-[10px] font-bold text-slate-700 shadow-sm">{key}</kbd>
+        </React.Fragment>
+      ))}
+    </div>
+    <span className="text-xs text-slate-600 font-medium">{action}</span>
   </div>
 );
 

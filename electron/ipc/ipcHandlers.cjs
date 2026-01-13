@@ -270,6 +270,30 @@ function setupIpcHandlers() {
   });
 
   // System handlers
+  ipcMain.handle('system:getUserInfo', async (event) => {
+    try {
+      const os = require('os');
+      const domain = process.env.USERDOMAIN || process.env.COMPUTERNAME || os.hostname() || 'WORKGROUP';
+      const username = process.env.USERNAME || os.userInfo().username || 'user';
+      
+      return {
+        success: true,
+        principal: `${domain}\\${username}`,
+        username: username,
+        domain: domain,
+        hostname: os.hostname(),
+        branch: process.env.GIT_BRANCH || 'main'
+      };
+    } catch (error) {
+      console.error('[IPC] Get user info error:', error);
+      return {
+        success: false,
+        principal: 'Unknown\\User',
+        error: error.message
+      };
+    }
+  });
+
   ipcMain.handle('system:checkAppLockerService', async (event) => {
     try {
       const command = 'Get-Service -Name AppIDSvc | Select-Object Status, StartType | ConvertTo-Json';

@@ -10,6 +10,7 @@ import { showSaveDialog } from '../src/infrastructure/ipc/fileDialog';
 const EventsModule: React.FC = () => {
   const { event } = useAppServices();
   const [searchQuery, setSearchQuery] = useState('');
+  const [eventTypeFilter, setEventTypeFilter] = useState<'all' | 'blocked' | 'audit' | 'allowed'>('all');
   const debouncedSearch = useDebounce(searchQuery, 300);
 
   // Fetch events
@@ -22,16 +23,31 @@ const EventsModule: React.FC = () => {
     () => event.getEventStats()
   );
 
-  // Filter events based on search
+  // Filter events based on search and event type
   const filteredEvents = React.useMemo(() => {
     if (!events) return [];
     
+    let filtered = events;
+    
+    // Filter by event type
+    if (eventTypeFilter !== 'all') {
+      filtered = filtered.filter((e: AppEvent) => {
+        switch (eventTypeFilter) {
+          case 'blocked': return e.eventId === 8004;
+          case 'audit': return e.eventId === 8003;
+          case 'allowed': return e.eventId === 8002 || e.eventId === 8001;
+          default: return true;
+        }
+      });
+    }
+    
+    // Apply search filter
     const filter: EventFilter = {
       searchQuery: debouncedSearch || undefined,
     };
     
-    return event.filterEvents(events, filter);
-  }, [events, debouncedSearch, event]);
+    return event.filterEvents(filtered, filter);
+  }, [events, debouncedSearch, eventTypeFilter, event]);
 
   const handleExportCSV = async () => {
     try {
@@ -133,10 +149,35 @@ const EventsModule: React.FC = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <EventStatCard label="Total Blocked (8004)" value={eventStats?.totalBlocked.toString() || '0'} color="text-red-600" />
-        <EventStatCard label="Total Audit (8003)" value={eventStats?.totalAudit.toString() || '0'} color="text-blue-600" />
-        <EventStatCard label="Unique Paths" value={eventStats?.uniquePaths.toString() || '0'} color="text-slate-600" />
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <EventStatCard 
+          label="Total Blocked (8004)" 
+          value={eventStats?.totalBlocked.toString() || '0'} 
+          color="text-red-600"
+          onClick={() => setEventTypeFilter('blocked')}
+          active={eventTypeFilter === 'blocked'}
+        />
+        <EventStatCard 
+          label="Total Audit (8003)" 
+          value={eventStats?.totalAudit.toString() || '0'} 
+          color="text-blue-600"
+          onClick={() => setEventTypeFilter('audit')}
+          active={eventTypeFilter === 'audit'}
+        />
+        <EventStatCard 
+          label="Total Allowed (8001/8002)" 
+          value={eventStats?.totalAllowed?.toString() || '0'} 
+          color="text-green-600"
+          onClick={() => setEventTypeFilter('allowed')}
+          active={eventTypeFilter === 'allowed'}
+        />
+        <EventStatCard 
+          label="Unique Paths" 
+          value={eventStats?.uniquePaths.toString() || '0'} 
+          color="text-slate-600"
+          onClick={() => setEventTypeFilter('all')}
+          active={eventTypeFilter === 'all'}
+        />
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
@@ -180,9 +221,20 @@ const EventsModule: React.FC = () => {
                 filteredEvents.map((event) => (
                   <tr key={event.id} className="hover:bg-slate-50 group">
                     <td className="px-6 py-4">
-                      <span className={`flex items-center space-x-1.5 font-bold ${event.eventId === 8004 ? 'text-red-600' : 'text-blue-600'}`}>
+                      <span className={`flex items-center space-x-1.5 font-bold ${
+                        event.eventId === 8004 ? 'text-red-600' : 
+                        event.eventId === 8003 ? 'text-blue-600' : 
+                        'text-green-600'
+                      }`}>
                         <Activity size={14} />
                         <span>{event.eventId}</span>
+                        <span className={`text-[9px] px-1.5 py-0.5 rounded uppercase font-black ${
+                          event.eventId === 8004 ? 'bg-red-100 text-red-700' : 
+                          event.eventId === 8003 ? 'bg-blue-100 text-blue-700' : 
+                          'bg-green-100 text-green-700'
+                        }`}>
+                          {event.eventId === 8004 ? 'Blocked' : event.eventId === 8003 ? 'Audit' : 'Allowed'}
+                        </span>
                       </span>
                     </td>
                     <td className="px-6 py-4 text-slate-500">{event.timestamp}</td>
@@ -236,11 +288,25 @@ const EventsModule: React.FC = () => {
   );
 };
 
-const EventStatCard: React.FC<{ label: string, value: string, color: string }> = ({ label, value, color }) => (
-  <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+const EventStatCard: React.FC<{ 
+  label: string, 
+  value: string, 
+  color: string,
+  onClick?: () => void,
+  active?: boolean 
+}> = ({ label, value, color, onClick, active }) => (
+  <button 
+    onClick={onClick}
+    className={`bg-white p-4 rounded-xl shadow-sm border text-left transition-all w-full min-h-[44px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+      active 
+        ? 'border-blue-500 ring-2 ring-blue-500/20 shadow-md' 
+        : 'border-slate-200 hover:border-slate-300 hover:shadow-md'
+    }`}
+    aria-pressed={active}
+  >
     <p className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mb-1">{label}</p>
     <p className={`text-2xl font-black ${color}`}>{value}</p>
-  </div>
+  </button>
 );
 
 export default EventsModule;
