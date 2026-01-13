@@ -3,7 +3,7 @@
 ## 🎯 Current Status: VISION 100% COMPLETE
 
 **Last Updated:** 2026-01-13  
-**Version:** 1.2.5  
+**Version:** 1.2.7  
 **Status:** ✅ **ALL FEATURES IMPLEMENTED - READY FOR PRODUCTION**
 
 ---
@@ -133,7 +133,7 @@ npm run electron:dev     # Start Electron
 ### Production
 ```bash
 npm run electron:build:portable  # Build EXE
-# Output: release/GA-AppLocker Dashboard-1.2.5-x64.exe
+# Output: release/GA-AppLocker Dashboard-1.2.7-x64.exe
 ```
 
 ### Testing
