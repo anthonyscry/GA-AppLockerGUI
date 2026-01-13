@@ -1945,15 +1945,31 @@ function setupIpcHandlers() {
       const command = `
         try {
           $events = Get-WinEvent -LogName "Microsoft-Windows-AppLocker/EXE and DLL" -MaxEvents 100 -ErrorAction SilentlyContinue |
-            Select-Object Id, TimeCreated, Message, @{N='Computer';E={$env:COMPUTERNAME}} |
             ForEach-Object {
+              $msg = $_.Message
+              # Parse path from message (usually between quotes or after "was")
+              $path = ''
+              $publisher = ''
+              $action = ''
+              if ($msg -match '([A-Z]:\\\\[^"]+\\.exe|[A-Z]:\\\\[^\\s]+\\.exe)') {
+                $path = $matches[1]
+              } elseif ($msg -match '"([^"]+)"') {
+                $path = $matches[1]
+              }
+              if ($msg -match 'Publisher:\\s*([^\\r\\n]+)') {
+                $publisher = $matches[1].Trim()
+              } elseif ($msg -match 'signed by\\s+([^\\r\\n]+)') {
+                $publisher = $matches[1].Trim()
+              }
+              $action = if($_.Id -eq 8004) { 'Blocked' } elseif($_.Id -eq 8003) { 'Audit' } else { 'Allowed' }
               @{
                 id = [guid]::NewGuid().ToString()
                 eventId = $_.Id
                 timestamp = $_.TimeCreated.ToString('o')
-                message = $_.Message
-                machineName = $_.Computer
-                severity = if($_.Id -eq 8004) { 'Blocked' } elseif($_.Id -eq 8003) { 'Warning' } else { 'Info' }
+                machine = $env:COMPUTERNAME
+                path = $path
+                publisher = $publisher
+                action = $action
               }
             } | ConvertTo-Json -Compress
           if ($events) { $events } else { '[]' }

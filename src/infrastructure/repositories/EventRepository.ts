@@ -58,19 +58,19 @@ export class EventRepository implements IEventRepository {
   private filterEvents(events: AppEvent[], filter: EventFilter): AppEvent[] {
     return events.filter(event => {
       const matchesSearch = !filter.searchQuery ||
-        event.path.toLowerCase().includes(filter.searchQuery.toLowerCase()) ||
-        event.machine.toLowerCase().includes(filter.searchQuery.toLowerCase()) ||
-        event.publisher.toLowerCase().includes(filter.searchQuery.toLowerCase());
-      
+        (event.path || '').toLowerCase().includes(filter.searchQuery.toLowerCase()) ||
+        (event.machine || '').toLowerCase().includes(filter.searchQuery.toLowerCase()) ||
+        (event.publisher || '').toLowerCase().includes(filter.searchQuery.toLowerCase());
+
       const matchesEventId = !filter.eventId || event.eventId === filter.eventId;
-      
+
       const matchesMachine = !filter.machine || event.machine === filter.machine;
-      
+
       const matchesDateRange = !filter.dateRange || (() => {
         const eventDate = new Date(event.timestamp);
         return eventDate >= filter.dateRange!.start && eventDate <= filter.dateRange!.end;
       })();
-      
+
       return matchesSearch && matchesEventId && matchesMachine && matchesDateRange;
     });
   }
