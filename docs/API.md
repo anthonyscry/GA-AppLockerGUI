@@ -12,6 +12,7 @@ This document describes the service layer API for the GA-AppLocker Dashboard app
 - [EventService](#eventservice)
 - [ADService](#adservice)
 - [ComplianceService](#complianceservice)
+- [AuditLogger](#auditlogger)
 
 ---
 
@@ -282,6 +283,128 @@ Validates evidence completeness.
 
 ---
 
+## AuditLogger
+
+Security audit logging for compliance and tracking sensitive operations.
+
+### `audit.policyDeployed(policyName, targetOU, success, error?)`
+
+Logs a policy deployment event.
+
+**Parameters:**
+- `policyName` (string): Name of the deployed policy
+- `targetOU` (string): Target Organizational Unit
+- `success` (boolean): Whether deployment succeeded
+- `error` (string, optional): Error message if failed
+
+**Example:**
+```typescript
+import { audit } from '../src/infrastructure/logging';
+
+audit.policyDeployed('Workstation-Policy', 'OU=Workstations,DC=corp,DC=local', true);
+```
+
+---
+
+### `audit.userAddedToGroup(username, groupName, success, error?)`
+
+Logs a user group membership change.
+
+**Parameters:**
+- `username` (string): User being modified
+- `groupName` (string): Target security group
+- `success` (boolean): Whether operation succeeded
+- `error` (string, optional): Error message if failed
+
+---
+
+### `audit.scanInitiated(targets, scanType)`
+
+Logs the start of a scan operation.
+
+**Parameters:**
+- `targets` (string[]): Target machines
+- `scanType` (string): Type of scan being performed
+
+---
+
+### `audit.scanCompleted(targets, resultsCount, duration)`
+
+Logs scan completion.
+
+**Parameters:**
+- `targets` (string[]): Target machines
+- `resultsCount` (number): Number of results found
+- `duration` (number): Duration in milliseconds
+
+---
+
+### `auditLogger.getEntries(filter?)`
+
+Gets audit log entries with optional filtering.
+
+**Parameters:**
+- `filter` (object, optional): Filter criteria
+  - `action` (AuditAction): Filter by action type
+  - `severity` (AuditSeverity): Filter by severity
+  - `user` (string): Filter by user
+  - `startDate` (Date): Start date range
+  - `endDate` (Date): End date range
+  - `success` (boolean): Filter by success/failure
+
+**Returns:** Array of audit entries
+
+**Example:**
+```typescript
+import { auditLogger, AuditAction, AuditSeverity } from '../src/infrastructure/logging';
+
+// Get all critical failures
+const failures = auditLogger.getEntries({
+  severity: AuditSeverity.CRITICAL,
+  success: false
+});
+```
+
+---
+
+### `auditLogger.exportToCSV()`
+
+Exports audit log to CSV format.
+
+**Returns:** CSV string
+
+---
+
+### `auditLogger.getStats()`
+
+Gets audit statistics.
+
+**Returns:** Statistics object with:
+- `total`: Total entries
+- `byAction`: Count by action type
+- `bySeverity`: Count by severity
+- `successRate`: Percentage of successful operations
+- `recentFailures`: Last 10 failed operations
+
+---
+
+### Audit Actions
+
+| Action | Severity | Description |
+|--------|----------|-------------|
+| `POLICY_DEPLOYED` | CRITICAL | Policy deployed to GPO |
+| `POLICY_DELETED` | CRITICAL | Policy deleted |
+| `POLICY_CREATED` | HIGH | New policy created |
+| `POLICY_MODIFIED` | HIGH | Policy modified |
+| `USER_ADDED_TO_GROUP` | HIGH | User added to security group |
+| `USER_REMOVED_FROM_GROUP` | HIGH | User removed from security group |
+| `SCAN_INITIATED` | MEDIUM | Scan started |
+| `SCAN_COMPLETED` | LOW | Scan finished |
+| `EXPORT_DATA` | MEDIUM | Data exported |
+| `APP_STARTED` | LOW | Application started |
+
+---
+
 ## Usage in Components
 
 All services are available through the `useAppServices()` hook:
@@ -321,4 +444,4 @@ try {
 
 ---
 
-*Last Updated: 2024*
+*Last Updated: January 2026 (v1.2.10)*
