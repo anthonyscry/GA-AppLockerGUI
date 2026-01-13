@@ -15,7 +15,7 @@ export function setupADHandlers(): void {
 
   ipcMain.handle(IPCChannels.AD.GET_USER_BY_ID, async (_event, id: string): Promise<ADUser | null> => {
     const users = MOCK_AD_USERS;
-    return users.find(u => u.id === id) || null;
+    return users.find((u: ADUser) => u.id === id) || null;
   });
 
   ipcMain.handle(IPCChannels.AD.ADD_TO_GROUP, async (_event, userId: string, groupName: string): Promise<void> => {

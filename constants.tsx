@@ -1,5 +1,3 @@
-
-import React from 'react';
 import { 
   LayoutDashboard, 
   Search, 
@@ -7,14 +5,7 @@ import {
   Activity, 
   ClipboardCheck, 
   Users,
-  ShieldAlert,
-  Server,
-  Terminal,
   FileCode,
-  CheckCircle2,
-  XCircle,
-  Clock,
-  UserPlus
 } from 'lucide-react';
 import { ADUser, InventoryItem, TrustedPublisher, MachineScan, AppEvent } from './src/shared/types';
 

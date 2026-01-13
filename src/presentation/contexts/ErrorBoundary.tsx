@@ -3,9 +3,8 @@
  * Catches React errors and displays fallback UI
  */
 
-import React, { Component, ErrorInfo, ReactNode } from 'react';
+import { Component, ErrorInfo, ReactNode } from 'react';
 import { logger } from '../../infrastructure/logging';
-import { BaseError } from '../../domain/errors';
 
 interface Props {
   children: ReactNode;

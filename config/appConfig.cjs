@@ -6,15 +6,15 @@
 const AppConfig = {
   // App metadata
   appName: 'GA-AppLocker Dashboard',
-  version: '1.2.4',
+  version: '1.2.5',
   author: 'Tony Tran, ISSO, GA-ASI',
   
   // Window settings
   window: {
-    defaultWidth: 1400,
-    defaultHeight: 900,
-    minWidth: 1200,
-    minHeight: 700,
+    defaultWidth: 1200,
+    defaultHeight: 800,
+    minWidth: 900,
+    minHeight: 600,
     backgroundColor: '#f1f5f9',
   },
   

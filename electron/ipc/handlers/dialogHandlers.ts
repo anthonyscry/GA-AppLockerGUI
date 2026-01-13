@@ -17,7 +17,7 @@ export function setupDialogHandlers(): void {
   ipcMain.handle('dialog:showOpenDialog', async (event, options = {}) => {
     try {
       const window = BrowserWindow.fromWebContents(event.sender);
-      const result = await dialog.showOpenDialog(window || undefined, {
+      const dialogOptions = {
         title: options.title || 'Select File',
         defaultPath: options.defaultPath,
         filters: options.filters || [
@@ -25,7 +25,10 @@ export function setupDialogHandlers(): void {
         ],
         properties: options.properties || ['openFile'],
         ...options
-      });
+      };
+      const result = window 
+        ? await dialog.showOpenDialog(window, dialogOptions)
+        : await dialog.showOpenDialog(dialogOptions);
 
       return {
         canceled: result.canceled,
@@ -49,14 +52,17 @@ export function setupDialogHandlers(): void {
   ipcMain.handle('dialog:showSaveDialog', async (event, options = {}) => {
     try {
       const window = BrowserWindow.fromWebContents(event.sender);
-      const result = await dialog.showSaveDialog(window || undefined, {
+      const dialogOptions = {
         title: options.title || 'Save File',
         defaultPath: options.defaultPath,
         filters: options.filters || [
           { name: 'All Files', extensions: ['*'] }
         ],
         ...options
-      });
+      };
+      const result = window
+        ? await dialog.showSaveDialog(window, dialogOptions)
+        : await dialog.showSaveDialog(dialogOptions);
 
       return {
         canceled: result.canceled,
@@ -78,12 +84,15 @@ export function setupDialogHandlers(): void {
   ipcMain.handle('dialog:showOpenDirectoryDialog', async (event, options = {}) => {
     try {
       const window = BrowserWindow.fromWebContents(event.sender);
-      const result = await dialog.showOpenDialog(window || undefined, {
+      const dialogOptions = {
         title: options.title || 'Select Directory',
         defaultPath: options.defaultPath,
-        properties: ['openDirectory', 'createDirectory'],
+        properties: ['openDirectory', 'createDirectory'] as ('openDirectory' | 'createDirectory')[],
         ...options
-      });
+      };
+      const result = window
+        ? await dialog.showOpenDialog(window, dialogOptions)
+        : await dialog.showOpenDialog(dialogOptions);
 
       return {
         canceled: result.canceled,

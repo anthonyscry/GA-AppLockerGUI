@@ -15,9 +15,9 @@ export function setupEventHandlers(): void {
 
   ipcMain.handle(IPCChannels.EVENT.GET_STATS, async (): Promise<{ totalBlocked: number; totalAudit: number; uniquePaths: number }> => {
     const events = MOCK_EVENTS;
-    const totalBlocked = events.filter(e => e.eventId === 8004).length;
-    const totalAudit = events.filter(e => e.eventId === 8003).length;
-    const uniquePaths = new Set(events.map(e => e.path)).size;
+    const totalBlocked = events.filter((e: AppEvent) => e.eventId === 8004).length;
+    const totalAudit = events.filter((e: AppEvent) => e.eventId === 8003).length;
+    const uniquePaths = new Set(events.map((e: AppEvent) => e.path)).size;
     return { totalBlocked, totalAudit, uniquePaths };
   });
 

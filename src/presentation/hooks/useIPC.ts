@@ -3,7 +3,7 @@
  * React hook for IPC communication
  */
 
-import { useEffect, useCallback } from 'react';
+import { useCallback } from 'react';
 import { ipcClient, IPCChannel } from '../../infrastructure/ipc';
 
 export function useIPC() {

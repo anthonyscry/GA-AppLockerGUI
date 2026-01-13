@@ -25,7 +25,7 @@ export function setupMachineHandlers(): void {
   // Get machine by ID
   ipcMain.handle(IPCChannels.MACHINE.GET_BY_ID, async (_event, id: string): Promise<MachineScan | null> => {
     const machines = MOCK_MACHINES;
-    return machines.find(m => m.id === id) || null;
+    return machines.find((m: MachineScan) => m.id === id) || null;
   });
 
   // Start batch scan

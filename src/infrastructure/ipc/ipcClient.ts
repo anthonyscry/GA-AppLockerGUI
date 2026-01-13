@@ -3,7 +3,7 @@
  * Type-safe client for Electron IPC communication from renderer process
  */
 
-import { IPCChannels, IPCChannel } from './channels';
+import { IPCChannel } from './channels';
 
 declare global {
   interface Window {

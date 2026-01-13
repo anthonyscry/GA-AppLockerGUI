@@ -97,7 +97,7 @@ export class Logger {
   /**
    * Internal log method
    */
-  private logInternal(level: LogLevel, message: string, context?: Record<string, unknown>): void {
+  protected logInternal(level: LogLevel, message: string, context?: Record<string, unknown>): void {
     if (level < this.config.minLevel) return;
 
     const entry: LogEntry = {

@@ -2,7 +2,7 @@
  * Policy Repository Implementation
  */
 
-import { IPolicyRepository, PolicyFilter } from '../../domain/interfaces/IPolicyRepository';
+import { IPolicyRepository } from '../../domain/interfaces/IPolicyRepository';
 import { PolicyPhase, InventoryItem, TrustedPublisher, PolicyRule } from '../../shared/types';
 import { ipcClient } from '../ipc/ipcClient';
 import { IPCChannels } from '../ipc/channels';

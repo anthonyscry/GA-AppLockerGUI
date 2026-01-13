@@ -3,7 +3,7 @@
  * Simple DI container for managing service dependencies
  */
 
-type Constructor<T = unknown> = new (...args: unknown[]) => T;
+type Constructor<T = unknown> = new (...args: any[]) => T;
 type Factory<T = unknown> = () => T;
 
 interface ServiceDescriptor {
@@ -46,7 +46,7 @@ export class Container {
     }
 
     // Resolve dependencies
-    const dependencies = descriptor.dependencies.map(dep => this.resolve(dep));
+    const dependencies = (descriptor.dependencies || []).map(dep => this.resolve(dep));
 
     // Create instance
     let instance: T;

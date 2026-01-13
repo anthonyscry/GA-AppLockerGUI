@@ -3,7 +3,7 @@
  * Provides access to DI container and services
  */
 
-import React, { createContext, useContext, ReactNode } from 'react';
+import { createContext, useContext, ReactNode } from 'react';
 import { container } from '../../infrastructure/di/Container';
 import { MachineService } from '../../application/services/MachineService';
 import { PolicyService } from '../../application/services/PolicyService';
