@@ -29,24 +29,30 @@ const ScanModule: React.FC = () => {
   const [ouPath, setOuPath] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [riskFilter, setRiskFilter] = useState<string>('All');
-  
+
   // WinRM GPO State
   const [gpoStatus, setGpoStatus] = useState<'Enabled' | 'Disabled' | 'Processing'>('Enabled');
   const [showGpoConfirm, setShowGpoConfirm] = useState(false);
-  
+
   // Domain Info (auto-detected from DC)
   const [domainInfo, setDomainInfo] = useState({
     domain: '',
     isDC: false,
     currentUser: '',
   });
-  
+
   // Credential State
   const [showCredentials, setShowCredentials] = useState(false);
   const [useCurrentUser, setUseCurrentUser] = useState(true);
   const [scanUsername, setScanUsername] = useState('');
   const [scanPassword, setScanPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+
+  // Selected machines for targeted scanning
+  const [selectedMachines, setSelectedMachines] = useState<Set<string>>(new Set());
+
+  // Local scan state
+  const [isLocalScanning, setIsLocalScanning] = useState(false);
   
   // Auto-detect domain on mount
   React.useEffect(() => {
@@ -87,16 +93,17 @@ const ScanModule: React.FC = () => {
     }
   }, [gpoStatusData]);
 
+  // Handle targeted scan of selected machines or all filtered machines
   const handleScan = useCallback(async () => {
     try {
       const scanOptions: any = {};
-      
+
       // Add credentials if not using current user
       if (!useCurrentUser && scanUsername) {
         scanOptions.credentials = {
           username: scanUsername,
           password: scanPassword,
-          domain: domainInfo.domain, // Use auto-detected domain
+          domain: domainInfo.domain,
           useCurrentUser: false
         };
       } else {
@@ -104,19 +111,76 @@ const ScanModule: React.FC = () => {
           useCurrentUser: true
         };
       }
-      
+
       // Add OU filter if specified
       if (ouPath) {
         scanOptions.targetOUs = [ouPath];
       }
-      
+
+      // If specific machines are selected, scan only those
+      if (selectedMachines.size > 0) {
+        scanOptions.targetMachines = Array.from(selectedMachines);
+      }
+
       await machine.startBatchScan(scanOptions);
+      setSelectedMachines(new Set()); // Clear selection after scan
       await refetchMachines();
     } catch (error) {
       console.error('Failed to start scan:', error);
       alert(`Failed to start scan: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-  }, [machine, refetchMachines, useCurrentUser, scanUsername, scanPassword, domainInfo.domain, ouPath]);
+  }, [machine, refetchMachines, useCurrentUser, scanUsername, scanPassword, domainInfo.domain, ouPath, selectedMachines]);
+
+  // Handle local machine scan
+  const handleLocalScan = useCallback(async () => {
+    setIsLocalScanning(true);
+    try {
+      const electron = (window as any).electron;
+      if (electron?.ipc) {
+        const result = await electron.ipc.invoke('scan:local', {
+          credentials: { useCurrentUser: true }
+        });
+        if (result.success) {
+          alert(`Local scan complete!\n\nApplications found: ${result.appCount || 0}\nExecutables: ${result.exeCount || 0}`);
+          await refetchMachines();
+        } else {
+          alert(`Local scan failed: ${result.error || 'Unknown error'}`);
+        }
+      } else {
+        alert('Local scanning requires the Electron app');
+      }
+    } catch (error) {
+      console.error('Local scan failed:', error);
+      alert(`Local scan failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsLocalScanning(false);
+    }
+  }, [refetchMachines]);
+
+  // Toggle machine selection
+  const toggleMachineSelection = useCallback((machineId: string) => {
+    setSelectedMachines(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(machineId)) {
+        newSet.delete(machineId);
+      } else {
+        newSet.add(machineId);
+      }
+      return newSet;
+    });
+  }, []);
+
+  // Select all filtered machines
+  const selectAllFiltered = useCallback(() => {
+    if (filteredMachines.length > 0) {
+      setSelectedMachines(new Set(filteredMachines.map(m => m.id)));
+    }
+  }, []);
+
+  // Clear selection
+  const clearSelection = useCallback(() => {
+    setSelectedMachines(new Set());
+  }, []);
 
   const toggleWinRMGPO = useCallback(async () => {
     try {
@@ -202,11 +266,24 @@ const ScanModule: React.FC = () => {
           <p className="text-slate-500 text-sm font-medium">Collect inventory via WinRM from AD-managed computers.</p>
         </div>
         <div className="flex space-x-3">
-          <button 
+          <button
+            onClick={handleLocalScan}
+            disabled={isLocalScanning}
+            className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl transition-all font-bold text-sm min-h-[44px] focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            aria-label="Scan local machine"
+          >
+            {isLocalScanning ? (
+              <Loader2 size={18} className="animate-spin" aria-hidden="true" />
+            ) : (
+              <Server size={18} aria-hidden="true" />
+            )}
+            <span>{isLocalScanning ? 'Scanning...' : 'Local Scan'}</span>
+          </button>
+          <button
             onClick={() => setShowCredentials(!showCredentials)}
-            className={`flex items-center space-x-2 px-5 py-2.5 rounded-xl transition-all font-bold text-sm min-h-[44px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-              showCredentials 
-                ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' 
+            className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all font-bold text-sm min-h-[44px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+              showCredentials
+                ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20'
                 : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
             }`}
             aria-label="Configure scan credentials"
@@ -214,13 +291,13 @@ const ScanModule: React.FC = () => {
             <Key size={18} aria-hidden="true" />
             <span>Credentials</span>
           </button>
-          <button 
+          <button
             onClick={handleScan}
             className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl transition-all font-bold shadow-lg shadow-blue-500/20 text-sm min-h-[44px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-            aria-label="Start batch scan of all machines"
+            aria-label={selectedMachines.size > 0 ? `Scan ${selectedMachines.size} selected machines` : "Scan all machines"}
           >
             <RefreshCw size={18} aria-hidden="true" />
-            <span>Start Batch Scan</span>
+            <span>{selectedMachines.size > 0 ? `Scan Selected (${selectedMachines.size})` : 'Scan All'}</span>
           </button>
         </div>
       </div>
@@ -554,79 +631,125 @@ const ScanModule: React.FC = () => {
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        {/* Selection Controls */}
+        {filteredMachines.length > 0 && (
+          <div className="px-4 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <input
+                type="checkbox"
+                id="select-all"
+                checked={selectedMachines.size === filteredMachines.length && filteredMachines.length > 0}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    setSelectedMachines(new Set(filteredMachines.map(m => m.id)));
+                  } else {
+                    setSelectedMachines(new Set());
+                  }
+                }}
+                className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-2 focus:ring-blue-500"
+              />
+              <label htmlFor="select-all" className="text-xs font-bold text-slate-600 cursor-pointer">
+                {selectedMachines.size > 0 ? `${selectedMachines.size} selected` : 'Select all'}
+              </label>
+            </div>
+            {selectedMachines.size > 0 && (
+              <button
+                onClick={() => setSelectedMachines(new Set())}
+                className="text-xs text-slate-500 hover:text-slate-700 font-bold"
+              >
+                Clear selection
+              </button>
+            )}
+          </div>
+        )}
         <table className="w-full text-left">
           <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 text-[11px] uppercase tracking-widest font-black">
             <tr>
-              <th className="px-6 py-4">Computer / AD Context</th>
-              <th className="px-6 py-4">Status</th>
-              <th className="px-6 py-4">Risk Level</th>
-              <th className="px-6 py-4">Inventory Size</th>
-              <th className="px-6 py-4">Last Sync</th>
-              <th className="px-6 py-4 text-right">Actions</th>
+              <th className="px-3 py-4 w-10"></th>
+              <th className="px-4 py-4">Computer / AD Context</th>
+              <th className="px-4 py-4">Status</th>
+              <th className="px-4 py-4">Risk Level</th>
+              <th className="px-4 py-4">Inventory</th>
+              <th className="px-4 py-4">Last Sync</th>
+              <th className="px-4 py-4 text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 text-sm">
             {filteredMachines.length > 0 ? (
-              filteredMachines.map((machine) => (
-                <tr key={machine.id} className="hover:bg-slate-50/50 group transition-colors">
-                  <td className="px-6 py-4">
+              filteredMachines.map((m) => (
+                <tr
+                  key={m.id}
+                  className={`hover:bg-slate-50/50 group transition-colors cursor-pointer ${
+                    selectedMachines.has(m.id) ? 'bg-blue-50/50' : ''
+                  }`}
+                  onClick={() => toggleMachineSelection(m.id)}
+                >
+                  <td className="px-3 py-4" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      checked={selectedMachines.has(m.id)}
+                      onChange={() => toggleMachineSelection(m.id)}
+                      className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-2 focus:ring-blue-500"
+                    />
+                  </td>
+                  <td className="px-4 py-4">
                     <div className="flex items-center space-x-3">
-                      <div className={`p-2 rounded-lg ${machine.status === 'Online' ? 'bg-blue-50 text-blue-600' : 'bg-slate-50 text-slate-400'}`} aria-hidden="true">
+                      <div className={`p-2 rounded-lg ${m.status === 'Online' ? 'bg-blue-50 text-blue-600' : 'bg-slate-50 text-slate-400'}`} aria-hidden="true">
                         <Server size={18} />
                       </div>
                       <div>
                         <div className="flex items-center space-x-2 mb-1">
-                          <p className="font-bold text-slate-900 leading-none">{machine.hostname}</p>
+                          <p className="font-bold text-slate-900 leading-none">{m.hostname}</p>
                           <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider ${
-                            getMachineTypeFromOU(machine.ou) === 'Workstation' ? 'bg-blue-100 text-blue-700' :
-                            getMachineTypeFromOU(machine.ou) === 'Server' ? 'bg-purple-100 text-purple-700' :
-                            getMachineTypeFromOU(machine.ou) === 'DomainController' ? 'bg-amber-100 text-amber-700' :
+                            getMachineTypeFromOU(m.ou) === 'Workstation' ? 'bg-blue-100 text-blue-700' :
+                            getMachineTypeFromOU(m.ou) === 'Server' ? 'bg-purple-100 text-purple-700' :
+                            getMachineTypeFromOU(m.ou) === 'DomainController' ? 'bg-amber-100 text-amber-700' :
                             'bg-slate-100 text-slate-600'
                           }`}>
-                            {getMachineTypeFromOU(machine.ou)}
+                            {getMachineTypeFromOU(m.ou)}
                           </span>
                         </div>
-                        <p className="text-[9px] text-slate-400 uppercase font-black tracking-widest truncate max-w-[220px]" title={machine.ou}>
-                          {machine.ou || 'OU not available'}
+                        <p className="text-[9px] text-slate-400 uppercase font-black tracking-widest truncate max-w-[200px]" title={m.ou}>
+                          {m.ou || 'OU not available'}
                         </p>
                       </div>
                     </div>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-4 py-4">
                     <div className="flex items-center space-x-2">
-                      <span 
+                      <span
                         className={`w-2 h-2 rounded-full ${
-                          machine.status === 'Online' ? 'bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.4)]' : 
-                          machine.status === 'Scanning' ? 'bg-amber-500 animate-pulse' : 'bg-slate-300'
+                          m.status === 'Online' ? 'bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.4)]' :
+                          m.status === 'Scanning' ? 'bg-amber-500 animate-pulse' : 'bg-slate-300'
                         }`}
-                        aria-label={`Machine status: ${machine.status}`}
+                        aria-label={`Machine status: ${m.status}`}
                       />
-                      <span className="font-bold text-slate-700">{machine.status}</span>
+                      <span className="font-bold text-slate-700">{m.status}</span>
                     </div>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-4 py-4">
                     <span className={`px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-wider ${
-                      machine.riskLevel === 'Low' ? 'bg-green-100 text-green-700' :
-                      machine.riskLevel === 'Medium' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
+                      m.riskLevel === 'Low' ? 'bg-green-100 text-green-700' :
+                      m.riskLevel === 'Medium' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
                     }`}>
-                      {machine.riskLevel}
+                      {m.riskLevel}
                     </span>
                   </td>
-                  <td className="px-6 py-4 font-mono text-slate-500 text-xs font-bold">{machine.appCount} items</td>
-                  <td className="px-6 py-4 text-slate-400 text-xs font-medium">{machine.lastScan}</td>
-                  <td className="px-6 py-4 text-right">
-                    <button 
-                      className="text-blue-600 hover:text-blue-800 font-black text-[10px] uppercase tracking-widest px-3 py-2 min-h-[44px] rounded-lg hover:bg-blue-50 transition-all border border-transparent hover:border-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                      aria-label={`View scan results for ${machine.hostname}`}
+                  <td className="px-4 py-4 font-mono text-slate-500 text-xs font-bold">{m.appCount}</td>
+                  <td className="px-4 py-4 text-slate-400 text-xs font-medium">{m.lastScan}</td>
+                  <td className="px-4 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      className="text-blue-600 hover:text-blue-800 font-black text-[10px] uppercase tracking-widest px-2 py-1.5 min-h-[36px] rounded-lg hover:bg-blue-50 transition-all border border-transparent hover:border-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                      aria-label={`View scan results for ${m.hostname}`}
                     >
-                      View Results
+                      View
                     </button>
                   </td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={6} className="px-6 py-16">
+                <td colSpan={7} className="px-6 py-16">
                   <div className="flex flex-col items-center justify-center space-y-3" role="status">
                     <div className="p-4 bg-slate-50 rounded-full">
                       <Search size={32} className="text-slate-200" aria-hidden="true" />

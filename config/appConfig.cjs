@@ -11,10 +11,10 @@ const AppConfig = {
   
   // Window settings
   window: {
-    defaultWidth: 1200,
-    defaultHeight: 800,
-    minWidth: 900,
-    minHeight: 600,
+    defaultWidth: 1000,
+    defaultHeight: 700,
+    minWidth: 800,
+    minHeight: 550,
     backgroundColor: '#f1f5f9',
   },
   

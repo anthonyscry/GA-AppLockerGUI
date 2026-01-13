@@ -241,11 +241,53 @@ const App: React.FC = () => {
                   <span>Quick Start Guide</span>
                 </h5>
                 <div className="space-y-3">
-                  <AboutPoint title="1. Remote Scan" text="Scan target machines to collect software inventory and executables." />
-                  <AboutPoint title="2. Policy Lab" text="Generate AppLocker rules from scan results. Use Rule Generator or import artifacts." />
-                  <AboutPoint title="3. Event Monitor" text="Monitor 8003 (audit) and 8004 (blocked) events. Filter by type." />
-                  <AboutPoint title="4. AD Manager" text="Drag users to security groups for AppLocker policy assignment." />
-                  <AboutPoint title="5. Compliance" text="Generate evidence packages for NIST compliance reviews." />
+                  <AboutPoint title="1. Remote Scan" text="Scan target machines to collect software inventory. Use Local Scan for this machine or select machines for remote scanning." />
+                  <AboutPoint title="2. Policy Lab" text="Generate AppLocker rules from scan results. Use the Rule Generator tab or import artifacts (CSV/JSON)." />
+                  <AboutPoint title="3. Event Monitor" text="Monitor 8003 (audit) and 8004 (blocked) events. Filter by type and export for analysis." />
+                  <AboutPoint title="4. AD Manager" text="Drag users to security groups for AppLocker policy assignment. View group membership." />
+                  <AboutPoint title="5. Compliance" text="Generate evidence packages for NIST 800-53 compliance reviews." />
+                </div>
+              </div>
+
+              {/* AppLocker Deployment Phases */}
+              <div className="space-y-4">
+                <h5 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center space-x-2">
+                  <Activity size={14} aria-hidden="true" />
+                  <span>Deployment Phases</span>
+                </h5>
+                <div className="space-y-2 text-xs">
+                  <div className="p-3 bg-blue-50 rounded-lg border border-blue-100">
+                    <span className="font-black text-blue-700">Phase 1:</span>
+                    <span className="text-blue-600 ml-2">EXE rules only (Audit Mode) - Start here for initial testing</span>
+                  </div>
+                  <div className="p-3 bg-blue-50 rounded-lg border border-blue-100">
+                    <span className="font-black text-blue-700">Phase 2:</span>
+                    <span className="text-blue-600 ml-2">EXE + Script rules (Audit Mode) - Add PS1, BAT, CMD, VBS</span>
+                  </div>
+                  <div className="p-3 bg-blue-50 rounded-lg border border-blue-100">
+                    <span className="font-black text-blue-700">Phase 3:</span>
+                    <span className="text-blue-600 ml-2">EXE + Script + MSI/MSP rules (Audit Mode) - Add installers</span>
+                  </div>
+                  <div className="p-3 bg-amber-50 rounded-lg border border-amber-100">
+                    <span className="font-black text-amber-700">Phase 4:</span>
+                    <span className="text-amber-600 ml-2">All + DLL rules (Enforce Mode) - Full enforcement (caution!)</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Event IDs Reference */}
+              <div className="space-y-4">
+                <h5 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center space-x-2">
+                  <Monitor size={14} aria-hidden="true" />
+                  <span>Event IDs Reference</span>
+                </h5>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="p-2 bg-green-50 rounded-lg"><span className="font-black text-green-700">8002:</span> Allowed execution</div>
+                  <div className="p-2 bg-amber-50 rounded-lg"><span className="font-black text-amber-700">8003:</span> Would be blocked (Audit)</div>
+                  <div className="p-2 bg-red-50 rounded-lg"><span className="font-black text-red-700">8004:</span> Blocked execution</div>
+                  <div className="p-2 bg-slate-50 rounded-lg"><span className="font-black text-slate-700">8005:</span> DLL allowed</div>
+                  <div className="p-2 bg-slate-50 rounded-lg"><span className="font-black text-slate-700">8006:</span> DLL would be blocked</div>
+                  <div className="p-2 bg-slate-50 rounded-lg"><span className="font-black text-slate-700">8007:</span> DLL blocked</div>
                 </div>
               </div>
 
@@ -259,6 +301,28 @@ const App: React.FC = () => {
                   <Globe size={24} className="text-blue-600" aria-hidden="true" />
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">AD Integration</p>
                   <p className="text-xs font-bold text-slate-700">GPO Deployment Engine</p>
+                </div>
+              </div>
+
+              {/* Troubleshooting */}
+              <div className="space-y-4">
+                <h5 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center space-x-2">
+                  <AlertCircle size={14} aria-hidden="true" />
+                  <span>Troubleshooting</span>
+                </h5>
+                <div className="space-y-2 text-xs">
+                  <div className="p-3 bg-slate-50 rounded-lg">
+                    <span className="font-bold">WinRM Connection Failed:</span>
+                    <span className="text-slate-600 ml-2">Run Enable-PSRemoting -Force on target, check firewall port 5985/5986</span>
+                  </div>
+                  <div className="p-3 bg-slate-50 rounded-lg">
+                    <span className="font-bold">Access Denied:</span>
+                    <span className="text-slate-600 ml-2">Ensure Domain Admin rights or WinRM permissions delegated</span>
+                  </div>
+                  <div className="p-3 bg-slate-50 rounded-lg">
+                    <span className="font-bold">AppIdentity Service:</span>
+                    <span className="text-slate-600 ml-2">Service must be running for AppLocker enforcement</span>
+                  </div>
                 </div>
               </div>
 
@@ -303,15 +367,6 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* Persistent Hotkeys Info */}
-      <div className="fixed bottom-4 right-8 bg-slate-900/90 text-white px-3 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest backdrop-blur-sm shadow-2xl z-50 pointer-events-none opacity-50 flex items-center space-x-2" aria-hidden="true">
-        <span>Press</span>
-        <span className="bg-slate-700 px-1.5 py-0.5 rounded">F1</span>
-        <span>for help</span>
-        <span className="text-slate-600">|</span>
-        <span className="bg-slate-700 px-1.5 py-0.5 rounded">Ctrl+1-7</span>
-        <span>Switch Tabs</span>
-      </div>
     </div>
   );
 };

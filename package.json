@@ -88,7 +88,14 @@
           ]
         }
       ],
+      "icon": "assets/icon.png",
       "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "linux": {
+      "icon": "assets/icon.png"
+    },
+    "mac": {
+      "icon": "assets/icon.png"
     },
     "nsis": {
       "oneClick": false,

@@ -96,11 +96,13 @@ const Dashboard: React.FC = () => {
   }, [events]);
 
   // Calculate health score based on blocked vs allowed ratio
+  // Returns null if no rules/events are configured (instead of misleading 100)
   const healthScore = useMemo(() => {
-    if (!eventStats) return 100;
+    if (!eventStats) return null;
     const total = (eventStats.totalBlocked || 0) + (eventStats.totalAudit || 0) + (eventStats.totalAllowed || 0);
-    if (total === 0) return 100;
-    const blockedRatio = eventStats.totalBlocked / total;
+    // If no events at all, return null to indicate no data rather than perfect score
+    if (total === 0) return null;
+    const blockedRatio = (eventStats.totalBlocked || 0) / total;
     return Math.max(0, Math.round(100 - (blockedRatio * 100)));
   }, [eventStats]);
 
@@ -236,9 +238,9 @@ const Dashboard: React.FC = () => {
         />
         <StatCard
           label="Rule Health Score"
-          value={`${healthScore}/100`}
-          icon={<CheckCircle className={healthScore >= 80 ? "text-green-500" : healthScore >= 50 ? "text-amber-500" : "text-red-500"} />}
-          trend="Test-RuleHealth.ps1"
+          value={healthScore !== null ? `${healthScore}/100` : 'N/A'}
+          icon={<CheckCircle className={healthScore === null ? "text-slate-400" : healthScore >= 80 ? "text-green-500" : healthScore >= 50 ? "text-amber-500" : "text-red-500"} />}
+          trend={healthScore === null ? "No rules configured" : "Test-RuleHealth.ps1"}
         />
         <StatCard
           label="Blocked Events"

@@ -33,11 +33,14 @@ import { useAsync } from '../src/presentation/hooks/useAsync';
 import { LoadingState } from './ui/LoadingState';
 import { ErrorState } from './ui/ErrorState';
 
+type PolicyTab = 'overview' | 'generator' | 'tools';
+
 const PolicyModule: React.FC = () => {
   const { policy, machine } = useAppServices();
   const [selectedPhase, setSelectedPhase] = useState<PolicyPhase>(PolicyPhase.PHASE_1);
   const [healthResults, setHealthResults] = useState<{c: number, w: number, i: number, score: number} | null>(null);
-  
+  const [activeTab, setActiveTab] = useState<PolicyTab>('overview');
+
   // Fetch inventory and trusted publishers
   const { data: inventory, loading: inventoryLoading, error: inventoryError, refetch: refetchInventory } = useAsync(
     () => policy.getInventory()
@@ -284,40 +287,45 @@ const PolicyModule: React.FC = () => {
 
   return (
     <div className="space-y-4 animate-in fade-in duration-500 pb-8">
-      {/* Compact Header */}
+      {/* Header with Tab Navigation */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-black text-slate-900 tracking-tight">Policy Lab</h2>
           <p className="text-slate-500 text-xs">Design and deploy AppLocker policies</p>
         </div>
-        <div className="flex space-x-2">
+        {/* Tab Navigation */}
+        <div className="flex items-center space-x-1 bg-slate-100 p-1 rounded-xl">
           <button
-            onClick={() => { setShowGenerator(true); setGeneratorTab('scanned'); }}
-            className="bg-blue-600 text-white px-3 py-2 rounded-lg font-bold text-xs hover:bg-blue-700 shadow-sm transition-all flex items-center space-x-1.5"
+            onClick={() => setActiveTab('overview')}
+            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+              activeTab === 'overview'
+                ? 'bg-white text-blue-600 shadow-sm'
+                : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            Overview
+          </button>
+          <button
+            onClick={() => { setActiveTab('generator'); setGeneratorTab('scanned'); }}
+            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 ${
+              activeTab === 'generator'
+                ? 'bg-white text-blue-600 shadow-sm'
+                : 'text-slate-500 hover:text-slate-700'
+            }`}
           >
             <Import size={14} />
-            <span>Generate Rules</span>
+            <span>Rule Generator</span>
           </button>
           <button
-            onClick={() => setShowOUDeploy(true)}
-            className="bg-emerald-600 text-white px-3 py-2 rounded-lg font-bold text-xs hover:bg-emerald-700 shadow-sm transition-all flex items-center space-x-1.5"
+            onClick={() => setActiveTab('tools')}
+            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 ${
+              activeTab === 'tools'
+                ? 'bg-white text-blue-600 shadow-sm'
+                : 'text-slate-500 hover:text-slate-700'
+            }`}
           >
-            <Upload size={14} />
-            <span>Deploy</span>
-          </button>
-          <button
-            onClick={() => setShowMerger(true)}
-            className="bg-white border border-slate-200 text-slate-600 px-3 py-2 rounded-lg font-bold text-xs hover:bg-slate-50 transition-all flex items-center space-x-1.5"
-          >
-            <Archive size={14} />
-            <span>Merge</span>
-          </button>
-          <button
-            onClick={() => setShowTemplates(true)}
-            className="bg-white border border-slate-200 text-slate-600 px-3 py-2 rounded-lg font-bold text-xs hover:bg-slate-50 transition-all flex items-center space-x-1.5"
-          >
-            <FileCode size={14} />
-            <span>Templates</span>
+            <Settings size={14} />
+            <span>Tools</span>
           </button>
         </div>
       </div>
@@ -1362,29 +1370,36 @@ const PolicyModule: React.FC = () => {
         </div>
       )}
 
-      {showGenerator && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white rounded-3xl w-[1200px] h-[800px] shadow-2xl overflow-hidden flex flex-col">
-            <div className="p-6 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <div className="p-2 bg-blue-600 text-white rounded-xl">
-                  <Archive size={24} />
-                </div>
-                <div>
-                  <h3 className="font-black text-slate-900 text-lg uppercase tracking-tight">Rule Generation Engine</h3>
-                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">GA-AppLocker Toolkit v1.2.4</p>
-                </div>
+      {/* Rule Generator Tab Content - Inline (not modal) */}
+      {activeTab === 'generator' && (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+          <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <div className="p-2 bg-blue-600 text-white rounded-xl">
+                <Archive size={20} />
               </div>
-              <button 
-                onClick={() => { setShowGenerator(false); resetGenerator(); }} 
-                className="p-3 min-w-[44px] min-h-[44px] hover:bg-slate-200 rounded-full transition-colors text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                aria-label="Close rule generator"
+              <div>
+                <h3 className="font-bold text-slate-900 text-sm uppercase tracking-tight">Rule Generation Engine</h3>
+                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Generate AppLocker rules from scan data</p>
+              </div>
+            </div>
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => setShowPublisherGrouping(true)}
+                className="px-3 py-1.5 bg-indigo-100 text-indigo-600 rounded-lg text-xs font-bold hover:bg-indigo-200 transition-all"
               >
-                <X size={24} aria-hidden="true" />
+                Publisher Groups
+              </button>
+              <button
+                onClick={() => setShowDuplicateDetection(true)}
+                className="px-3 py-1.5 bg-orange-100 text-orange-600 rounded-lg text-xs font-bold hover:bg-orange-200 transition-all"
+              >
+                Duplicates
               </button>
             </div>
+          </div>
 
-            <div className="flex-1 overflow-hidden flex flex-col md:flex-row">
+          <div className="flex flex-col md:flex-row" style={{ height: 'calc(100vh - 280px)', minHeight: '500px' }}>
               {/* Sidebar: App/Publisher List */}
               <div className="w-full md:w-1/2 border-r border-slate-100 flex flex-col bg-slate-50/30">
                 <div className="p-6 space-y-4">
@@ -1815,13 +1830,13 @@ const PolicyModule: React.FC = () => {
                     </div>
                   </>
                 ) : (
-                  <div className="h-full flex flex-col items-center justify-center text-slate-300 space-y-4 border-4 border-dashed border-slate-50 rounded-[40px] bg-slate-50/20 p-12" role="status">
-                    <div className="p-6 bg-white rounded-full shadow-sm">
-                      <Import size={64} className="text-slate-100" aria-hidden="true" />
+                  <div className="h-full flex flex-col items-center justify-center text-slate-300 space-y-4 border-4 border-dashed border-slate-50 rounded-[40px] bg-slate-50/20 p-8" role="status">
+                    <div className="p-4 bg-white rounded-full shadow-sm">
+                      <Import size={48} className="text-slate-100" aria-hidden="true" />
                     </div>
                     <div className="text-center space-y-1">
-                      <p className="text-lg font-black text-slate-400 uppercase tracking-tight">Awaiting Selection</p>
-                      <p className="text-sm font-medium text-slate-400 max-w-xs mx-auto">Select a scanned application or a trusted vendor from the sidebar to generate a new policy rule.</p>
+                      <p className="text-sm font-black text-slate-400 uppercase tracking-tight">Awaiting Selection</p>
+                      <p className="text-xs font-medium text-slate-400 max-w-xs mx-auto">Select a scanned application or a trusted vendor from the sidebar to generate a new policy rule.</p>
                     </div>
                   </div>
                 )}
@@ -1831,6 +1846,80 @@ const PolicyModule: React.FC = () => {
         </div>
       )}
 
+      {/* Tools Tab Content */}
+      {activeTab === 'tools' && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <button
+              onClick={() => setShowOUDeploy(true)}
+              className="bg-emerald-50 border border-emerald-200 p-6 rounded-2xl text-left hover:shadow-md transition-all group"
+            >
+              <div className="p-3 bg-emerald-600 text-white rounded-xl w-fit mb-3 group-hover:scale-105 transition-transform">
+                <Upload size={24} />
+              </div>
+              <h3 className="font-bold text-slate-900 mb-1">Deploy Policy</h3>
+              <p className="text-xs text-slate-500">Deploy GPO and link to OUs</p>
+            </button>
+            <button
+              onClick={() => setShowMerger(true)}
+              className="bg-purple-50 border border-purple-200 p-6 rounded-2xl text-left hover:shadow-md transition-all group"
+            >
+              <div className="p-3 bg-purple-600 text-white rounded-xl w-fit mb-3 group-hover:scale-105 transition-transform">
+                <Archive size={24} />
+              </div>
+              <h3 className="font-bold text-slate-900 mb-1">Merge Policies</h3>
+              <p className="text-xs text-slate-500">Combine multiple XML policies</p>
+            </button>
+            <button
+              onClick={() => setShowTemplates(true)}
+              className="bg-cyan-50 border border-cyan-200 p-6 rounded-2xl text-left hover:shadow-md transition-all group"
+            >
+              <div className="p-3 bg-cyan-600 text-white rounded-xl w-fit mb-3 group-hover:scale-105 transition-transform">
+                <FileCode size={24} />
+              </div>
+              <h3 className="font-bold text-slate-900 mb-1">Templates</h3>
+              <p className="text-xs text-slate-500">Pre-built rule templates</p>
+            </button>
+            <button
+              onClick={() => setShowOUPolicyGen(true)}
+              className="bg-teal-50 border border-teal-200 p-6 rounded-2xl text-left hover:shadow-md transition-all group"
+            >
+              <div className="p-3 bg-teal-600 text-white rounded-xl w-fit mb-3 group-hover:scale-105 transition-transform">
+                <FolderTree size={24} />
+              </div>
+              <h3 className="font-bold text-slate-900 mb-1">OU-Based Generation</h3>
+              <p className="text-xs text-slate-500">Auto-generate by machine type</p>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <button
+              onClick={() => setShowComprehensiveGen(true)}
+              className="bg-green-50 border border-green-200 p-6 rounded-2xl text-left hover:shadow-md transition-all group"
+            >
+              <div className="p-3 bg-green-600 text-white rounded-xl w-fit mb-3 group-hover:scale-105 transition-transform">
+                <Activity size={24} />
+              </div>
+              <h3 className="font-bold text-slate-900 mb-1">Comprehensive Scan</h3>
+              <p className="text-xs text-slate-500">Full system scan with all artifacts</p>
+            </button>
+            <button
+              onClick={() => setShowIncrementalUpdate(true)}
+              className="bg-amber-50 border border-amber-200 p-6 rounded-2xl text-left hover:shadow-md transition-all group"
+            >
+              <div className="p-3 bg-amber-600 text-white rounded-xl w-fit mb-3 group-hover:scale-105 transition-transform">
+                <Plus size={24} />
+              </div>
+              <h3 className="font-bold text-slate-900 mb-1">Incremental Update</h3>
+              <p className="text-xs text-slate-500">Add new rules to existing policy</p>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Overview Tab Content */}
+      {activeTab === 'overview' && (
+        <>
       {/* Compact Phase Selector Row */}
       <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
         <div className="flex items-center justify-between">
@@ -1897,6 +1986,8 @@ const PolicyModule: React.FC = () => {
 </AppLockerPolicy>`}
         </pre>
       </div>
+        </>
+      )}
     </div>
   );
 };
