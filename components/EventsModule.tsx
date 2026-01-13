@@ -124,9 +124,12 @@ const EventsModule: React.FC = () => {
           status: `Backing up ${systemName}...`
         });
 
-        // Generate unique filename: systemname-date-time
-        const timestamp = now.toISOString().replace(/[:.]/g, '-').slice(0, 19);
-        const filename = `${systemName}-${timestamp}.evtx`;
+        // Generate unique filename for each system: systemname-YYYY-MM-DD-HHMMSS.evtx
+        // Using current time for each system to ensure unique filenames even if run multiple times
+        const backupTime = new Date();
+        const dateStr = backupTime.toISOString().split('T')[0]; // YYYY-MM-DD
+        const timeStr = backupTime.toTimeString().split(' ')[0].replace(/:/g, ''); // HHMMSS
+        const filename = `${systemName}-${dateStr}-${timeStr}.evtx`;
         const outputPath = `${backupPath}\\${monthFolder}\\${filename}`;
 
         try {
