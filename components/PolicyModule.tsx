@@ -48,14 +48,11 @@ const PolicyModule: React.FC = () => {
     () => policy.getInventory()
   );
   
+  // Fetch trusted publishers from Windows certificate store (merged with COMMON_PUBLISHERS)
   const { data: trustedPublishers, loading: publishersLoading, error: publishersError } = useAsync(
     () => policy.getTrustedPublishers()
   );
-  
-  const { data: categories } = useAsync(
-    () => policy.getPublisherCategories()
-  );
-  
+
   // Fetch machines for OU-based policy generation
   const { data: machines } = useAsync(
     () => machine.getAllMachines()
@@ -170,20 +167,53 @@ const PolicyModule: React.FC = () => {
     );
   }, [combinedInventory, genSearchQuery]);
 
+  /**
+   * Merge COMMON_PUBLISHERS with any additional publishers from certificate store
+   * COMMON_PUBLISHERS is always the base list; certificate store publishers are added
+   * to show which publishers are actually trusted on this machine
+   */
+  const allPublishers = useMemo(() => {
+    // Always start with COMMON_PUBLISHERS as the base
+    const base = [...COMMON_PUBLISHERS];
+
+    // If certificate store returned additional publishers, merge them
+    if (trustedPublishers && trustedPublishers.length > 0) {
+      trustedPublishers.forEach(certPub => {
+        // Check if this publisher already exists in base (by name match)
+        const exists = base.some(p =>
+          (p.name || '').toLowerCase() === (certPub.name || '').toLowerCase() ||
+          (p.publisherName || '').toLowerCase().includes((certPub.name || '').toLowerCase())
+        );
+        if (!exists && certPub.name) {
+          // Add certificate store publisher with 'Installed' category
+          base.push({
+            ...certPub,
+            category: certPub.category || 'Installed',
+            description: certPub.description || `Trusted certificate: ${certPub.name}`
+          });
+        }
+      });
+    }
+    return base;
+  }, [trustedPublishers]);
+
   const filteredPublishers = useMemo(() => {
-    const publishers = trustedPublishers || COMMON_PUBLISHERS;
-    if (!genSearchQuery && genCategoryFilter === 'All') return publishers;
+    if (!genSearchQuery && genCategoryFilter === 'All') return allPublishers;
     const query = genSearchQuery.toLowerCase();
-    return publishers.filter(p => {
+    return allPublishers.filter(p => {
       const matchesSearch = !genSearchQuery ||
         (p.name || '').toLowerCase().includes(query) ||
         (p.publisherName || '').toLowerCase().includes(query);
       const matchesCategory = genCategoryFilter === 'All' || p.category === genCategoryFilter;
       return matchesSearch && matchesCategory;
     });
-  }, [trustedPublishers, genSearchQuery, genCategoryFilter]);
+  }, [allPublishers, genSearchQuery, genCategoryFilter]);
 
-  const availableCategories = categories || ['All', ...Array.from(new Set(COMMON_PUBLISHERS.map(p => p.category)))];
+  // Generate categories from the merged publisher list
+  const availableCategories = useMemo(() => {
+    const cats = new Set(allPublishers.map(p => p.category));
+    return ['All', ...Array.from(cats).sort()];
+  }, [allPublishers]);
 
   const runHealthCheck = async () => {
     try {
