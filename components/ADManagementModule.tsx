@@ -17,9 +17,10 @@ import {
   GripVertical,
   MousePointer2,
   ArrowRightLeft,
-  // Added missing Terminal and FileText imports
   Terminal,
-  FileText
+  FileText,
+  Filter,
+  Building2
 } from 'lucide-react';
 import { useAppServices } from '../src/presentation/contexts/AppContext';
 import { useAsync } from '../src/presentation/hooks/useAsync';
@@ -27,9 +28,47 @@ import { LoadingState } from './ui/LoadingState';
 import { ErrorState } from './ui/ErrorState';
 import { showSaveDialog } from '../src/infrastructure/ipc/fileDialog';
 
+// Convert wildcard pattern to regex
+const wildcardToRegex = (pattern: string): RegExp => {
+  // Escape special regex characters except *
+  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+  // Convert * to .*
+  const regexPattern = escaped.replace(/\*/g, '.*');
+  return new RegExp(`^${regexPattern}$`, 'i');
+};
+
+// Check if a string matches a wildcard pattern
+const matchesWildcard = (value: string, pattern: string): boolean => {
+  if (!pattern.includes('*')) {
+    // Simple case-insensitive contains match
+    return value.toLowerCase().includes(pattern.toLowerCase());
+  }
+  // Use regex for wildcard matching
+  const regex = wildcardToRegex(pattern);
+  return regex.test(value);
+};
+
+// Extract unique OUs from users
+const extractOUs = (users: ADUser[]): string[] => {
+  const ous = new Set<string>();
+  users.forEach(user => {
+    if (user.ou) {
+      // Extract just the OU name for display
+      const ouMatch = user.ou.match(/OU=([^,]+)/);
+      if (ouMatch) {
+        ous.add(ouMatch[1]);
+      }
+      // Also add full path for filtering
+      ous.add(user.ou);
+    }
+  });
+  return Array.from(ous).sort();
+};
+
 const ADManagementModule: React.FC = () => {
   const { ad } = useAppServices();
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedOU, setSelectedOU] = useState<string>('all');
   const [selectedUser, setSelectedUser] = useState<ADUser | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [draggedUser, setDraggedUser] = useState<ADUser | null>(null);
@@ -40,15 +79,38 @@ const ADManagementModule: React.FC = () => {
     () => ad.getAllUsers()
   );
 
+  // Get unique OUs for filter dropdown
+  const availableOUs = useMemo(() => {
+    if (!users) return [];
+    return extractOUs(users);
+  }, [users]);
+
   const filteredUsers = useMemo(() => {
     if (!users) return [];
-    if (!searchQuery) return users;
-    const query = searchQuery.toLowerCase();
-    return users.filter((u: ADUser) => 
-      u.samAccountName.toLowerCase().includes(query) ||
-      u.displayName.toLowerCase().includes(query)
-    );
-  }, [users, searchQuery]);
+    
+    let filtered = users;
+    
+    // Filter by OU
+    if (selectedOU !== 'all') {
+      filtered = filtered.filter((u: ADUser) => {
+        if (!u.ou) return false;
+        // Match either the full OU path or just the OU name
+        return u.ou === selectedOU || u.ou.includes(`OU=${selectedOU}`);
+      });
+    }
+    
+    // Filter by search query (supports wildcards)
+    if (searchQuery) {
+      filtered = filtered.filter((u: ADUser) => 
+        matchesWildcard(u.samAccountName, searchQuery) ||
+        matchesWildcard(u.displayName, searchQuery) ||
+        matchesWildcard(u.department || '', searchQuery) ||
+        matchesWildcard(u.ou || '', searchQuery)
+      );
+    }
+    
+    return filtered;
+  }, [users, searchQuery, selectedOU]);
 
   const handleScanAD = async () => {
     setIsScanning(true);
@@ -161,18 +223,44 @@ const ADManagementModule: React.FC = () => {
                 <span>Drag to Group</span>
               </div>
             </div>
+            {/* OU Filter */}
+            <div className="mb-3">
+              <label htmlFor="ou-filter" className="sr-only">Filter by Organizational Unit</label>
+              <select
+                id="ou-filter"
+                value={selectedOU}
+                onChange={(e) => setSelectedOU(e.target.value)}
+                className="w-full py-2.5 px-3 min-h-[44px] bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:border-blue-500 transition-all"
+                aria-label="Filter by Organizational Unit"
+              >
+                <option value="all">All Organizational Units</option>
+                {availableOUs.map(ou => (
+                  <option key={ou} value={ou}>{ou}</option>
+                ))}
+              </select>
+            </div>
+            {/* Search */}
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
               <input 
                 type="text" 
                 id="user-search"
-                placeholder="Search users..." 
+                placeholder="Search users... (use * for wildcard)" 
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full pl-10 pr-4 py-2.5 min-h-[44px] bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:border-blue-500 transition-all"
-                aria-label="Search Active Directory users"
+                aria-label="Search Active Directory users. Use asterisk for wildcard matching."
               />
             </div>
+            {searchQuery && (
+              <p className="mt-2 text-[9px] text-slate-400 font-medium">
+                {searchQuery.includes('*') ? (
+                  <span className="text-blue-500">Wildcard search active</span>
+                ) : (
+                  <span>Tip: Use * for wildcards (e.g., john*, *admin*)</span>
+                )}
+              </p>
+            )}
           </div>
           
           <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-2">
@@ -202,6 +290,9 @@ const ADManagementModule: React.FC = () => {
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-black text-slate-900 group-hover:text-blue-700 transition-colors truncate">{user.samAccountName}</p>
                       <p className="text-[10px] text-slate-500 font-medium truncate">{user.displayName}</p>
+                      {user.ou && (
+                        <p className="text-[9px] text-slate-400 font-medium truncate">{user.ou.match(/OU=([^,]+)/)?.[1] || user.ou}</p>
+                      )}
                     </div>
                   </div>
                   <ChevronRight size={12} className={`shrink-0 ${selectedUser?.id === user.id ? 'text-blue-600' : 'text-slate-300'}`} />
@@ -241,10 +332,16 @@ const ADManagementModule: React.FC = () => {
                       <h3 className="text-xl font-black tracking-tighter">{selectedUser.displayName}</h3>
                       <span className="px-2 py-0.5 bg-green-500 text-white text-[8px] font-black uppercase rounded tracking-widest">Active</span>
                     </div>
-                    <div className="flex items-center space-x-3 text-slate-400 font-bold text-[10px] uppercase tracking-widest">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-slate-400 font-bold text-[10px] uppercase tracking-widest">
                       <span className="flex items-center space-x-1"><Terminal size={10} /> <span>{selectedUser.samAccountName}</span></span>
                       <span className="w-1 h-1 bg-slate-700 rounded-full" />
                       <span>{selectedUser.department}</span>
+                      {selectedUser.ou && (
+                        <>
+                          <span className="w-1 h-1 bg-slate-700 rounded-full" />
+                          <span className="text-blue-400">{selectedUser.ou.match(/OU=([^,]+)/)?.[1] || 'Root'}</span>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>

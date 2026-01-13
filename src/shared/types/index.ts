@@ -51,6 +51,7 @@ export interface ADUser {
   samAccountName: string;
   displayName: string;
   department: string;
+  ou: string;  // Organizational Unit path (e.g., "OU=Users,OU=HQ,DC=domain,DC=com")
   groups: string[];
 }
 
