@@ -56,7 +56,13 @@ contextBridge.exposeInMainWorld('electron', {
         'compliance:validateEvidence',
         'system:checkAppLockerService',
         'system:checkPowerShellModules',
+        'system:getUserInfo',
+        'system:getDomainInfo',
         'util:getScriptsDirectory',
+        'dialog:showOpenDialog',
+        'dialog:showSaveDialog',
+        'dialog:showOpenDirectoryDialog',
+        'fs:writeFile',
       ];
       
       if (validChannels.includes(channel)) {
