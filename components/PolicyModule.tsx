@@ -1,11 +1,11 @@
 
 import React, { useState, useMemo } from 'react';
 import { PolicyPhase, InventoryItem, TrustedPublisher, MachineScan, MachineType, getMachineTypeFromOU, groupMachinesByOU, MachinesByType } from '../src/shared/types';
-import { 
-  FileCode, 
+import {
+  FileCode,
   FileText,
-  Settings, 
-  Plus, 
+  Settings,
+  Plus,
   ShieldAlert,
   ShieldCheck,
   AlertTriangle,
@@ -25,7 +25,9 @@ import {
   Upload,
   Link,
   Trash2,
-  Loader2
+  Loader2,
+  Save,
+  Download
 } from 'lucide-react';
 import { APPLOCKER_GROUPS, COMMON_PUBLISHERS } from '../constants';
 import { useAppServices } from '../src/presentation/contexts/AppContext';
@@ -1424,87 +1426,97 @@ const PolicyModule: React.FC = () => {
                       type="file"
                       id="import-artifacts-main"
                       accept=".csv,.json"
-                      aria-label="Import scan artifacts from CSV or JSON file"
+                      multiple
+                      aria-label="Import scan artifacts from CSV or JSON files"
                       onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
-                          const reader = new FileReader();
-                          reader.onload = (event) => {
+                        const files = Array.from(e.target.files || []);
+                        if (files.length === 0) return;
+
+                        let allItems: InventoryItem[] = [];
+                        let processedCount = 0;
+                        const fileNames: string[] = [];
+
+                        const parseFile = (text: string, fileName: string): InventoryItem[] => {
+                          let items: InventoryItem[] = [];
+                          const baseId = Date.now() + processedCount * 10000;
+
+                          if (fileName.endsWith('.json')) {
+                            const data = JSON.parse(text);
+                            if (data.Executables) {
+                              items = data.Executables.map((exe: any, index: number) => ({
+                                id: `imported-${baseId}-${index}`,
+                                name: exe.Name || exe.name || 'Unknown',
+                                publisher: exe.Publisher || exe.publisher || 'Unknown',
+                                path: exe.Path || exe.path || '',
+                                version: exe.Version || exe.version || '',
+                                type: (exe.Type || exe.type || 'EXE') as InventoryItem['type']
+                              }));
+                            } else if (Array.isArray(data)) {
+                              items = data.map((item: any, index: number) => ({
+                                id: `imported-${baseId}-${index}`,
+                                name: item.Name || item.name || 'Unknown',
+                                publisher: item.Publisher || item.publisher || 'Unknown',
+                                path: item.Path || item.path || '',
+                                version: item.Version || item.version || '',
+                                type: (item.Type || item.type || 'EXE') as InventoryItem['type']
+                              }));
+                            }
+                          } else {
+                            const lines = text.split('\n').filter(l => l.trim());
+                            const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+                            items = lines.slice(1).map((line, index) => {
+                              const values = line.split(',').map(v => v.trim());
+                              return {
+                                id: `imported-${baseId}-${index}`,
+                                name: values[headers.indexOf('name')] || values[0] || 'Unknown',
+                                publisher: values[headers.indexOf('publisher')] || values[1] || 'Unknown',
+                                path: values[headers.indexOf('path')] || values[2] || '',
+                                version: values[headers.indexOf('version')] || values[3] || '',
+                                type: (values[headers.indexOf('type')] || values[4] || 'EXE') as InventoryItem['type']
+                              };
+                            });
+                          }
+                          return items;
+                        };
+
+                        const processFiles = async () => {
+                          for (const file of files) {
                             try {
-                              const text = event.target?.result as string;
-                              if (!text) {
-                                alert('File is empty');
-                                return;
-                              }
-                              
-                              let items: InventoryItem[] = [];
-                              
-                              if (file.name.endsWith('.json')) {
-                                const data = JSON.parse(text);
-                                // Handle comprehensive scan artifacts format
-                                if (data.Executables) {
-                                  items = data.Executables.map((exe: any, index: number) => ({
-                                    id: `imported-${index}`,
-                                    name: exe.Name || exe.name || 'Unknown',
-                                    publisher: exe.Publisher || exe.publisher || 'Unknown',
-                                    path: exe.Path || exe.path || '',
-                                    version: exe.Version || exe.version || '',
-                                    type: (exe.Type || exe.type || 'EXE') as InventoryItem['type']
-                                  }));
-                                } else if (Array.isArray(data)) {
-                                  items = data.map((item: any, index: number) => ({
-                                    id: `imported-${index}`,
-                                    name: item.Name || item.name || 'Unknown',
-                                    publisher: item.Publisher || item.publisher || 'Unknown',
-                                    path: item.Path || item.path || '',
-                                    version: item.Version || item.version || '',
-                                    type: (item.Type || item.type || 'EXE') as InventoryItem['type']
-                                  }));
-                                }
-                              } else {
-                                // CSV format
-                                const lines = text.split('\n').filter(l => l.trim());
-                                const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-                                items = lines.slice(1).map((line, index) => {
-                                  const values = line.split(',').map(v => v.trim());
-                                  return {
-                                    id: `imported-${index}`,
-                                    name: values[headers.indexOf('name')] || values[0] || 'Unknown',
-                                    publisher: values[headers.indexOf('publisher')] || values[1] || 'Unknown',
-                                    path: values[headers.indexOf('path')] || values[2] || '',
-                                    version: values[headers.indexOf('version')] || values[3] || '',
-                                    type: (values[headers.indexOf('type')] || values[4] || 'EXE') as InventoryItem['type']
-                                  };
-                                });
-                              }
-                              
-                              // Remove duplicates by path
-                              const uniqueItems = items.filter((item, index, self) =>
-                                index === self.findIndex(t => t.path === item.path && t.path !== '')
-                              );
-                              
-                              if (uniqueItems.length > 0) {
-                                setImportedArtifacts([...importedArtifacts, ...uniqueItems]);
-                                setImportedFrom(file.name);
-                                setGeneratorTab('scanned');
-                                alert(`Successfully imported ${uniqueItems.length} items from ${file.name}`);
-                              } else {
-                                alert('No valid items found in file.');
+                              const text = await file.text();
+                              if (text) {
+                                const items = parseFile(text, file.name);
+                                allItems = [...allItems, ...items];
+                                fileNames.push(file.name);
                               }
                             } catch (error: any) {
-                              console.error('File import error:', error);
-                              alert(`Error parsing file: ${error?.message || 'Please ensure it is valid CSV or JSON.'}`);
+                              console.error(`Error parsing ${file.name}:`, error);
                             }
-                          };
-                          reader.readAsText(file);
-                        }
+                            processedCount++;
+                          }
+
+                          // Remove duplicates by path
+                          const uniqueItems = allItems.filter((item, index, self) =>
+                            index === self.findIndex(t => t.path === item.path && t.path !== '')
+                          );
+
+                          if (uniqueItems.length > 0) {
+                            setImportedArtifacts(prev => [...prev, ...uniqueItems]);
+                            setImportedFrom(fileNames.length > 1 ? `${fileNames.length} files` : fileNames[0]);
+                            setGeneratorTab('scanned');
+                            alert(`Successfully imported ${uniqueItems.length} items from ${fileNames.length} file(s)`);
+                          } else {
+                            alert('No valid items found in the selected files.');
+                          }
+                        };
+
+                        processFiles();
                       }}
                       className="hidden"
                     />
                     <div className="border-2 border-dashed border-blue-300 rounded-xl p-3 text-center cursor-pointer hover:border-blue-500 transition-colors bg-blue-50/50 min-h-[80px] flex flex-col items-center justify-center focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2">
                       <Import size={16} className="mx-auto mb-1 text-blue-600" aria-hidden="true" />
                       <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest">Import Scan Artifacts</p>
-                      <p className="text-[9px] text-blue-500 mt-0.5">CSV, JSON, or Comprehensive Scan</p>
+                      <p className="text-[9px] text-blue-500 mt-0.5">CSV, JSON (select multiple)</p>
                     </div>
                   </label>
                   
@@ -1616,70 +1628,65 @@ const PolicyModule: React.FC = () => {
                 </div>
               </div>
 
-              {/* Form: Rule Config */}
-              <div className="flex-1 p-8 space-y-8 bg-white overflow-y-auto custom-scrollbar">
+              {/* Form: Rule Config - Compact */}
+              <div className="flex-1 p-4 space-y-3 bg-white overflow-y-auto custom-scrollbar">
                 {(selectedApp || selectedPublisher) ? (
                   <>
-                    <div className="space-y-6">
-                      <div className="flex items-center space-x-4 p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                        <div className="p-3 bg-blue-600 text-white rounded-xl">
-                          <CheckCircle size={24} />
+                    <div className="space-y-3">
+                      <div className="flex items-center space-x-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
+                        <div className="p-2 bg-blue-600 text-white rounded-lg">
+                          <CheckCircle size={16} />
                         </div>
-                        <div>
-                          <h4 className="font-black text-slate-900 text-sm uppercase tracking-tight">
-                            Target: {generatorTab === 'scanned' ? selectedApp?.name : selectedPublisher?.name}
+                        <div className="min-w-0 flex-1">
+                          <h4 className="font-black text-slate-900 text-xs uppercase tracking-tight truncate">
+                            {generatorTab === 'scanned' ? selectedApp?.name : selectedPublisher?.name}
                           </h4>
-                          <p className="text-[10px] font-mono text-slate-500 break-all">
+                          <p className="text-[9px] font-mono text-slate-500 truncate">
                             {generatorTab === 'scanned' ? selectedApp?.publisher : selectedPublisher?.publisherName}
                           </p>
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="grid grid-cols-2 gap-3">
                         <div>
-                          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Policy Action</label>
-                          <div className="flex p-1 bg-slate-100 rounded-xl">
-                    <button 
-                      onClick={() => setRuleAction('Allow')}
-                      className={`flex-1 py-2.5 min-h-[44px] text-xs font-bold rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${ruleAction === 'Allow' ? 'bg-white text-green-600 shadow-sm' : 'text-slate-500'}`}
-                      aria-label="Set rule action to Allow"
-                      aria-pressed={ruleAction === 'Allow'}
-                    >Permit</button>
-                    <button 
-                      onClick={() => setRuleAction('Deny')}
-                      className={`flex-1 py-2.5 min-h-[44px] text-xs font-bold rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${ruleAction === 'Deny' ? 'bg-white text-red-600 shadow-sm' : 'text-slate-500'}`}
-                      aria-label="Set rule action to Deny"
-                      aria-pressed={ruleAction === 'Deny'}
-                    >Deny</button>
+                          <label className="block text-[9px] font-black text-slate-400 uppercase tracking-wide mb-1.5">Action</label>
+                          <div className="flex p-0.5 bg-slate-100 rounded-lg">
+                            <button
+                              onClick={() => setRuleAction('Allow')}
+                              className={`flex-1 py-1.5 text-[10px] font-bold rounded-md transition-all ${ruleAction === 'Allow' ? 'bg-white text-green-600 shadow-sm' : 'text-slate-500'}`}
+                              aria-pressed={ruleAction === 'Allow'}
+                            >Permit</button>
+                            <button
+                              onClick={() => setRuleAction('Deny')}
+                              className={`flex-1 py-1.5 text-[10px] font-bold rounded-md transition-all ${ruleAction === 'Deny' ? 'bg-white text-red-600 shadow-sm' : 'text-slate-500'}`}
+                              aria-pressed={ruleAction === 'Deny'}
+                            >Deny</button>
                           </div>
                         </div>
                         <div>
-                          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Rule Logic (Auto: Publisher → Hash)</label>
-                          <select 
+                          <label className="block text-[9px] font-black text-slate-400 uppercase tracking-wide mb-1.5">Rule Type</label>
+                          <select
                             id="rule-type"
                             value={ruleType}
                             onChange={(e) => setRuleType(e.target.value as any)}
-                            className="w-full bg-slate-100 border-none rounded-xl px-3 py-2.5 min-h-[44px] text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                            aria-label="Select rule type (Publisher, Hash, or Auto)"
+                            className="w-full bg-slate-100 border-none rounded-lg px-2 py-1.5 text-[10px] font-bold text-slate-700 outline-none focus:ring-1 focus:ring-blue-500"
                           >
-                            <option value="Publisher">Publisher (Preferred - Resilient to Updates)</option>
-                            <option value="Hash">Hash (Fallback - Most Secure for Unsigned)</option>
-                            <option value="Auto">Auto (Publisher first, then Hash)</option>
+                            <option value="Publisher">Publisher</option>
+                            <option value="Hash">Hash</option>
+                            <option value="Auto">Auto</option>
                           </select>
-                          <p className="text-[9px] text-slate-400 mt-1">Path rules are not recommended (too restrictive)</p>
                         </div>
                       </div>
 
                       <div>
-                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">AD Security Principal</label>
+                        <label className="block text-[9px] font-black text-slate-400 uppercase tracking-wide mb-1.5">Security Group</label>
                         <div className="relative">
-                          <Users size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                          <select 
+                          <Users size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                          <select
                             id="target-group"
                             value={targetGroup}
                             onChange={(e) => setTargetGroup(e.target.value)}
-                            className="w-full bg-slate-100 border-none rounded-xl pl-12 pr-4 py-2.5 min-h-[44px] text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 appearance-none"
-                            aria-label="Select Active Directory security group"
+                            className="w-full bg-slate-100 border-none rounded-lg pl-8 pr-3 py-2 text-xs font-bold text-slate-700 outline-none focus:ring-1 focus:ring-blue-500 appearance-none"
                           >
                             {APPLOCKER_GROUPS.map(g => (
                               <option key={g} value={g}>{g}</option>
@@ -1688,53 +1695,132 @@ const PolicyModule: React.FC = () => {
                         </div>
                       </div>
 
-                      <div className="p-6 bg-slate-900 rounded-3xl text-white relative overflow-hidden">
-                        <div className="relative z-10">
-                          <div className="flex justify-between items-center mb-4">
-                            <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">AppLocker XML Blueprint</span>
-                            <FileCode size={18} className="text-blue-400" />
-                          </div>
-                          <pre className="text-[11px] font-mono leading-relaxed text-blue-100 opacity-80">
-{`<FilePublisherRule Id="${Math.random().toString(36).substr(2, 9)}" Name="${(generatorTab === 'scanned' ? selectedApp?.name : selectedPublisher?.name)?.replace(/\s/g, '-')}" Action="${ruleAction}">
-  <Conditions>
-    <PublisherCondition PublisherName="${generatorTab === 'scanned' ? selectedApp?.publisher : selectedPublisher?.publisherName}" ... />
-  </Conditions>
-</FilePublisherRule>`}
-                          </pre>
+                      <div className="p-3 bg-slate-900 rounded-xl text-white relative overflow-hidden">
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="text-[8px] font-black text-blue-400 uppercase tracking-widest">XML Preview</span>
+                          <FileCode size={12} className="text-blue-400" />
                         </div>
-                        <ShieldCheck size={120} className="absolute -right-8 -bottom-8 text-white opacity-[0.03]" />
+                        <pre className="text-[9px] font-mono leading-relaxed text-blue-100 opacity-80 overflow-x-auto">
+{`<FilePublisherRule Name="${(generatorTab === 'scanned' ? selectedApp?.name : selectedPublisher?.name)?.replace(/\s/g, '-')?.slice(0,20)}" Action="${ruleAction}">`}
+                        </pre>
                       </div>
                     </div>
-                    
-                    <div className="space-y-2">
-                      <button 
-                        onClick={handleCreateRule}
-                        className="w-full py-4 min-h-[44px] bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-blue-700 shadow-xl shadow-blue-500/20 transition-all flex items-center justify-center space-x-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                        aria-label="Commit rule to Active Directory environment"
-                      >
-                        <Check size={20} aria-hidden="true" />
-                        <span>Commit to AD Environment</span>
-                      </button>
-                      {generatorTab === 'scanned' && filteredInventory.length > 0 && (
+
+                    <div className="space-y-1.5 pt-2 border-t border-slate-100">
+                      <div className="grid grid-cols-2 gap-1.5">
                         <button
-                          onClick={handleBatchGenerate}
-                          className="w-full py-3 min-h-[44px] bg-green-600 text-white rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-green-700 shadow-xl shadow-green-500/20 transition-all flex items-center justify-center space-x-3 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
-                          aria-label={`Batch generate rules for ${filteredInventory.length} items`}
+                          onClick={handleCreateRule}
+                          className="py-2 bg-blue-600 text-white rounded-xl font-black uppercase tracking-widest text-[10px] hover:bg-blue-700 shadow-lg transition-all flex items-center justify-center space-x-1"
                         >
-                          <Archive size={18} aria-hidden="true" />
-                          <span>Batch Generate ({filteredInventory.length} items)</span>
+                          <Check size={12} aria-hidden="true" />
+                          <span>Commit to AD</span>
                         </button>
+                        <button
+                          onClick={async () => {
+                            const subject = generatorTab === 'scanned' ? selectedApp : selectedPublisher;
+                            if (!subject) return;
+
+                            const { showSaveDialog } = await import('../src/infrastructure/ipc/fileDialog');
+                            const outputPath = await showSaveDialog({
+                              title: 'Save Rule to File',
+                              defaultPath: `.\\policies\\Rule-${'name' in subject ? subject.name.replace(/[^a-zA-Z0-9]/g, '-').slice(0, 30) : 'Generated'}.xml`,
+                              filters: [
+                                { name: 'XML Files', extensions: ['xml'] },
+                                { name: 'All Files', extensions: ['*'] }
+                              ]
+                            });
+                            if (!outputPath) return;
+
+                            try {
+                              const electron = (window as any).electron;
+                              if (!electron?.ipc) {
+                                alert('IPC not available');
+                                return;
+                              }
+                              const result = await electron.ipc.invoke('policy:saveRule', {
+                                subject: subject,
+                                action: ruleAction,
+                                ruleType: ruleType,
+                                targetGroup: targetGroup,
+                                collectionType: 'Exe'
+                              }, outputPath);
+
+                              if (result.success) {
+                                alert(`Rule saved to file!\n\nOutput: ${result.outputPath || outputPath}`);
+                              } else {
+                                alert(`Error: ${result.error || 'Unknown error'}`);
+                              }
+                            } catch (error: any) {
+                              alert(`Error: ${error?.message || error}`);
+                            }
+                          }}
+                          className="py-2 bg-slate-700 text-white rounded-xl font-black uppercase tracking-widest text-[10px] hover:bg-slate-800 transition-all flex items-center justify-center space-x-1"
+                        >
+                          <Save size={12} aria-hidden="true" />
+                          <span>Save to File</span>
+                        </button>
+                      </div>
+                      {generatorTab === 'scanned' && filteredInventory.length > 0 && (
+                        <div className="grid grid-cols-2 gap-1.5">
+                          <button
+                            onClick={handleBatchGenerate}
+                            className="py-2 bg-green-600 text-white rounded-xl font-black uppercase tracking-widest text-[10px] hover:bg-green-700 transition-all flex items-center justify-center space-x-1"
+                          >
+                            <Archive size={12} aria-hidden="true" />
+                            <span>Batch ({filteredInventory.length})</span>
+                          </button>
+                          <button
+                            onClick={async () => {
+                              if (filteredInventory.length === 0) {
+                                alert('No items to export');
+                                return;
+                              }
+
+                              const { showSaveDialog } = await import('../src/infrastructure/ipc/fileDialog');
+                              const outputPath = await showSaveDialog({
+                                title: 'Export All Rules to File',
+                                defaultPath: `.\\policies\\Batch-Export-${new Date().toISOString().slice(0,10)}.xml`,
+                                filters: [
+                                  { name: 'XML Files', extensions: ['xml'] },
+                                  { name: 'All Files', extensions: ['*'] }
+                                ]
+                              });
+                              if (!outputPath) return;
+
+                              try {
+                                const result = await policy.batchGenerateRules(filteredInventory, outputPath, {
+                                  ruleAction: ruleAction,
+                                  targetGroup: targetGroup,
+                                  collectionType: 'Exe',
+                                  groupByPublisher: true
+                                });
+
+                                if (result.success) {
+                                  alert(`Exported ${filteredInventory.length} rules to file!\n\nOutput: ${result.outputPath || outputPath}`);
+                                } else {
+                                  alert(`Error: ${result.error || 'Unknown error'}`);
+                                }
+                              } catch (error: any) {
+                                alert(`Error: ${error?.message || error}`);
+                              }
+                            }}
+                            className="py-2 bg-amber-600 text-white rounded-xl font-black uppercase tracking-widest text-[10px] hover:bg-amber-700 transition-all flex items-center justify-center space-x-1"
+                          >
+                            <Download size={12} aria-hidden="true" />
+                            <span>Export All</span>
+                          </button>
+                        </div>
                       )}
                     </div>
                   </>
                 ) : (
-                  <div className="h-full flex flex-col items-center justify-center text-slate-300 space-y-4 border-4 border-dashed border-slate-50 rounded-[40px] bg-slate-50/20 p-8" role="status">
-                    <div className="p-4 bg-white rounded-full shadow-sm">
-                      <Import size={48} className="text-slate-100" aria-hidden="true" />
+                  <div className="h-full flex flex-col items-center justify-center text-slate-300 space-y-3 border-2 border-dashed border-slate-100 rounded-xl bg-slate-50/20 p-4" role="status">
+                    <div className="p-3 bg-white rounded-full shadow-sm">
+                      <Import size={24} className="text-slate-200" aria-hidden="true" />
                     </div>
-                    <div className="text-center space-y-1">
-                      <p className="text-sm font-black text-slate-400 uppercase tracking-tight">Awaiting Selection</p>
-                      <p className="text-xs font-medium text-slate-400 max-w-xs mx-auto">Select a scanned application or a trusted vendor from the sidebar to generate a new policy rule.</p>
+                    <div className="text-center space-y-0.5">
+                      <p className="text-xs font-black text-slate-400 uppercase tracking-tight">Select an Item</p>
+                      <p className="text-[9px] font-medium text-slate-400">Choose from the list to create a rule</p>
                     </div>
                   </div>
                 )}

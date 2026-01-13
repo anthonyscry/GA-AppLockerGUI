@@ -87,22 +87,22 @@ const ComplianceModule: React.FC = () => {
           <h2 className="text-2xl font-bold text-slate-900">Compliance & Audit</h2>
           <p className="text-slate-500 text-sm">Generate NIST compliance evidence packages and regulatory reports.</p>
         </div>
-        <button 
+        <button
           onClick={handleGenerateEvidence}
           disabled={isGenerating}
-          className="bg-blue-600 text-white px-6 py-2.5 rounded-xl font-bold shadow-lg shadow-blue-500/20 hover:bg-blue-700 flex items-center space-x-2 min-h-[44px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-          aria-label="Create new evidence bundle"
+          className="bg-blue-600 text-white px-5 py-2 rounded-xl font-bold shadow-lg shadow-blue-500/20 hover:bg-blue-700 flex items-center space-x-2 min-h-[40px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+          aria-label="Export evidence package"
           aria-busy={isGenerating}
         >
           {isGenerating ? (
             <>
-              <Loader2 size={20} className="animate-spin" aria-hidden="true" />
+              <Loader2 size={16} className="animate-spin" aria-hidden="true" />
               <span>Generating...</span>
             </>
           ) : (
             <>
-              <ShieldCheck size={20} aria-hidden="true" />
-              <span>New Evidence Bundle</span>
+              <Download size={16} aria-hidden="true" />
+              <span>Export Evidence Package</span>
             </>
           )}
         </button>
@@ -210,26 +210,6 @@ const ComplianceModule: React.FC = () => {
               </div>
             </div>
           </div>
-          
-          <button 
-            onClick={handleGenerateEvidence}
-            disabled={isGenerating}
-            className="mt-8 w-full py-3 min-h-[44px] bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-500 transition-all flex items-center justify-center space-x-2 shadow-xl shadow-blue-500/20 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            aria-label="Export evidence package for compliance review"
-            aria-busy={isGenerating}
-          >
-            {isGenerating ? (
-              <>
-                <Loader2 size={18} className="animate-spin" aria-hidden="true" />
-                <span>Generating...</span>
-              </>
-            ) : (
-              <>
-                <span>Export Evidence Package</span>
-                <Download size={18} aria-hidden="true" />
-              </>
-            )}
-          </button>
         </div>
       </div>
       

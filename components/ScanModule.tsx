@@ -269,11 +269,17 @@ const ScanModule: React.FC = () => {
         <div className="flex space-x-3">
           <button
             onClick={refetchMachines}
-            className="flex items-center space-x-2 bg-slate-600 hover:bg-slate-700 text-white px-4 py-2.5 rounded-xl transition-all font-bold text-sm min-h-[44px] focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2"
-            aria-label="Detect systems from Active Directory"
+            disabled={!domainInfo.isDC}
+            className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all font-bold text-sm min-h-[44px] focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2 ${
+              domainInfo.isDC
+                ? 'bg-slate-600 hover:bg-slate-700 text-white'
+                : 'bg-slate-300 text-slate-500 cursor-not-allowed'
+            }`}
+            aria-label={domainInfo.isDC ? "Detect systems from Active Directory" : "Requires Domain Controller"}
+            title={!domainInfo.isDC ? 'Run this app on a Domain Controller to detect AD systems' : ''}
           >
             <RefreshCw size={18} aria-hidden="true" />
-            <span>Detect Systems</span>
+            <span>{domainInfo.isDC ? 'Detect Systems' : 'Requires DC'}</span>
           </button>
           <button
             onClick={() => setShowCredentials(!showCredentials)}

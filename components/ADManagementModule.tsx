@@ -214,7 +214,7 @@ const ADManagementModule: React.FC = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* User Search List (Drag Source) */}
-        <div className="lg:col-span-4 bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col h-[600px] overflow-hidden">
+        <div className="lg:col-span-4 bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col h-[420px] overflow-hidden">
           <div className="p-4 border-b border-slate-100 bg-slate-50/50">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active Directory Users</h3>
