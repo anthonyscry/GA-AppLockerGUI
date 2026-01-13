@@ -263,7 +263,7 @@ const App: React.FC = () => {
                   <AboutPoint title="2. Policy Lab" text="Generate AppLocker rules from scan results. Use Rule Generator or import artifacts." />
                   <AboutPoint title="3. Event Monitor" text="Monitor 8003 (audit) and 8004 (blocked) events. Filter by type." />
                   <AboutPoint title="4. AD Manager" text="Drag users to security groups for AppLocker policy assignment." />
-                  <AboutPoint title="5. Compliance" text="Generate CORA evidence packages for audits." />
+                  <AboutPoint title="5. Compliance" text="Generate evidence packages for NIST compliance reviews." />
                 </div>
               </div>
 
