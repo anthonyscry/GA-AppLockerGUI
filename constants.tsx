@@ -112,11 +112,12 @@ export const COMMON_PUBLISHERS: TrustedPublisher[] = [
 export const MOCK_AD_USERS: ADUser[] = [];
 
 export const APPLOCKER_GROUPS = [
-  // User Role-Based Groups
+  // User Role-Based Groups (matches IPC handlers)
   'AppLocker-Admins',
-  'AppLocker-Auditor',
-  'AppLocker-Bypass',
-  'AppLocker-StandardUsers',
+  'AppLocker-Installers',
+  'AppLocker-Developers',
+  'AppLocker-Standard-Users',
+  'AppLocker-Audit-Only',
 ];
 
 export const MOCK_EVENTS: AppEvent[] = [];

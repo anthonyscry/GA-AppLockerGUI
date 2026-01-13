@@ -61,6 +61,7 @@ contextBridge.exposeInMainWorld('electron', {
         'ad:getWinRMGPOStatus',
         'ad:toggleWinRMGPO',
         'ad:getOUsWithComputers',
+        'ad:createAppLockerGroups',
         // Compliance channels
         'compliance:getEvidenceStatus',
         'compliance:generateEvidence',
