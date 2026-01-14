@@ -146,7 +146,7 @@ const ScanModule: React.FC = () => {
 
       // If specific machines are selected, scan only those
       if (selectedMachines.size > 0) {
-        scanOptions.targetMachines = Array.from(selectedMachines);
+        scanOptions.computerNames = Array.from(selectedMachines);
       }
 
       await machine.startBatchScan(scanOptions);

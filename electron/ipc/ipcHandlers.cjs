@@ -2095,6 +2095,29 @@ function setupIpcHandlers() {
       const scanScriptPath = path.join(scriptsDir, 'Start-BatchScan.ps1');
 
       const args = [];
+      const credentials = options.credentials && typeof options.credentials === 'object'
+        ? options.credentials
+        : {};
+      const useCurrentUser = credentials.useCurrentUser !== undefined
+        ? Boolean(credentials.useCurrentUser)
+        : true;
+      const scanEnv = { ...process.env };
+
+      args.push(`-UseCurrentUser:${useCurrentUser ? '$true' : '$false'}`);
+
+      if (credentials.username && typeof credentials.username === 'string') {
+        args.push('-Username', escapePowerShellString(credentials.username));
+      }
+
+      if (credentials.domain && typeof credentials.domain === 'string') {
+        args.push('-Domain', escapePowerShellString(credentials.domain));
+      }
+
+      if (credentials.password && typeof credentials.password === 'string') {
+        const passwordEnvVar = `GA_APPLOCKER_SCAN_PASSWORD_${crypto.randomBytes(8).toString('hex')}`;
+        scanEnv[passwordEnvVar] = credentials.password;
+        args.push('-PasswordEnvVar', passwordEnvVar);
+      }
       if (options.targetOUs && Array.isArray(options.targetOUs) && options.targetOUs.length > 0) {
         // SECURITY FIX: Escape each OU path to prevent command injection
         const escapedOUs = options.targetOUs
@@ -2104,9 +2127,14 @@ function setupIpcHandlers() {
           args.push('-TargetOUs', escapedOUs.join(','));
         }
       }
-      if (options.computerNames && Array.isArray(options.computerNames) && options.computerNames.length > 0) {
+      const computerNames = (options.computerNames && Array.isArray(options.computerNames) && options.computerNames.length > 0)
+        ? options.computerNames
+        : (options.targetMachines && Array.isArray(options.targetMachines) && options.targetMachines.length > 0)
+          ? options.targetMachines
+          : [];
+      if (computerNames.length > 0) {
         // SECURITY FIX: Escape each computer name to prevent command injection
-        const escapedNames = options.computerNames
+        const escapedNames = computerNames
           .filter(cn => typeof cn === 'string' && cn.length > 0 && cn.length <= 255)
           .map(cn => escapePowerShellString(cn));
         if (escapedNames.length > 0) {
@@ -2115,7 +2143,8 @@ function setupIpcHandlers() {
       }
 
       const result = await executePowerShellScript(scanScriptPath, args, {
-        timeout: options.timeout || 600000
+        timeout: options.timeout || 600000,
+        env: scanEnv
       });
 
       return { success: true, output: result.stdout };
