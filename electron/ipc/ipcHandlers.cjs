@@ -2692,7 +2692,6 @@ function setupIpcHandlers() {
       const sanitizedSystems = targetSystems
         .filter(system => typeof system === 'string')
         .map(system => system.trim())
-        .map(system => (/^(local|localhost|\.)$/i.test(system) ? '.' : system))
         .filter(system => system.length > 0 && system.length <= 255)
         .map(system => escapePowerShellString(system));
       const systemsLiteral = sanitizedSystems.length > 0
@@ -2708,7 +2707,7 @@ function setupIpcHandlers() {
             $targetSystems = @($env:COMPUTERNAME)
           }
           $targetSystems = $targetSystems | ForEach-Object {
-            if ($_ -match '^(?i)(local|localhost)$') { $env:COMPUTERNAME } else { $_ }
+            if ($_ -match '^(?i)(local|localhost|\\.)$') { $env:COMPUTERNAME } else { $_ }
           }
 
           # Create output directory if needed
