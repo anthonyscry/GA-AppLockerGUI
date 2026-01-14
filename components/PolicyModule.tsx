@@ -15,7 +15,6 @@ import {
   Check,
   X,
   Search,
-  Filter,
   CheckCircle,
   Archive,
   Users,
@@ -36,8 +35,30 @@ import { LoadingState } from './ui/LoadingState';
 import { ErrorState } from './ui/ErrorState';
 
 type PolicyTab = 'overview' | 'generator' | 'tools';
+type MergePolicySet = 'Combined' | 'Workstation' | 'Server' | 'DomainController' | 'All';
+type MergeMachineType = Exclude<MachineType, 'Unknown'>;
+type MergePolicyFile = {
+  name: string;
+  path: string;
+  machineType: MergeMachineType;
+};
+
+const MACHINE_TYPE_OPTIONS: MergeMachineType[] = ['Workstation', 'Server', 'DomainController'];
+
+type DeploymentHistoryEntry = {
+  id: string;
+  timestamp: string;
+  gpoName: string;
+  policyPath: string;
+  ouTargets: string[];
+  phase: 'Phase1' | 'Phase2' | 'Phase3';
+  enforcementMode: 'AuditOnly' | 'Enabled';
+  status: 'success' | 'failure';
+  message: string;
+};
 
 const PolicyModule: React.FC = () => {
+  const DEFAULT_RULES_DIR = 'C:\\AppLocker\\rules';
   const { policy, machine } = useAppServices();
   const [selectedPhase, setSelectedPhase] = useState<PolicyPhase>(PolicyPhase.PHASE_1);
   const [healthResults, setHealthResults] = useState<{c: number, w: number, i: number, score: number} | null>(null);
@@ -76,8 +97,14 @@ const PolicyModule: React.FC = () => {
   const [ruleType, setRuleType] = useState<'Publisher' | 'Path' | 'Hash'>('Publisher');
   
   // Policy Merger State
-  const [policyFiles, setPolicyFiles] = useState<string[]>([]);
+  const [policyFiles, setPolicyFiles] = useState<MergePolicyFile[]>([]);
+  const [mergePolicySet, setMergePolicySet] = useState<MergePolicySet>('Combined');
   const [mergeOutputPath, setMergeOutputPath] = useState('');
+  const [mergeOutputPaths, setMergeOutputPaths] = useState<Record<MergeMachineType, string>>({
+    Workstation: '',
+    Server: '',
+    DomainController: ''
+  });
   const [mergeConflictResolution, setMergeConflictResolution] = useState<'First' | 'Last' | 'Strict'>('Strict');
   
   // Comprehensive Generation State
@@ -90,10 +117,18 @@ const PolicyModule: React.FC = () => {
   // Imported Artifacts State
   const [importedArtifacts, setImportedArtifacts] = useState<InventoryItem[]>([]);
   const [importedFrom, setImportedFrom] = useState<string>('');
+  const [importMode, setImportMode] = useState<'append' | 'replace'>('append');
+  const [importSummary, setImportSummary] = useState<{
+    added: number;
+    removedDuplicates: number;
+    skipped: number;
+    source: string;
+    mode: 'append' | 'replace';
+  } | null>(null);
   
   // Advanced Features State
   const [showPublisherGrouping, setShowPublisherGrouping] = useState(false);
-  const [showDuplicateDetection, setShowDuplicateDetection] = useState(false);
+  const [showRulesSummary, setShowRulesSummary] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showIncrementalUpdate, setShowIncrementalUpdate] = useState(false);
   
@@ -108,12 +143,12 @@ const PolicyModule: React.FC = () => {
   const [deployPolicyPath, setDeployPolicyPath] = useState('');
   const [deployOUPaths, setDeployOUPaths] = useState<string[]>([]);
   const [newOUPath, setNewOUPath] = useState('');
-  const [deployPhase, setDeployPhase] = useState<'Phase1' | 'Phase2' | 'Phase3' | 'Phase4'>('Phase1');
+  const [deployPhase, setDeployPhase] = useState<'Phase1' | 'Phase2' | 'Phase3'>('Phase1');
   const [deployEnforcement, setDeployEnforcement] = useState<'AuditOnly' | 'Enabled'>('AuditOnly');
   const [createGPOIfMissing, setCreateGPOIfMissing] = useState(true);
   const [isDeploying, setIsDeploying] = useState(false);
+  const [deploymentHistory, setDeploymentHistory] = useState<DeploymentHistoryEntry[]>([]);
   const [publisherGroups, setPublisherGroups] = useState<Record<string, InventoryItem[]>>({});
-  const [duplicateReport, setDuplicateReport] = useState<any>(null);
   const [selectedTemplate, setSelectedTemplate] = useState<string>('');
   const [templateCategory, setTemplateCategory] = useState<string>('all');
   
@@ -136,11 +171,61 @@ const PolicyModule: React.FC = () => {
   const [genSearchQuery, setGenSearchQuery] = useState('');
   const [genCategoryFilter, setGenCategoryFilter] = useState('All');
 
+  const buildArtifactKey = (item: InventoryItem): string | null => {
+    const pathKey = (item.path || '').trim().toLowerCase();
+    const publisherKey = (item.publisher || '').trim().toLowerCase();
+    const hashKey = (item.hash || '').trim().toLowerCase();
+    if (!pathKey && !publisherKey && !hashKey) {
+      return null;
+    }
+    return `${pathKey}|${publisherKey}|${hashKey}`;
+  };
+
   // Combined inventory: scanned + imported artifacts (MUST be defined before useEffect that uses it)
   const combinedInventory = useMemo(() => {
     const scanned: InventoryItem[] = inventory || [];
     return [...scanned, ...importedArtifacts];
   }, [inventory, importedArtifacts]);
+
+  const dedupeByPath = (items: InventoryItem[]) => {
+    const seen = new Set<string>();
+    return items.filter(item => {
+      const itemPath = (item.path || '').trim();
+      if (!itemPath) {
+        return true;
+      }
+      const key = itemPath.toLowerCase();
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+  };
+
+  const dedupedInventory = useMemo(() => dedupeByPath(combinedInventory), [combinedInventory]);
+
+  const rulesSummary = useMemo(() => {
+    const categories: Record<string, number> = {};
+    const publishers: Record<string, number> = {};
+    dedupedInventory.forEach(item => {
+      const category = (item.type || 'EXE').toString().toUpperCase();
+      categories[category] = (categories[category] || 0) + 1;
+      const publisher = item.publisher || 'Unknown';
+      publishers[publisher] = (publishers[publisher] || 0) + 1;
+    });
+    const totalRules = dedupedInventory.length;
+    const actions = {
+      Allow: ruleAction === 'Allow' ? totalRules : 0,
+      Deny: ruleAction === 'Deny' ? totalRules : 0
+    };
+    return {
+      totalRules,
+      categories,
+      publishers,
+      actions
+    };
+  }, [dedupedInventory, ruleAction]);
   
   // Auto-group by publisher when inventory changes
   React.useEffect(() => {
@@ -166,6 +251,11 @@ const PolicyModule: React.FC = () => {
       (item.path?.toLowerCase() || '').includes(query)
     );
   }, [combinedInventory, genSearchQuery]);
+
+  const dedupedFilteredInventory = useMemo(
+    () => dedupeByPath(filteredInventory),
+    [filteredInventory]
+  );
 
   /**
    * Merge COMMON_PUBLISHERS with any additional publishers from certificate store
@@ -266,16 +356,16 @@ const PolicyModule: React.FC = () => {
       return;
     }
     
-    const count = filteredInventory.length;
+    const count = dedupedFilteredInventory.length;
     if (!confirm(`Generate rules for all ${count} items?\n\nPriority: Publisher rules first, Hash rules as fallback.\n\nThis will create rules automatically.`)) {
       return;
     }
     
     try {
-      const outputPath = prompt('Enter output path for generated policy:', '.\\policies\\Batch-Generated.xml');
+      const outputPath = prompt('Enter output path for generated policy:', `${DEFAULT_RULES_DIR}\\Batch-Generated.xml`);
       if (!outputPath) return;
       
-      const result = await policy.batchGenerateRules(filteredInventory, outputPath, {
+      const result = await policy.batchGenerateRules(dedupedFilteredInventory, outputPath, {
         ruleAction: ruleAction,
         targetGroup: targetGroup,
         collectionType: 'Exe',
@@ -300,6 +390,19 @@ const PolicyModule: React.FC = () => {
     setSelectedPublisher(null);
     setGenSearchQuery('');
     setGenCategoryFilter('All');
+  };
+
+  const logDeployment = (entry: Omit<DeploymentHistoryEntry, 'id' | 'timestamp'>) => {
+    const timestamp = new Date().toISOString();
+    const id = `${timestamp}-${Math.random().toString(16).slice(2)}`;
+    setDeploymentHistory((prev) => [
+      {
+        id,
+        timestamp,
+        ...entry
+      },
+      ...prev
+    ].slice(0, 20));
   };
 
   // Show loading state if data is loading
@@ -379,7 +482,25 @@ const PolicyModule: React.FC = () => {
                   {policyFiles.map((file, index) => (
                     <div key={index} className="flex items-center space-x-2 p-3 bg-slate-50 rounded-xl">
                       <FileText size={16} className="text-slate-400" />
-                      <span className="flex-1 text-sm font-bold text-slate-700">{file}</span>
+                      <div className="flex-1">
+                        <span className="block text-sm font-bold text-slate-700">{file.name}</span>
+                        <span className="block text-[10px] font-mono text-slate-400">{file.path}</span>
+                      </div>
+                      {mergePolicySet === 'All' && (
+                        <select
+                          value={file.machineType}
+                          onChange={(e) => {
+                            const next = [...policyFiles];
+                            next[index] = { ...file, machineType: e.target.value as MergeMachineType };
+                            setPolicyFiles(next);
+                          }}
+                          className="px-2 py-1 bg-white border border-slate-200 rounded-lg text-[10px] font-bold text-slate-600"
+                        >
+                          {MACHINE_TYPE_OPTIONS.map((type) => (
+                            <option key={type} value={type}>{type}</option>
+                          ))}
+                        </select>
+                      )}
                       <button onClick={() => setPolicyFiles(policyFiles.filter((_, i) => i !== index))} className="p-1 hover:bg-slate-200 rounded text-slate-400">
                         <X size={16} />
                       </button>
@@ -392,7 +513,14 @@ const PolicyModule: React.FC = () => {
                       multiple
                       onChange={(e) => {
                         const files = Array.from(e.target.files || []);
-                        setPolicyFiles([...policyFiles, ...files.map(f => f.name)]);
+                        const newFiles = files.map((file) => ({
+                          name: file.name,
+                          path: (file as { path?: string }).path || file.name,
+                          machineType: mergePolicySet !== 'Combined' && mergePolicySet !== 'All'
+                            ? (mergePolicySet as MergeMachineType)
+                            : 'Workstation'
+                        }));
+                        setPolicyFiles([...policyFiles, ...newFiles]);
                       }}
                       className="hidden"
                     />
@@ -404,15 +532,66 @@ const PolicyModule: React.FC = () => {
                 </div>
               </div>
               <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Output Path</label>
-                <input
-                  type="text"
-                  value={mergeOutputPath}
-                  onChange={(e) => setMergeOutputPath(e.target.value)}
-                  placeholder="C:\Policies\Merged.xml"
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-purple-500/20"
-                />
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Policy Set to Generate</label>
+                <select
+                  value={mergePolicySet}
+                  onChange={(e) => setMergePolicySet(e.target.value as MergePolicySet)}
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none"
+                >
+                  <option value="Combined">Combined (Single merged policy)</option>
+                  <option value="Workstation">Workstations</option>
+                  <option value="Server">Servers</option>
+                  <option value="DomainController">Domain Controllers</option>
+                  <option value="All">All Sets (Separate outputs)</option>
+                </select>
               </div>
+              {mergePolicySet === 'Combined' && (
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Output Path</label>
+                  <input
+                    type="text"
+                    value={mergeOutputPath}
+                    onChange={(e) => setMergeOutputPath(e.target.value)}
+                    placeholder="C:\Policies\Merged.xml"
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-purple-500/20"
+                  />
+                </div>
+              )}
+              {mergePolicySet !== 'Combined' && mergePolicySet !== 'All' && (
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">
+                    {mergePolicySet} Output Path
+                  </label>
+                  <input
+                    type="text"
+                    value={mergeOutputPaths[mergePolicySet as MergeMachineType]}
+                    onChange={(e) => setMergeOutputPaths({ ...mergeOutputPaths, [mergePolicySet]: e.target.value } as Record<MergeMachineType, string>)}
+                    placeholder={`C:\\Policies\\${mergePolicySet}-Merged.xml`}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-purple-500/20"
+                  />
+                </div>
+              )}
+              {mergePolicySet === 'All' && (
+                <div className="space-y-4">
+                  {MACHINE_TYPE_OPTIONS.map((type) => (
+                    <div key={type}>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">
+                        {type} Output Path
+                      </label>
+                      <input
+                        type="text"
+                        value={mergeOutputPaths[type]}
+                        onChange={(e) => setMergeOutputPaths({ ...mergeOutputPaths, [type]: e.target.value })}
+                        placeholder={`C:\\Policies\\${type}-Merged.xml`}
+                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-purple-500/20"
+                      />
+                    </div>
+                  ))}
+                  <p className="text-[10px] text-slate-500 font-bold">
+                    Assign each policy file to a machine type to generate separate merged outputs.
+                  </p>
+                </div>
+              )}
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Conflict Resolution</label>
                 <select
@@ -427,16 +606,89 @@ const PolicyModule: React.FC = () => {
               </div>
               <button
                 onClick={async () => {
-                  if (policyFiles.length < 2) {
-                    alert('Please select at least 2 policy files to merge');
+                  if (policyFiles.length === 0) {
+                    alert('Please select policy files to merge');
                     return;
                   }
-                  if (!mergeOutputPath) {
+
+                  const electron = (window as any).electron;
+                  if (!electron?.ipc) {
+                    alert('Policy merge is unavailable in this environment.');
+                    return;
+                  }
+
+                  if (mergePolicySet === 'All') {
+                    const groupedPaths = MACHINE_TYPE_OPTIONS.reduce((acc, type) => {
+                      acc[type] = policyFiles
+                        .filter((file) => file.machineType === type)
+                        .map((file) => file.path);
+                      return acc;
+                    }, {} as Record<MergeMachineType, string[]>);
+
+                    const activeGroups = Object.entries(groupedPaths).filter(([, paths]) => paths.length > 0);
+                    if (activeGroups.length === 0) {
+                      alert('Assign at least one policy file to a machine type.');
+                      return;
+                    }
+
+                    const missingOutputs = activeGroups
+                      .filter(([type]) => !mergeOutputPaths[type as MergeMachineType])
+                      .map(([type]) => type);
+
+                    if (missingOutputs.length > 0) {
+                      alert(`Please specify output paths for: ${missingOutputs.join(', ')}`);
+                      return;
+                    }
+
+                    alert(`Merging policies for ${activeGroups.length} policy sets...`);
+                    const payload = {
+                      machineTypeGroups: activeGroups.reduce((acc, [type, paths]) => {
+                        acc[type] = {
+                          policyPaths: paths,
+                          outputPath: mergeOutputPaths[type as MergeMachineType]
+                        };
+                        return acc;
+                      }, {} as Record<string, { policyPaths: string[]; outputPath: string }>),
+                      options: { conflictResolution: mergeConflictResolution }
+                    };
+
+                    const result = await electron.ipc.invoke('policy:mergePolicies', payload);
+                    if (result?.success) {
+                      const summaries = Object.entries(result.groupedResults || {})
+                        .map(([type, info]: [string, any]) => info.success
+                          ? `${type}: ${info.outputPath}`
+                          : `${type}: ${info.error || 'Unknown error'}`)
+                        .join('\n');
+                      alert(`Policy merge complete:\n${summaries}`);
+                    } else {
+                      alert(`Policy merge failed: ${result?.error || 'Unknown error'}`);
+                    }
+                    setShowMerger(false);
+                    return;
+                  }
+
+                  const outputPath = mergePolicySet === 'Combined'
+                    ? mergeOutputPath
+                    : mergeOutputPaths[mergePolicySet as MergeMachineType];
+
+                  if (!outputPath) {
                     alert('Please specify an output path');
                     return;
                   }
+
                   alert(`Merging ${policyFiles.length} policies...`);
-                  setShowMerger(false);
+                  const result = await electron.ipc.invoke('policy:mergePolicies', {
+                    policyPaths: policyFiles.map((file) => file.path),
+                    outputPath,
+                    options: { conflictResolution: mergeConflictResolution }
+                  });
+
+                  if (result?.success) {
+                    alert(`Policy merge complete:\n${result.outputPath}`);
+                    setShowMerger(false);
+                  } else {
+                    alert(`Policy merge failed: ${result?.error || 'Unknown error'}`);
+                  }
                 }}
                 className="w-full bg-purple-600 text-white px-6 py-3 rounded-xl font-bold text-sm hover:bg-purple-700 shadow-lg transition-all"
               >
@@ -469,7 +721,7 @@ const PolicyModule: React.FC = () => {
               <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
                 <p className="text-xs font-bold text-blue-900">
                   This will scan: Software inventory, Event Viewer logs, Writable paths, System paths, and all .exe files.
-                  Duplicates will be automatically removed.
+                  Duplicates are automatically removed during rule generation.
                 </p>
               </div>
               <div>
@@ -606,7 +858,7 @@ const PolicyModule: React.FC = () => {
                             const { showSaveDialog } = await import('../src/infrastructure/ipc/fileDialog');
                             const outputPath = await showSaveDialog({
                               title: 'Save Publisher Rule',
-                              defaultPath: `.\\policies\\Publisher-${publisher.replace(/[^a-zA-Z0-9]/g, '-')}.xml`,
+                              defaultPath: `${DEFAULT_RULES_DIR}\\Publisher-${publisher.replace(/[^a-zA-Z0-9]/g, '-')}.xml`,
                               filters: [
                                 { name: 'XML Files', extensions: ['xml'] },
                                 { name: 'All Files', extensions: ['*'] }
@@ -664,7 +916,7 @@ const PolicyModule: React.FC = () => {
                   const confirmed = confirm(`Generate publisher rules for all ${Object.keys(publisherGroups).length} publishers?\n\nThis will create ${Object.keys(publisherGroups).length} rules covering ${combinedInventory.length} items.`);
                   if (!confirmed) return;
                   
-                  const outputPath = prompt('Enter output path:', '.\\policies\\All-Publishers.xml');
+                  const outputPath = prompt('Enter output path:', `${DEFAULT_RULES_DIR}\\All-Publishers.xml`);
                   if (!outputPath) return;
                   
                   try {
@@ -924,7 +1176,7 @@ const PolicyModule: React.FC = () => {
                       const outputPath = `${ouPolicyOutputDir}\\${fileName}`;
 
                       // Generate policy using the inventory items
-                      const result = await policy.batchGenerateRules(combinedInventory, outputPath, {
+                      const result = await policy.batchGenerateRules(dedupedInventory, outputPath, {
                         ruleAction: 'Allow',
                         targetGroup: type === 'DomainController' ? 'Domain Admins' :
                                     type === 'Server' ? 'AppLocker-Installers' : 'AppLocker-Standard-Users',
@@ -932,7 +1184,7 @@ const PolicyModule: React.FC = () => {
                       });
 
                       if (result.success) {
-                        results.push(`${type}: ${combinedInventory.length} rules → ${fileName}`);
+                        results.push(`${type}: ${dedupedInventory.length} rules → ${fileName}`);
                       } else {
                         errors.push(`${type}: ${result.error || 'Unknown error'}`);
                       }
@@ -1068,7 +1320,7 @@ const PolicyModule: React.FC = () => {
                       </div>
                     ))
                   ) : (
-                    <p className="text-xs text-slate-400 italic p-2">No OUs added. GPO will be created but not linked.</p>
+                    <p className="text-xs text-slate-400 italic p-2">No OUs added yet. Add at least one target OU to deploy.</p>
                   )}
                 </div>
               </div>
@@ -1080,28 +1332,27 @@ const PolicyModule: React.FC = () => {
                   <select
                     value={deployPhase}
                     onChange={(e) => {
-                      const phase = e.target.value as 'Phase1' | 'Phase2' | 'Phase3' | 'Phase4';
+                      const phase = e.target.value as 'Phase1' | 'Phase2' | 'Phase3';
                       setDeployPhase(phase);
-                      // Auto-set enforcement based on phase
-                      setDeployEnforcement(phase === 'Phase4' ? 'Enabled' : 'AuditOnly');
+                      setDeployEnforcement(phase === 'Phase3' ? 'Enabled' : 'AuditOnly');
                     }}
                     className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-emerald-500 outline-none"
                   >
-                    <option value="Phase1">Phase 1 - EXE Only (Audit)</option>
-                    <option value="Phase2">Phase 2 - EXE + Script (Audit)</option>
-                    <option value="Phase3">Phase 3 - EXE + Script + MSI (Audit)</option>
-                    <option value="Phase4">Phase 4 - All including DLL (Enforce)</option>
+                    <option value="Phase1">Phase 1 - Pilot (Audit)</option>
+                    <option value="Phase2">Phase 2 - Broad (Audit)</option>
+                    <option value="Phase3">Phase 3 - Enforce (Block)</option>
                   </select>
+                  <p className="text-[10px] text-slate-400 mt-2">Phase selection drives the enforcement mode for deployment.</p>
                 </div>
                 
                 <div>
                   <label className="block text-xs font-black text-slate-700 uppercase tracking-widest mb-2">Enforcement Mode</label>
                   <select
                     value={deployEnforcement}
-                    onChange={(e) => setDeployEnforcement(e.target.value as 'AuditOnly' | 'Enabled')}
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-emerald-500 outline-none"
+                    disabled
+                    className="w-full px-4 py-3 bg-slate-100 border border-slate-200 rounded-lg text-sm font-medium text-slate-500 outline-none cursor-not-allowed"
                   >
-                    <option value="AuditOnly">Audit Only (Recommended for Testing)</option>
+                    <option value="AuditOnly">Audit Only (Monitor)</option>
                     <option value="Enabled">Enabled (Enforce Rules)</option>
                   </select>
                 </div>
@@ -1135,6 +1386,10 @@ const PolicyModule: React.FC = () => {
                     alert('Please enter the policy XML path');
                     return;
                   }
+                  if (deployOUPaths.length === 0) {
+                    alert('Please add at least one target OU to link the GPO.');
+                    return;
+                  }
                   
                   setIsDeploying(true);
                   try {
@@ -1149,19 +1404,58 @@ const PolicyModule: React.FC = () => {
                       
                       if (result.Success || result.success) {
                         alert(`✅ Policy deployed successfully!\n\nGPO: ${deployGPOName}\nOUs Linked: ${deployOUPaths.length}\nPhase: ${deployPhase}\nMode: ${deployEnforcement}`);
+                        logDeployment({
+                          gpoName: deployGPOName,
+                          policyPath: deployPolicyPath,
+                          ouTargets: deployOUPaths,
+                          phase: deployPhase,
+                          enforcementMode: deployEnforcement,
+                          status: 'success',
+                          message: `Linked to ${deployOUPaths.length} OU${deployOUPaths.length === 1 ? '' : 's'}`
+                        });
                         setShowOUDeploy(false);
                         // Reset form
                         setDeployGPOName('');
                         setDeployPolicyPath('');
                         setDeployOUPaths([]);
                       } else {
-                        alert(`❌ Deployment failed:\n${result.Error || result.error || 'Unknown error'}`);
+                        const errorMessage = result.Error || result.error || 'Unknown error';
+                        alert(`❌ Deployment failed:\n${errorMessage}`);
+                        logDeployment({
+                          gpoName: deployGPOName,
+                          policyPath: deployPolicyPath,
+                          ouTargets: deployOUPaths,
+                          phase: deployPhase,
+                          enforcementMode: deployEnforcement,
+                          status: 'failure',
+                          message: errorMessage
+                        });
                       }
                     } else {
-                      alert('Electron IPC not available. This feature requires running in the Electron app.');
+                      const errorMessage = 'Electron IPC not available. This feature requires running in the Electron app.';
+                      alert(errorMessage);
+                      logDeployment({
+                        gpoName: deployGPOName,
+                        policyPath: deployPolicyPath,
+                        ouTargets: deployOUPaths,
+                        phase: deployPhase,
+                        enforcementMode: deployEnforcement,
+                        status: 'failure',
+                        message: errorMessage
+                      });
                     }
                   } catch (error: any) {
-                    alert(`Deployment error: ${error?.message || error}`);
+                    const errorMessage = error?.message || String(error);
+                    alert(`Deployment error: ${errorMessage}`);
+                    logDeployment({
+                      gpoName: deployGPOName,
+                      policyPath: deployPolicyPath,
+                      ouTargets: deployOUPaths,
+                      phase: deployPhase,
+                      enforcementMode: deployEnforcement,
+                      status: 'failure',
+                      message: errorMessage
+                    });
                   } finally {
                     setIsDeploying(false);
                   }
@@ -1186,100 +1480,80 @@ const PolicyModule: React.FC = () => {
         </div>
       )}
 
-      {/* Duplicate Detection Modal */}
-      {showDuplicateDetection && (
+      {/* Rules Summary Modal */}
+      {showRulesSummary && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
           <div className="bg-white rounded-3xl w-[900px] max-h-[90vh] shadow-2xl overflow-hidden flex flex-col">
             <div className="p-6 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
               <div className="flex items-center space-x-3">
-                <div className="p-2 bg-orange-600 text-white rounded-xl">
-                  <Filter size={24} />
+                <div className="p-2 bg-blue-600 text-white rounded-xl">
+                  <Layers size={24} />
                 </div>
                 <div>
-                  <h3 className="font-black text-slate-900 text-lg uppercase tracking-tight">Duplicate Detection</h3>
-                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Find and remove duplicate entries</p>
+                  <h3 className="font-black text-slate-900 text-lg uppercase tracking-tight">Rules Summary</h3>
+                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Total rules, categories, publishers, and actions</p>
                 </div>
               </div>
-              <button onClick={() => setShowDuplicateDetection(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-400">
+              <button onClick={() => setShowRulesSummary(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-400">
                 <X size={24} />
               </button>
             </div>
-            <div className="flex-1 p-6 overflow-y-auto">
-              {combinedInventory.length === 0 ? (
-                <div className="text-center py-12 text-slate-400">
-                  <Filter size={48} className="mx-auto mb-4 opacity-20" />
-                  <p className="text-sm font-bold">No items imported yet</p>
-                  <p className="text-xs mt-2">Import scan artifacts first to detect duplicates</p>
+            <div className="flex-1 p-6 overflow-y-auto space-y-6">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="bg-slate-50 rounded-xl p-4 text-center">
+                  <p className="text-2xl font-black text-slate-900">{rulesSummary.totalRules}</p>
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Total Rules</p>
                 </div>
-              ) : (
-                <div className="space-y-4">
-                  <button
-                    onClick={() => {
-                      const report = policy.detectDuplicates(combinedInventory);
-                      setDuplicateReport(report);
-                    }}
-                    className="w-full bg-orange-600 text-white px-6 py-3 rounded-xl font-bold text-sm hover:bg-orange-700 shadow-lg transition-all flex items-center justify-center space-x-2"
-                  >
-                    <Search size={18} />
-                    <span>Scan for Duplicates ({combinedInventory.length} items)</span>
-                  </button>
-                  
-                  {duplicateReport && (
-                    <div className="space-y-4 mt-6">
-                      <div className="grid grid-cols-3 gap-4">
-                        <div className="bg-slate-50 rounded-xl p-4 text-center">
-                          <p className="text-2xl font-black text-slate-900">{duplicateReport.totalItems}</p>
-                          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Total Items</p>
-                        </div>
-                        <div className={`rounded-xl p-4 text-center ${duplicateReport.pathDupCount > 0 ? 'bg-orange-50' : 'bg-green-50'}`}>
-                          <p className={`text-2xl font-black ${duplicateReport.pathDupCount > 0 ? 'text-orange-600' : 'text-green-600'}`}>{duplicateReport.pathDupCount}</p>
-                          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Path Duplicates</p>
-                        </div>
-                        <div className={`rounded-xl p-4 text-center ${duplicateReport.pubDupCount > 0 ? 'bg-orange-50' : 'bg-green-50'}`}>
-                          <p className={`text-2xl font-black ${duplicateReport.pubDupCount > 0 ? 'text-orange-600' : 'text-green-600'}`}>{duplicateReport.pubDupCount}</p>
-                          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Name Duplicates</p>
-                        </div>
-                      </div>
-                      
-                      {duplicateReport.pathDuplicates?.length > 0 && (
-                        <div>
-                          <h4 className="text-xs font-black text-slate-700 uppercase tracking-widest mb-3">Path Duplicates</h4>
-                          <div className="space-y-2 max-h-[200px] overflow-y-auto">
-                            {duplicateReport.pathDuplicates.slice(0, 10).map(([path, items]: [string, InventoryItem[]], idx: number) => (
-                              <div key={idx} className="bg-orange-50 border border-orange-200 rounded-lg p-3">
-                                <p className="text-xs font-mono text-orange-800 truncate">{path}</p>
-                                <p className="text-[10px] text-orange-600 mt-1">{items.length} duplicate entries</p>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      
-                      {(duplicateReport.pathDupCount > 0 || duplicateReport.pubDupCount > 0) && (
-                        <button
-                          onClick={() => {
-                            const uniquePaths = new Set<string>();
-                            const deduped = combinedInventory.filter(item => {
-                              if (item.path && uniquePaths.has(item.path)) return false;
-                              if (item.path) uniquePaths.add(item.path);
-                              return true;
-                            });
-                            
-                            const removed = combinedInventory.length - deduped.length;
-                            setImportedArtifacts(deduped.filter(item => item.id.startsWith('imported-')));
-                            setDuplicateReport(null);
-                            alert(`Removed ${removed} duplicate entries.\n${deduped.length} unique items remaining.`);
-                          }}
-                          className="w-full bg-green-600 text-white px-6 py-3 rounded-xl font-bold text-sm hover:bg-green-700 shadow-lg transition-all flex items-center justify-center space-x-2"
-                        >
-                          <Check size={18} />
-                          <span>Remove Duplicates</span>
-                        </button>
-                      )}
-                    </div>
-                  )}
+                <div className="bg-slate-50 rounded-xl p-4 text-center">
+                  <p className="text-2xl font-black text-slate-900">{Object.keys(rulesSummary.categories).length}</p>
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Categories</p>
                 </div>
-              )}
+                <div className="bg-slate-50 rounded-xl p-4 text-center">
+                  <p className="text-2xl font-black text-slate-900">{Object.keys(rulesSummary.publishers).length}</p>
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Publishers</p>
+                </div>
+                <div className="bg-slate-50 rounded-xl p-4 text-center">
+                  <p className="text-2xl font-black text-slate-900">
+                    {rulesSummary.actions.Allow}/{rulesSummary.actions.Deny}
+                  </p>
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Allow/Deny</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-3">
+                  <h4 className="text-xs font-black text-slate-700 uppercase tracking-widest">Categories</h4>
+                  <div className="space-y-2 max-h-[220px] overflow-y-auto">
+                    {Object.entries(rulesSummary.categories)
+                      .sort((a, b) => b[1] - a[1])
+                      .map(([category, count]) => (
+                        <div key={category} className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                          <span className="text-xs font-bold text-slate-700">{category}</span>
+                          <span className="text-xs font-black text-slate-900">{count}</span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <h4 className="text-xs font-black text-slate-700 uppercase tracking-widest">Top Publishers</h4>
+                  <div className="space-y-2 max-h-[220px] overflow-y-auto">
+                    {Object.entries(rulesSummary.publishers)
+                      .sort((a, b) => b[1] - a[1])
+                      .slice(0, 10)
+                      .map(([publisher, count]) => (
+                        <div key={publisher} className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                          <span className="text-[10px] font-bold text-slate-700 truncate max-w-[220px]">{publisher}</span>
+                          <span className="text-xs font-black text-slate-900">{count}</span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              </div>
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                <p className="text-xs font-bold text-blue-900">
+                  Summary reflects deduplicated inventory used for rule creation. Current action mode: <strong>{ruleAction}</strong>.
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -1371,7 +1645,7 @@ const PolicyModule: React.FC = () => {
                     return;
                   }
                   
-                  const outputPath = prompt(`Apply template "${template.name}"?\n\nEnter output path:`, `.\\policies\\Template-${template.id}.xml`);
+                  const outputPath = prompt(`Apply template "${template.name}"?\n\nEnter output path:`, `${DEFAULT_RULES_DIR}\\Template-${template.id}.xml`);
                   if (!outputPath) return;
                   
                   try {
@@ -1472,120 +1746,177 @@ const PolicyModule: React.FC = () => {
                    * - CSV: Parses header row to map columns (name, publisher, path, version, type)
                    * Automatically deduplicates items by file path to prevent redundant rules.
                    */}
-                  <label className="block">
-                    <input
-                      type="file"
-                      id="import-artifacts-main"
-                      accept=".csv,.json"
-                      multiple
-                      aria-label="Import scan artifacts from CSV or JSON files"
-                      onChange={(e) => {
-                        const files = Array.from(e.target.files || []);
-                        if (files.length === 0) return;
-
-                        let allItems: InventoryItem[] = [];
-                        let processedCount = 0;
-                        const fileNames: string[] = [];
-
-                        /**
-                         * Parse a single file's content into InventoryItem array
-                         * @param text - Raw file content as string
-                         * @param fileName - Name of the file (used to determine format)
-                         * @returns Array of InventoryItem objects
-                         */
-                        const parseFile = (text: string, fileName: string): InventoryItem[] => {
-                          let items: InventoryItem[] = [];
-                          // Generate unique base ID using timestamp + offset to prevent collisions
-                          const baseId = Date.now() + processedCount * 10000;
-
-                          if (fileName.endsWith('.json')) {
-                            const data = JSON.parse(text);
-                            // Handle comprehensive scan artifacts format (from Get-ComprehensiveScanArtifacts.ps1)
-                            if (data.Executables) {
-                              items = data.Executables.map((exe: any, index: number) => ({
-                                id: `imported-${baseId}-${index}`,
-                                name: exe.Name || exe.name || 'Unknown',
-                                publisher: exe.Publisher || exe.publisher || 'Unknown',
-                                path: exe.Path || exe.path || '',
-                                version: exe.Version || exe.version || '',
-                                type: (exe.Type || exe.type || 'EXE') as InventoryItem['type']
-                              }));
-                            // Handle flat JSON array format
-                            } else if (Array.isArray(data)) {
-                              items = data.map((item: any, index: number) => ({
-                                id: `imported-${baseId}-${index}`,
-                                name: item.Name || item.name || 'Unknown',
-                                publisher: item.Publisher || item.publisher || 'Unknown',
-                                path: item.Path || item.path || '',
-                                version: item.Version || item.version || '',
-                                type: (item.Type || item.type || 'EXE') as InventoryItem['type']
-                              }));
-                            }
-                          } else {
-                            // CSV format: Parse header row for column mapping
-                            const lines = text.split('\n').filter(l => l.trim());
-                            const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-                            items = lines.slice(1).map((line, index) => {
-                              const values = line.split(',').map(v => v.trim());
-                              return {
-                                id: `imported-${baseId}-${index}`,
-                                // Map by header name, fallback to positional index
-                                name: values[headers.indexOf('name')] || values[0] || 'Unknown',
-                                publisher: values[headers.indexOf('publisher')] || values[1] || 'Unknown',
-                                path: values[headers.indexOf('path')] || values[2] || '',
-                                version: values[headers.indexOf('version')] || values[3] || '',
-                                type: (values[headers.indexOf('type')] || values[4] || 'EXE') as InventoryItem['type']
-                              };
-                            });
-                          }
-                          return items;
-                        };
-
-                        /**
-                         * Process all selected files asynchronously
-                         * Reads each file, parses content, and accumulates results
-                         */
-                        const processFiles = async () => {
-                          for (const file of files) {
-                            try {
-                              const text = await file.text();
-                              if (text) {
-                                const items = parseFile(text, file.name);
-                                allItems = [...allItems, ...items];
-                                fileNames.push(file.name);
-                              }
-                            } catch (error: any) {
-                              console.error(`Error parsing ${file.name}:`, error);
-                            }
-                            processedCount++;
-                          }
-
-                          // Deduplicate by file path to prevent redundant AppLocker rules
-                          const uniqueItems = allItems.filter((item, index, self) =>
-                            index === self.findIndex(t => t.path === item.path && t.path !== '')
-                          );
-
-                          if (uniqueItems.length > 0) {
-                            // Append to existing imported artifacts (allows cumulative imports)
-                            setImportedArtifacts(prev => [...prev, ...uniqueItems]);
-                            setImportedFrom(fileNames.length > 1 ? `${fileNames.length} files` : fileNames[0]);
-                            setGeneratorTab('scanned');
-                            alert(`Successfully imported ${uniqueItems.length} items from ${fileNames.length} file(s)`);
-                          } else {
-                            alert('No valid items found in the selected files.');
-                          }
-                        };
-
-                        processFiles();
-                      }}
-                      className="hidden"
-                    />
-                    <div className="border-2 border-dashed border-blue-300 rounded-xl p-3 text-center cursor-pointer hover:border-blue-500 transition-colors bg-blue-50/50 min-h-[80px] flex flex-col items-center justify-center focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2">
-                      <Import size={16} className="mx-auto mb-1 text-blue-600" aria-hidden="true" />
-                      <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest">Import Scan Artifacts</p>
-                      <p className="text-[9px] text-blue-500 mt-0.5">CSV, JSON (select multiple)</p>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between rounded-lg bg-slate-100 p-1 text-[9px] font-black uppercase tracking-widest text-slate-600">
+                      <span className="px-2">Import Mode</span>
+                      <div className="flex rounded-md bg-white shadow-sm">
+                        <button
+                          onClick={() => setImportMode('append')}
+                          className={`px-2.5 py-1 rounded-md transition-all ${importMode === 'append' ? 'bg-blue-600 text-white' : 'text-slate-500'}`}
+                          type="button"
+                        >
+                          Append/Merge
+                        </button>
+                        <button
+                          onClick={() => setImportMode('replace')}
+                          className={`px-2.5 py-1 rounded-md transition-all ${importMode === 'replace' ? 'bg-blue-600 text-white' : 'text-slate-500'}`}
+                          type="button"
+                        >
+                          Replace
+                        </button>
+                      </div>
                     </div>
-                  </label>
+                    <label className="block">
+                      <input
+                        type="file"
+                        id="import-artifacts-main"
+                        accept=".csv,.json"
+                        multiple
+                        aria-label="Import scan artifacts from CSV or JSON files"
+                        onChange={(e) => {
+                          const files = Array.from(e.target.files || []);
+                          if (files.length === 0) return;
+
+                          let allItems: InventoryItem[] = [];
+                          let processedCount = 0;
+                          const fileNames: string[] = [];
+
+                          /**
+                           * Parse a single file's content into InventoryItem array
+                           * @param text - Raw file content as string
+                           * @param fileName - Name of the file (used to determine format)
+                           * @returns Array of InventoryItem objects
+                           */
+                          const parseFile = (text: string, fileName: string): InventoryItem[] => {
+                            let items: InventoryItem[] = [];
+                            // Generate unique base ID using timestamp + offset to prevent collisions
+                            const baseId = Date.now() + processedCount * 10000;
+
+                            if (fileName.endsWith('.json')) {
+                              const data = JSON.parse(text);
+                              // Handle comprehensive scan artifacts format (from Get-ComprehensiveScanArtifacts.ps1)
+                              if (data.Executables) {
+                                items = data.Executables.map((exe: any, index: number) => ({
+                                  id: `imported-${baseId}-${index}`,
+                                  name: exe.Name || exe.name || 'Unknown',
+                                  publisher: exe.Publisher || exe.publisher || 'Unknown',
+                                  path: exe.Path || exe.path || '',
+                                  hash: exe.Hash || exe.hash || exe.SHA256 || exe.sha256 || '',
+                                  version: exe.Version || exe.version || '',
+                                  type: (exe.Type || exe.type || 'EXE') as InventoryItem['type']
+                                }));
+                              // Handle flat JSON array format
+                              } else if (Array.isArray(data)) {
+                                items = data.map((item: any, index: number) => ({
+                                  id: `imported-${baseId}-${index}`,
+                                  name: item.Name || item.name || 'Unknown',
+                                  publisher: item.Publisher || item.publisher || 'Unknown',
+                                  path: item.Path || item.path || '',
+                                  hash: item.Hash || item.hash || item.SHA256 || item.sha256 || '',
+                                  version: item.Version || item.version || '',
+                                  type: (item.Type || item.type || 'EXE') as InventoryItem['type']
+                                }));
+                              }
+                            } else {
+                              // CSV format: Parse header row for column mapping
+                              const lines = text.split('\n').filter(l => l.trim());
+                              const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+                              items = lines.slice(1).map((line, index) => {
+                                const values = line.split(',').map(v => v.trim());
+                                const getField = (name: string, fallbackIdx: number): string => {
+                                  const idx = headers.indexOf(name);
+                                  return (idx >= 0 ? values[idx] : values[fallbackIdx]) || '';
+                                };
+                                return {
+                                  id: `imported-${baseId}-${index}`,
+                                  // Map by header name, fallback to positional index
+                                  name: getField('name', 0) || 'Unknown',
+                                  publisher: getField('publisher', 1) || 'Unknown',
+                                  path: getField('path', 2) || '',
+                                  hash: getField('hash', -1) || getField('sha256', -1),
+                                  version: getField('version', 3) || '',
+                                  type: (getField('type', 4) || 'EXE') as InventoryItem['type']
+                                };
+                              });
+                            }
+                            return items;
+                          };
+
+                          /**
+                           * Process all selected files asynchronously
+                           * Reads each file, parses content, and accumulates results
+                           */
+                          const processFiles = async () => {
+                            for (const file of files) {
+                              try {
+                                const text = await file.text();
+                                if (text) {
+                                  const items = parseFile(text, file.name);
+                                  allItems = [...allItems, ...items];
+                                  fileNames.push(file.name);
+                                }
+                              } catch (error: any) {
+                                console.error(`Error parsing ${file.name}:`, error);
+                              }
+                              processedCount++;
+                            }
+
+                            const existingItems = importMode === 'append'
+                              ? [...(inventory || []), ...importedArtifacts]
+                              : (inventory || []);
+                            const seenKeys = new Set(
+                              existingItems
+                                .map(item => buildArtifactKey(item))
+                                .filter((key): key is string => Boolean(key))
+                            );
+                            let removedDuplicates = 0;
+                            let skippedCount = 0;
+                            const addedItems: InventoryItem[] = [];
+
+                            allItems.forEach((item) => {
+                              const key = buildArtifactKey(item);
+                              if (!key) {
+                                skippedCount += 1;
+                                return;
+                              }
+                              if (seenKeys.has(key)) {
+                                removedDuplicates += 1;
+                                return;
+                              }
+                              seenKeys.add(key);
+                              addedItems.push(item);
+                            });
+
+                            if (addedItems.length > 0) {
+                              if (importMode === 'append') {
+                                setImportedArtifacts(prev => [...prev, ...addedItems]);
+                              } else {
+                                setImportedArtifacts(addedItems);
+                              }
+                              setImportedFrom(fileNames.length > 1 ? `${fileNames.length} files` : fileNames[0]);
+                              setGeneratorTab('scanned');
+                            }
+
+                            setImportSummary({
+                              added: addedItems.length,
+                              removedDuplicates,
+                              skipped: skippedCount,
+                              source: fileNames.length > 1 ? `${fileNames.length} files` : fileNames[0],
+                              mode: importMode
+                            });
+                          };
+
+                          processFiles();
+                        }}
+                        className="hidden"
+                      />
+                      <div className="border-2 border-dashed border-blue-300 rounded-xl p-3 text-center cursor-pointer hover:border-blue-500 transition-colors bg-blue-50/50 min-h-[80px] flex flex-col items-center justify-center focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2">
+                        <Import size={16} className="mx-auto mb-1 text-blue-600" aria-hidden="true" />
+                        <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest">Import Scan Artifacts</p>
+                        <p className="text-[9px] text-blue-500 mt-0.5">CSV, JSON (select multiple)</p>
+                      </div>
+                    </label>
+                  </div>
                   
                   {importedArtifacts.length > 0 && (
                     <div className="bg-blue-50 border border-blue-200 rounded-xl p-2">
@@ -1598,6 +1929,28 @@ const PolicyModule: React.FC = () => {
                       >
                         Clear imported
                       </button>
+                    </div>
+                  )}
+
+                  {importSummary && (
+                    <div className="bg-white border border-slate-200 rounded-xl p-3">
+                      <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">
+                        Import Summary ({importSummary.mode === 'append' ? 'Append/Merge' : 'Replace'})
+                      </p>
+                      <div className="grid grid-cols-3 gap-2 text-center">
+                        <div className="rounded-lg bg-emerald-50 p-2">
+                          <p className="text-[9px] uppercase text-emerald-600 font-bold">Added</p>
+                          <p className="text-sm font-black text-emerald-700">{importSummary.added}</p>
+                        </div>
+                        <div className="rounded-lg bg-amber-50 p-2">
+                          <p className="text-[9px] uppercase text-amber-600 font-bold">Removed</p>
+                          <p className="text-sm font-black text-amber-700">{importSummary.removedDuplicates}</p>
+                        </div>
+                        <div className="rounded-lg bg-slate-50 p-2">
+                          <p className="text-[9px] uppercase text-slate-500 font-bold">Skipped</p>
+                          <p className="text-sm font-black text-slate-700">{importSummary.skipped}</p>
+                        </div>
+                      </div>
                     </div>
                   )}
 
@@ -1806,7 +2159,7 @@ const PolicyModule: React.FC = () => {
                             const outputPath = await showSaveDialog({
                               title: 'Save Rule to File',
                               // Sanitize filename: remove special chars, limit length
-                              defaultPath: `.\\policies\\Rule-${'name' in subject ? subject.name.replace(/[^a-zA-Z0-9]/g, '-').slice(0, 30) : 'Generated'}.xml`,
+                              defaultPath: `${DEFAULT_RULES_DIR}\\Rule-${'name' in subject ? subject.name.replace(/[^a-zA-Z0-9]/g, '-').slice(0, 30) : 'Generated'}.xml`,
                               filters: [
                                 { name: 'XML Files', extensions: ['xml'] },
                                 { name: 'All Files', extensions: ['*'] }
@@ -1870,7 +2223,7 @@ const PolicyModule: React.FC = () => {
                               const outputPath = await showSaveDialog({
                                 title: 'Export All Rules to File',
                                 // Include date in filename for versioning
-                                defaultPath: `.\\policies\\Batch-Export-${new Date().toISOString().slice(0,10)}.xml`,
+                                defaultPath: `${DEFAULT_RULES_DIR}\\Batch-Export-${new Date().toISOString().slice(0,10)}.xml`,
                                 filters: [
                                   { name: 'XML Files', extensions: ['xml'] },
                                   { name: 'All Files', extensions: ['*'] }
@@ -1880,7 +2233,7 @@ const PolicyModule: React.FC = () => {
 
                               try {
                                 // Use batch generation with publisher grouping for optimal rule count
-                                const result = await policy.batchGenerateRules(filteredInventory, outputPath, {
+                                const result = await policy.batchGenerateRules(dedupedFilteredInventory, outputPath, {
                                   ruleAction: ruleAction,
                                   targetGroup: targetGroup,
                                   collectionType: 'Exe',
@@ -1888,7 +2241,7 @@ const PolicyModule: React.FC = () => {
                                 });
 
                                 if (result.success) {
-                                  alert(`Exported ${filteredInventory.length} rules to file!\n\nOutput: ${result.outputPath || outputPath}`);
+                                  alert(`Exported ${dedupedFilteredInventory.length} rules to file!\n\nOutput: ${result.outputPath || outputPath}`);
                                 } else {
                                   alert(`Error: ${result.error || 'Unknown error'}`);
                                 }
@@ -1925,6 +2278,16 @@ const PolicyModule: React.FC = () => {
       {activeTab === 'tools' && (
         <div className="space-y-3">
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+            <button
+              onClick={() => setShowRulesSummary(true)}
+              className="bg-blue-50 border border-blue-200 p-3 rounded-xl text-left hover:shadow-md transition-all group"
+            >
+              <div className="p-2 bg-blue-600 text-white rounded-lg w-fit mb-2 group-hover:scale-105 transition-transform">
+                <Layers size={16} />
+              </div>
+              <h3 className="text-xs font-bold text-slate-900 mb-0.5">Summary</h3>
+              <p className="text-[9px] text-slate-500">Rules overview</p>
+            </button>
             <button
               onClick={() => setShowOUDeploy(true)}
               className="bg-emerald-50 border border-emerald-200 p-3 rounded-xl text-left hover:shadow-md transition-all group"
@@ -1985,6 +2348,49 @@ const PolicyModule: React.FC = () => {
               <h3 className="text-xs font-bold text-slate-900 mb-0.5">Incremental</h3>
               <p className="text-[9px] text-slate-500">Add new rules</p>
             </button>
+          </div>
+
+          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest">Deployment History</h3>
+                <p className="text-[10px] text-slate-500">Recent policy deployments and OU targets</p>
+              </div>
+              <span className="text-[10px] font-bold text-slate-400">{deploymentHistory.length} entries</span>
+            </div>
+            {deploymentHistory.length === 0 ? (
+              <div className="text-center py-6 text-slate-400 text-xs">
+                No deployments logged yet. Run a deployment to see history here.
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {deploymentHistory.map((entry) => (
+                  <div
+                    key={entry.id}
+                    className={`border rounded-xl p-3 text-xs ${
+                      entry.status === 'success'
+                        ? 'border-emerald-200 bg-emerald-50'
+                        : 'border-red-200 bg-red-50'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-900">{entry.gpoName}</span>
+                      <span className="text-[10px] text-slate-500">{new Date(entry.timestamp).toLocaleString()}</span>
+                    </div>
+                    <div className="mt-1 text-[10px] text-slate-600">
+                      Policy: <span className="font-mono text-slate-700">{entry.policyPath.split(/\\|\//).pop()}</span>
+                    </div>
+                    <div className="mt-1 text-[10px] text-slate-600">
+                      OUs: <span className="font-mono text-slate-700">{entry.ouTargets.join('; ')}</span>
+                    </div>
+                    <div className="mt-1 text-[10px] text-slate-600">
+                      Phase: {entry.phase} • Mode: {entry.enforcementMode}
+                    </div>
+                    <div className="mt-1 text-[10px] font-semibold text-slate-700">{entry.message}</div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

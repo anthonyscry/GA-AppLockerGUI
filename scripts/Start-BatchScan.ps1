@@ -173,6 +173,7 @@ $Results = @{
     TotalMachines = $ComputerNames.Count
     Successful = 0
     Failed = 0
+    Skipped = 0
     Results = @()
 }
 
@@ -214,6 +215,72 @@ foreach ($ComputerName in $ComputerNames) {
         }
     }
     
+    $OperatingSystem = $null
+    if (Get-Command Get-ADComputer -ErrorAction SilentlyContinue) {
+        try {
+            $OperatingSystem = (Get-ADComputer -Identity $ComputerName -Properties OperatingSystem -ErrorAction Stop).OperatingSystem
+        } catch {
+            Write-Log "Unable to determine OS for $ComputerName : $_" "WARNING"
+        }
+    }
+
+    if ($OperatingSystem -and $OperatingSystem -notlike "*Windows*") {
+        $Results.Skipped++
+        $Results.Results += @{
+            ComputerName = $ComputerName
+            Status = "NonWindows"
+            OperatingSystem = $OperatingSystem
+            PingStatus = "Unknown"
+            WinRMStatus = "Unknown"
+        }
+        Write-Log "Skipping $ComputerName (non-Windows OS: $OperatingSystem)" "WARNING"
+        continue
+    }
+
+    $PingOnline = $false
+    try {
+        $PingOnline = Test-Connection -ComputerName $ComputerName -Count 1 -Quiet -ErrorAction SilentlyContinue
+    } catch {
+        $PingOnline = $false
+    }
+
+    if (-not $PingOnline) {
+        $Results.Skipped++
+        $Results.Results += @{
+            ComputerName = $ComputerName
+            Status = "Offline"
+            OperatingSystem = $OperatingSystem
+            PingStatus = "Offline"
+            WinRMStatus = "Unknown"
+        }
+        Write-Log "Skipping $ComputerName (offline/unreachable)" "WARNING"
+        continue
+    }
+
+    $WinRMAvailable = $false
+    $WinRMError = $null
+    try {
+        Test-WSMan -ComputerName $ComputerName -ErrorAction Stop | Out-Null
+        $WinRMAvailable = $true
+    } catch {
+        $WinRMAvailable = $false
+        $WinRMError = $_.Exception.Message
+    }
+
+    if (-not $WinRMAvailable) {
+        $Results.Skipped++
+        $Results.Results += @{
+            ComputerName = $ComputerName
+            Status = "WinRMUnavailable"
+            OperatingSystem = $OperatingSystem
+            PingStatus = "Online"
+            WinRMStatus = "Unavailable"
+            Error = $WinRMError
+        }
+        Write-Log "Skipping $ComputerName (WinRM unavailable)" "WARNING"
+        continue
+    }
+
     $OutputPath = Join-Path $OutputDirectory "artifacts-$ComputerName-$(Get-Date -Format 'yyyyMMdd-HHmmss').json"
     
     try {
@@ -245,6 +312,9 @@ foreach ($ComputerName in $ComputerNames) {
             ComputerName = $ComputerName
             Status = "Success"
             OutputPath = $OutputPath
+            OperatingSystem = $OperatingSystem
+            PingStatus = "Online"
+            WinRMStatus = "Available"
         }
         Write-Log "Successfully scanned $ComputerName" "SUCCESS"
     } catch {
@@ -253,6 +323,9 @@ foreach ($ComputerName in $ComputerNames) {
             ComputerName = $ComputerName
             Status = "Failed"
             Error = $_.Exception.Message
+            OperatingSystem = $OperatingSystem
+            PingStatus = "Online"
+            WinRMStatus = "Available"
         }
         Write-Log "Failed to scan $ComputerName : $_" "ERROR"
     }
@@ -266,6 +339,12 @@ Write-Log "`n=== SCAN SUMMARY ===" "INFO"
 Write-Log "Total Machines: $($Results.TotalMachines)" "INFO"
 Write-Log "Successful: $($Results.Successful)" "SUCCESS"
 Write-Log "Failed: $($Results.Failed)" "ERROR"
+Write-Log "Skipped: $($Results.Skipped)" "WARNING"
 Write-Log "Summary saved to: $SummaryPath" "INFO"
+
+$ResultJson = $Results | ConvertTo-Json -Depth 10 -Compress
+Write-Output "GA_APPLOCKER_SCAN_RESULT_START"
+Write-Output $ResultJson
+Write-Output "GA_APPLOCKER_SCAN_RESULT_END"
 
 return $Results

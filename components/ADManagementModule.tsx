@@ -34,6 +34,8 @@ const wildcardToRegex = (pattern: string): RegExp => {
   return new RegExp(`^${regexPattern}$`, 'i');
 };
 
+const safeString = (value: unknown): string => (typeof value === 'string' ? value : '');
+
 // Check if a string matches a wildcard pattern
 const matchesWildcard = (value: string | undefined | null, pattern: string): boolean => {
   if (!value) return false;
@@ -58,6 +60,7 @@ const ADManagementModule: React.FC = () => {
   const [selectedUser, setSelectedUser] = useState<ADUser | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [componentError, setComponentError] = useState<string | null>(null);
+  const [lookupError, setLookupError] = useState<string | null>(null);
   const [updatingGroups, setUpdatingGroups] = useState<Set<string>>(new Set());
 
   // Available OUs from AD
@@ -78,21 +81,53 @@ const ADManagementModule: React.FC = () => {
       if (!rawUsers) return [];
       if (!Array.isArray(rawUsers)) return [];
       return rawUsers.filter((u): u is ADUser => {
-        return u != null && typeof u === 'object' && typeof u.samAccountName === 'string';
+        return u != null && typeof u === 'object';
       }).map(u => ({
         ...u,
-        id: u.id || u.samAccountName || `user-${Math.random()}`,
-        displayName: u.displayName || u.samAccountName || 'Unknown User',
-        samAccountName: u.samAccountName || 'unknown',
-        groups: Array.isArray(u.groups) ? u.groups : [],
-        department: u.department || '',
-        ou: u.ou || ''
+        id: safeString(u.id) || safeString(u.samAccountName) || `user-${Math.random()}`,
+        displayName: safeString(u.displayName) || safeString(u.samAccountName) || 'Unknown User',
+        samAccountName: safeString(u.samAccountName) || 'unknown',
+        groups: Array.isArray(u.groups)
+          ? u.groups.filter((group): group is string => typeof group === 'string')
+          : [],
+        department: safeString(u.department),
+        ou: safeString(u.ou)
       }));
     } catch (err) {
       console.error('Error normalizing users:', err);
       return [];
     }
   }, [rawUsers]);
+
+  const selectedUserDetailItems = useMemo(() => {
+    if (!selectedUser) return [];
+    const items: Array<{ key: string; content: React.ReactNode }> = [
+      {
+        key: 'account',
+        content: (
+          <span className="flex items-center space-x-1">
+            <Terminal size={10} />
+            <span>{selectedUser.samAccountName || 'unknown'}</span>
+          </span>
+        )
+      },
+      selectedUser.department
+        ? { key: 'department', content: <span>{selectedUser.department}</span> }
+        : null,
+      selectedUser.ou
+        ? {
+            key: 'ou',
+            content: (
+              <span className="text-blue-400">
+                {selectedUser.ou.match(/OU=([^,]+)/)?.[1] || selectedUser.ou}
+              </span>
+            )
+          }
+        : null
+    ];
+
+    return items.filter((item): item is { key: string; content: React.ReactNode } => item !== null);
+  }, [selectedUser]);
 
   // Fetch OUs from AD on mount
   useEffect(() => {
@@ -155,7 +190,7 @@ const ADManagementModule: React.FC = () => {
   // Check if user is in a specific AppLocker group
   const isUserInAppLockerGroup = useCallback((user: ADUser, group: string): boolean => {
     if (!user.groups || !Array.isArray(user.groups)) return false;
-    return user.groups.some(g => g.toLowerCase().includes(group.toLowerCase()));
+    return user.groups.some(g => typeof g === 'string' && g.toLowerCase().includes(group.toLowerCase()));
   }, []);
 
   // Filter users with comprehensive error handling
@@ -228,14 +263,17 @@ const ADManagementModule: React.FC = () => {
   const handleUserSelect = useCallback((user: ADUser) => {
     try {
       if (!user) return;
+      setLookupError(null);
       setSelectedUser({
         ...user,
-        id: user.id || user.samAccountName || 'unknown',
-        displayName: user.displayName || user.samAccountName || 'Unknown',
-        samAccountName: user.samAccountName || 'unknown',
-        groups: Array.isArray(user.groups) ? user.groups : [],
-        department: user.department || '',
-        ou: user.ou || ''
+        id: safeString(user.id) || safeString(user.samAccountName) || 'unknown',
+        displayName: safeString(user.displayName) || safeString(user.samAccountName) || 'Unknown',
+        samAccountName: safeString(user.samAccountName) || 'unknown',
+        groups: Array.isArray(user.groups)
+          ? user.groups.filter((group): group is string => typeof group === 'string')
+          : [],
+        department: safeString(user.department),
+        ou: safeString(user.ou)
       });
     } catch (err) {
       console.error('Error selecting user:', err);
@@ -263,11 +301,16 @@ const ADManagementModule: React.FC = () => {
       // Update selected user with new data
       const updatedUser = await ad.getUserById(userId);
       if (updatedUser) {
+        setLookupError(null);
         handleUserSelect(updatedUser);
+      } else {
+        setLookupError('Active Directory did not return updated user details.');
+        setComponentError('Failed to refresh user details from Active Directory');
       }
     } catch (error) {
       console.error(`Failed to ${isCurrentlyMember ? 'remove' : 'add'} user ${isCurrentlyMember ? 'from' : 'to'} group ${group}:`, error);
       setComponentError(`Failed to update group membership`);
+      setLookupError('Failed to refresh user details from Active Directory.');
     } finally {
       setUpdatingGroups(prev => {
         const newSet = new Set(prev);
@@ -414,6 +457,8 @@ const ADManagementModule: React.FC = () => {
             {filteredUsers.length > 0 ? (
               filteredUsers.map((user) => {
                 const userAppLockerGroups = APPLOCKER_GROUPS.filter(g => isUserInAppLockerGroup(user, g));
+                const userAccountName = safeString(user.samAccountName) || 'unknown';
+                const userDisplayName = safeString(user.displayName) || userAccountName;
                 return (
                   <div
                     key={user.id}
@@ -431,8 +476,8 @@ const ADManagementModule: React.FC = () => {
                         <User size={14} />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-[10px] font-black text-slate-900 group-hover:text-blue-700 transition-colors truncate">{user.samAccountName}</p>
-                        <p className="text-[9px] text-slate-500 font-medium truncate">{user.displayName}</p>
+                        <p className="text-[10px] font-black text-slate-900 group-hover:text-blue-700 transition-colors truncate">{userAccountName}</p>
+                        <p className="text-[9px] text-slate-500 font-medium truncate">{userDisplayName}</p>
                         {user.ou && (
                           <p className="text-[8px] text-slate-400 font-medium truncate">{user.ou.match(/OU=([^,]+)/)?.[1] || user.ou}</p>
                         )}
@@ -483,24 +528,25 @@ const ADManagementModule: React.FC = () => {
                   </div>
                   <div className="flex-1">
                     <div className="flex items-center space-x-2">
-                      <h3 className="text-base font-black tracking-tight">{selectedUser.displayName}</h3>
+                      <h3 className="text-base font-black tracking-tight">{selectedUser.displayName || selectedUser.samAccountName || 'Unknown User'}</h3>
                       <span className="px-1.5 py-0.5 bg-green-500 text-white text-[7px] font-black uppercase rounded tracking-widest">Selected</span>
                     </div>
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-slate-400 font-bold text-[9px] uppercase tracking-widest mt-1">
-                      <span className="flex items-center space-x-1"><Terminal size={10} /> <span>{selectedUser.samAccountName}</span></span>
-                      {selectedUser.department && (
-                        <>
-                          <span className="w-1 h-1 bg-slate-700 rounded-full" />
-                          <span>{selectedUser.department}</span>
-                        </>
-                      )}
-                      {selectedUser.ou && (
-                        <>
-                          <span className="w-1 h-1 bg-slate-700 rounded-full" />
-                          <span className="text-blue-400">{selectedUser.ou.match(/OU=([^,]+)/)?.[1] || 'Root'}</span>
-                        </>
-                      )}
+                      {selectedUserDetailItems.map((item, index) => (
+                        <React.Fragment key={item.key}>
+                          {item.content}
+                          {index < selectedUserDetailItems.length - 1 && (
+                            <span className="w-1 h-1 bg-slate-700 rounded-full" />
+                          )}
+                        </React.Fragment>
+                      ))}
                     </div>
+                    {lookupError && (
+                      <div className="mt-2 inline-flex items-center space-x-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[9px] font-bold uppercase tracking-widest text-amber-200">
+                        <AlertCircle size={12} />
+                        <span>{lookupError}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : (

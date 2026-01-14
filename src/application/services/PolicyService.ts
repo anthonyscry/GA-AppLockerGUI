@@ -85,6 +85,22 @@ export interface RuleCreationOptions {
 export class PolicyService {
   constructor(private readonly repository: IPolicyRepository) {}
 
+  private dedupeInventoryByPath(items: InventoryItem[]): InventoryItem[] {
+    const seen = new Set<string>();
+    return items.filter(item => {
+      const itemPath = (item?.path || '').trim();
+      if (!itemPath) {
+        return true;
+      }
+      const key = itemPath.toLowerCase();
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+  }
+
   /**
    * Run policy health check
    */
@@ -293,8 +309,9 @@ export class PolicyService {
       logger.error('No valid items found in batch');
       return { success: false, error: 'No valid items found in the provided array' };
     }
-    logger.info('Batch generating rules', { itemCount: validItems.length, outputPath });
-    return this.repository.batchGenerateRules(validItems, outputPath, options);
+    const uniqueItems = this.dedupeInventoryByPath(validItems);
+    logger.info('Batch generating rules', { itemCount: uniqueItems.length, outputPath });
+    return this.repository.batchGenerateRules(uniqueItems, outputPath, options);
   }
 
   /**
@@ -395,8 +412,9 @@ export class PolicyService {
       logger.error('No valid publishers found in batch');
       return { success: false, error: 'No valid publisher names found in the provided array' };
     }
-    logger.info('Batch creating publisher rules', { publisherCount: validPublishers.length, outputPath });
-    return this.repository.batchCreatePublisherRules(validPublishers, outputPath, options);
+    const uniquePublishers = Array.from(new Set(validPublishers.map(p => p.trim())));
+    logger.info('Batch creating publisher rules', { publisherCount: uniquePublishers.length, outputPath });
+    return this.repository.batchCreatePublisherRules(uniquePublishers, outputPath, options);
   }
 
   /**

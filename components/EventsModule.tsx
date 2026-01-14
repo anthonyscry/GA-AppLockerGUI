@@ -126,6 +126,7 @@ const EventRow: React.FC<{ event: AppEvent }> = ({ event }) => {
  */
 const EventsModule: React.FC = () => {
   const { event } = useAppServices();
+  const defaultBackupRoot = 'C:\\AppLocker\\backups\\events';
 
   // Search and filter state
   const [searchQuery, setSearchQuery] = useState('');
@@ -135,7 +136,8 @@ const EventsModule: React.FC = () => {
   // Backup modal state
   const [showBackupModal, setShowBackupModal] = useState(false);
   const [backupProgress, setBackupProgress] = useState<{current: number; total: number; status: string} | null>(null);
-  const [backupPath, setBackupPath] = useState('C:\\AppLocker\\backups\\events');
+  const [backupPath, setBackupPath] = useState(defaultBackupRoot);
+  const [lastBackupPath, setLastBackupPath] = useState<string | null>(null);
 
   // Error state for component-level error handling
   const [componentError, setComponentError] = useState<string | null>(null);
@@ -264,6 +266,16 @@ const EventsModule: React.FC = () => {
     }
   }, [events, event]);
 
+  const normalizeWindowsPath = useCallback((value: string) => {
+    return value.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase();
+  }, []);
+
+  const isUnderDefaultBackupRoot = useCallback((value: string) => {
+    const normalizedValue = normalizeWindowsPath(value.trim());
+    const normalizedRoot = normalizeWindowsPath(defaultBackupRoot);
+    return normalizedValue === normalizedRoot || normalizedValue.startsWith(`${normalizedRoot}\\`);
+  }, [defaultBackupRoot, normalizeWindowsPath]);
+
   // Backup events handler - creates a single combined log file
   const handleBackupEvents = useCallback(async () => {
     const electron = (window as any).electron;
@@ -273,6 +285,29 @@ const EventsModule: React.FC = () => {
     }
 
     try {
+      const trimmedBackupPath = backupPath.trim();
+      if (!trimmedBackupPath) {
+        alert('Please enter a backup location.');
+        return;
+      }
+
+      let effectiveBasePath = trimmedBackupPath;
+
+      if (!isUnderDefaultBackupRoot(trimmedBackupPath)) {
+        const useDefault = window.confirm(
+          `Backups must be stored under:\n${defaultBackupRoot}\n\n` +
+          'Your selected location is outside the default backup folder. ' +
+          'Click OK to use the default location, or Cancel to review the path.'
+        );
+
+        if (!useDefault) {
+          return;
+        }
+
+        setBackupPath(defaultBackupRoot);
+        effectiveBasePath = defaultBackupRoot;
+      }
+
       const now = new Date();
       const monthFolder = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
       const dateStr = now.toISOString().split('T')[0];
@@ -280,9 +315,10 @@ const EventsModule: React.FC = () => {
 
       // Create a single log file for the local system
       const filename = `local-${dateStr}-${timeStr}.evtx`;
-      const outputPath = `${backupPath}\\${monthFolder}\\${filename}`;
+      const outputPath = `${effectiveBasePath}\\${monthFolder}\\${filename}`;
 
       setBackupProgress({ current: 0, total: 1, status: 'Backing up AppLocker events...' });
+      setLastBackupPath(null);
 
       try {
         // Backup as a single combined file
@@ -298,8 +334,11 @@ const EventsModule: React.FC = () => {
           console.warn('Failed to backup:', result?.error);
           alert(`Backup failed: ${result?.error || 'Unknown error'}`);
         } else {
-          setShowBackupModal(false);
-          alert(`Backup complete!\n\nSaved AppLocker events to:\n${outputPath}\n\nBackup scope: Local system only.`);
+          const finalOutputPath = result?.outputPath || outputPath;
+          setLastBackupPath(finalOutputPath);
+          alert(
+            `Backup complete!\n\nSaved AppLocker events to:\n${finalOutputPath}\n\nBackup scope: Local system only.`
+          );
         }
       } catch (err) {
         console.warn('Error backing up:', err);
@@ -467,6 +506,17 @@ const EventsModule: React.FC = () => {
                   </div>
                   <p className="text-xs text-emerald-600 mt-1">
                     Local system ({backupProgress.current} of {backupProgress.total})
+                  </p>
+                </div>
+              )}
+              {lastBackupPath && !backupProgress && (
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+                  <p className="font-semibold">Backup completed</p>
+                  <p className="mt-1 text-xs text-emerald-700">
+                    Final output path:
+                  </p>
+                  <p className="mt-1 break-all font-mono text-[11px] text-emerald-900">
+                    {lastBackupPath}
                   </p>
                 </div>
               )}

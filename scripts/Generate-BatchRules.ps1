@@ -98,14 +98,33 @@ try {
         Hash = 0
         Skipped = 0
         Errors = 0
+        Duplicates = 0
     }
+
+    # Remove duplicates by path before processing
+    $uniqueInventory = @()
+    $seenPaths = @{}
+    foreach ($item in $InventoryItems) {
+        $pathValue = $item.Path
+        if ($pathValue) {
+            $key = $pathValue.ToLower()
+            if ($seenPaths.ContainsKey($key)) {
+                $stats.Duplicates++
+                continue
+            }
+            $seenPaths[$key] = $true
+        }
+        $uniqueInventory += $item
+    }
+
+    Write-Log "After deduplication: $($uniqueInventory.Count) unique items" "INFO"
     
     # Group by publisher if enabled
     if ($GroupByPublisher) {
         Write-Log "Grouping items by publisher..." "INFO"
         $publisherGroups = @{}
         
-        foreach ($item in $InventoryItems) {
+        foreach ($item in $uniqueInventory) {
             $filePath = $item.Path
             if (-not $filePath -or -not (Test-Path $filePath)) {
                 $stats.Skipped++
@@ -159,7 +178,7 @@ try {
     
     # Process remaining items (those without publishers or not grouped)
     $processedPaths = @{}
-    foreach ($item in $InventoryItems) {
+    foreach ($item in $uniqueInventory) {
         $filePath = $item.Path
         if (-not $filePath -or -not (Test-Path $filePath) -or $processedPaths.ContainsKey($filePath)) {
             continue
@@ -255,6 +274,7 @@ try {
     
     Write-Log "`n=== BATCH GENERATION STATISTICS ===" "INFO"
     Write-Log "Total items: $($InventoryItems.Count)" "INFO"
+    Write-Log "Duplicates removed: $($stats.Duplicates)" "INFO"
     Write-Log "Publisher rules (individual): $($stats.Publisher)" "INFO"
     Write-Log "Publisher rules (grouped): $($stats.PublisherGrouped)" "INFO"
     Write-Log "Hash rules: $($stats.Hash)" "INFO"

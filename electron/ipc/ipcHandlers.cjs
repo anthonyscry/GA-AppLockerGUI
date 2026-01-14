@@ -41,10 +41,17 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 
+const DEFAULT_EVENTS_BACKUP_ROOT = 'C:\\AppLocker\\backups\\events';
+
 /**
  * Allowed enforcement modes for policy generation (whitelist)
  */
 const ALLOWED_ENFORCEMENT_MODES = ['AuditOnly', 'Enabled', 'NotConfigured'];
+
+/**
+ * Default directory for rule outputs
+ */
+const DEFAULT_RULES_DIR = 'C:\\AppLocker\\rules';
 
 /**
  * Allowed rule actions (whitelist)
@@ -110,6 +117,45 @@ function validateEnum(value, allowedValues, fieldName) {
 function generateSecureTempFilename(prefix = 'temp', extension = '.json') {
   const randomBytes = crypto.randomBytes(16).toString('hex');
   return `${prefix}-${randomBytes}${extension}`;
+}
+
+/**
+ * Resolve default output path for rules
+ */
+function resolveRulesOutputPath(outputPath, fallbackName = 'AppLocker-Rules.xml') {
+  if (typeof outputPath === 'string' && outputPath.trim().length > 0) {
+    return outputPath.trim();
+  }
+  return path.join(DEFAULT_RULES_DIR, fallbackName);
+}
+
+/**
+ * Ensure the output directory exists
+ */
+function ensureOutputDirectory(filePath) {
+  const dir = path.dirname(filePath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+}
+
+/**
+ * Deduplicate inventory items by path
+ */
+function dedupeInventoryItems(items = []) {
+  const seen = new Set();
+  return items.filter(item => {
+    const itemPath = (item?.path || item?.Path || '').toString().trim();
+    if (!itemPath) {
+      return true;
+    }
+    const key = itemPath.toLowerCase();
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
 }
 
 /**
@@ -258,8 +304,9 @@ function setupIpcHandlers() {
             return { success: false, error: 'Invalid OU path format' };
           }
         }
-        args.push('-OUPath');
-        args.push(options.ouPaths.map(p => escapePowerShellString(p)).join(','));
+        args.push('-OUPath', ...options.ouPaths.map(p => escapePowerShellString(p)));
+      } else if (options.ouPaths) {
+        return { success: false, error: 'At least one valid OU path is required to link the GPO' };
       }
 
       if (options.phase) {
@@ -683,46 +730,69 @@ function setupIpcHandlers() {
   // Policy merger handler
   ipcMain.handle('policy:mergePolicies', async (event, policyPaths, outputPath, options = {}) => {
     try {
-      // SECURITY: Validate output path
-      if (!isPathAllowed(outputPath)) {
-        return { success: false, error: 'Output path not allowed' };
-      }
+      const payload = Array.isArray(policyPaths)
+        ? { policyPaths, outputPath, options }
+        : policyPaths;
 
-      // SECURITY: Validate all policy paths
-      if (!Array.isArray(policyPaths) || policyPaths.length === 0) {
-        return { success: false, error: 'Policy paths array is required' };
-      }
-      for (const pPath of policyPaths) {
-        if (!isPathAllowed(pPath)) {
-          return { success: false, error: 'One or more policy paths not allowed' };
-        }
-      }
-
-      // SECURITY: Validate conflict resolution against whitelist
-      const validResolutions = ['KeepFirst', 'KeepLast', 'MergeAll', 'Newest'];
-      if (options.conflictResolution && !validResolutions.includes(options.conflictResolution)) {
+      const validResolutions = ['First', 'Last', 'Strict'];
+      const conflictResolution = payload?.options?.conflictResolution ?? options?.conflictResolution;
+      if (conflictResolution && !validResolutions.includes(conflictResolution)) {
         return { success: false, error: 'Invalid conflict resolution option' };
       }
 
       const scriptPath = path.join(scriptsDir, 'Merge-AppLockerPolicies.ps1');
-      const args = [
-        '-PolicyPaths', ...policyPaths.map(p => escapePowerShellString(p)),
-        '-OutputPath', escapePowerShellString(outputPath)
-      ];
 
-      if (options.conflictResolution) {
-        args.push('-ConflictResolution', options.conflictResolution);
+      const runMerge = async (policyPathsForMerge, outputPathForMerge) => {
+        if (!isPathAllowed(outputPathForMerge)) {
+          return { success: false, error: 'Output path not allowed', outputPath: outputPathForMerge };
+        }
+        if (!Array.isArray(policyPathsForMerge) || policyPathsForMerge.length === 0) {
+          return { success: false, error: 'Policy paths array is required', outputPath: outputPathForMerge };
+        }
+        for (const pPath of policyPathsForMerge) {
+          if (!isPathAllowed(pPath)) {
+            return { success: false, error: 'One or more policy paths not allowed', outputPath: outputPathForMerge };
+          }
+        }
+
+        const args = [
+          '-PolicyPaths', ...policyPathsForMerge.map(p => escapePowerShellString(p)),
+          '-OutputPath', escapePowerShellString(outputPathForMerge)
+        ];
+
+        if (conflictResolution) {
+          args.push('-ConflictResolution', conflictResolution);
+        }
+
+        const result = await executePowerShellScript(scriptPath, args, {
+          timeout: 300000 // 5 minutes
+        });
+
+        return {
+          success: true,
+          output: result.stdout,
+          outputPath: outputPathForMerge
+        };
+      };
+
+      if (payload?.machineTypeGroups) {
+        const groupResults = {};
+        const groupEntries = Object.entries(payload.machineTypeGroups);
+        if (groupEntries.length === 0) {
+          return { success: false, error: 'Machine type groups are required' };
+        }
+
+        for (const [machineType, group] of groupEntries) {
+          groupResults[machineType] = await runMerge(group.policyPaths, group.outputPath);
+        }
+
+        return {
+          success: true,
+          groupedResults: groupResults
+        };
       }
 
-      const result = await executePowerShellScript(scriptPath, args, {
-        timeout: 300000 // 5 minutes
-      });
-
-      return {
-        success: true,
-        output: result.stdout,
-        outputPath: outputPath
-      };
+      return await runMerge(payload?.policyPaths ?? policyPaths, payload?.outputPath ?? outputPath);
     } catch (error) {
       console.error('[IPC] Policy merge error:', error);
       return {
@@ -733,7 +803,7 @@ function setupIpcHandlers() {
   });
 
   // Import artifacts handler (for rule generator)
-  ipcMain.handle('policy:importArtifacts', async (event, artifactsPath) => {
+  ipcMain.handle('policy:importArtifacts', async (event, artifactsPath, options = {}) => {
     try {
       // SECURITY: Validate artifacts path
       if (!isPathAllowed(artifactsPath)) {
@@ -745,6 +815,18 @@ function setupIpcHandlers() {
 
       // Convert artifacts to inventory format
       const inventory = [];
+      const existingInventory = Array.isArray(options.existingInventory) ? options.existingInventory : [];
+      const importMode = options.mode === 'replace' ? 'replace' : 'append';
+
+      const getDedupeKey = (item) => {
+        const pathKey = (item.path || '').trim().toLowerCase();
+        const publisherKey = (item.publisher || '').trim().toLowerCase();
+        const hashKey = (item.hash || '').trim().toLowerCase();
+        if (!pathKey && !publisherKey && !hashKey) {
+          return null;
+        }
+        return `${pathKey}|${publisherKey}|${hashKey}`;
+      };
 
       if (artifacts.Executables) {
         artifacts.Executables.forEach((exe, index) => {
@@ -753,6 +835,7 @@ function setupIpcHandlers() {
             name: exe.Name || exe.name || 'Unknown',
             publisher: exe.Publisher || exe.publisher || 'Unknown',
             path: exe.Path || exe.path || '',
+            hash: exe.Hash || exe.hash || '',
             version: exe.Version || exe.version || '',
             type: (exe.Type || exe.type || 'EXE')
           });
@@ -766,21 +849,47 @@ function setupIpcHandlers() {
             name: exe.Name || exe.name || 'Unknown',
             publisher: 'Unknown',
             path: exe.Path || exe.path || '',
+            hash: exe.Hash || exe.hash || '',
             version: '',
             type: 'EXE'
           });
         });
       }
 
-      // Remove duplicates by path
-      const uniqueInventory = inventory.filter((item, index, self) =>
-        index === self.findIndex(t => t.path === item.path && t.path !== '')
+      // Remove duplicates by stable key: path + publisher + hash
+      const baseInventory = importMode === 'append' ? existingInventory : [];
+      const seenKeys = new Set(
+        baseInventory
+          .map(item => getDedupeKey(item))
+          .filter(Boolean)
       );
+      let removedDuplicates = 0;
+      let skippedCount = 0;
+
+      const uniqueInventory = [];
+      inventory.forEach((item) => {
+        const key = getDedupeKey(item);
+        if (!key) {
+          skippedCount += 1;
+          return;
+        }
+        if (seenKeys.has(key)) {
+          removedDuplicates += 1;
+          return;
+        }
+        seenKeys.add(key);
+        uniqueInventory.push(item);
+      });
 
       return {
         success: true,
         inventory: uniqueInventory,
-        count: uniqueInventory.length
+        count: uniqueInventory.length,
+        summary: {
+          added: uniqueInventory.length,
+          removedDuplicates,
+          skipped: skippedCount
+        }
       };
     } catch (error) {
       console.error('[IPC] Import artifacts error:', error);
@@ -795,8 +904,12 @@ function setupIpcHandlers() {
   // Comprehensive artifact collection handler
   ipcMain.handle('policy:generateFromArtifacts', async (event, computerName, outputPath, options = {}) => {
     try {
+      const safeOutputPath = typeof outputPath === 'string' ? outputPath.trim() : '';
+      if (!safeOutputPath) {
+        return { success: false, error: 'Output path is required' };
+      }
       // SECURITY: Validate output path
-      if (!isPathAllowed(outputPath)) {
+      if (!isPathAllowed(safeOutputPath)) {
         return { success: false, error: 'Output path not allowed' };
       }
 
@@ -830,9 +943,10 @@ function setupIpcHandlers() {
       }
 
       const artifactScriptPath = path.join(scriptsDir, 'Get-ComprehensiveScanArtifacts.ps1');
+      ensureOutputDirectory(safeOutputPath);
       const artifactArgs = [
         '-ComputerName', escapePowerShellString(safeComputerName),
-        '-OutputPath', escapePowerShellString(outputPath)
+        '-OutputPath', escapePowerShellString(safeOutputPath)
       ];
 
       if (options.includeEventLogs) {
@@ -878,9 +992,14 @@ function setupIpcHandlers() {
 
       // Then generate rules from artifacts using smart priority script
       const ruleScriptPath = path.join(scriptsDir, 'Generate-RulesFromArtifacts.ps1');
-      const ruleOutputPath = options.ruleOutputPath || outputPath.replace('.json', '_rules.xml');
+      const defaultRulesName = `${path.parse(safeOutputPath).name}_rules.xml`;
+      const ruleOutputPath = resolveRulesOutputPath(
+        options.ruleOutputPath,
+        defaultRulesName
+      );
+      ensureOutputDirectory(ruleOutputPath);
       const ruleArgs = [
-        '-ArtifactsPath', escapePowerShellString(outputPath),
+        '-ArtifactsPath', escapePowerShellString(safeOutputPath),
         '-OutputPath', escapePowerShellString(ruleOutputPath)
       ];
 
@@ -903,7 +1022,7 @@ function setupIpcHandlers() {
 
       return {
         success: true,
-        artifactsPath: outputPath,
+        artifactsPath: safeOutputPath,
         rulesPath: ruleOutputPath,
         artifactsOutput: artifactResult.stdout,
         rulesOutput: ruleResult.stdout
@@ -921,8 +1040,12 @@ function setupIpcHandlers() {
   ipcMain.handle('policy:batchGenerateRules', async (event, inventoryItems, outputPath, options = {}) => {
     let tempJsonPath = null;
     try {
+      const safeOutputPath = resolveRulesOutputPath(
+        outputPath,
+        `Batch-Generated-${Date.now()}.xml`
+      );
       // Validate output path
-      if (!isPathAllowed(outputPath)) {
+      if (!isPathAllowed(safeOutputPath)) {
         throw new Error('Output path is not in an allowed directory');
       }
 
@@ -946,14 +1069,17 @@ function setupIpcHandlers() {
         safeOptions.targetGroup = options.targetGroup;
       }
 
+      const uniqueInventory = dedupeInventoryItems(inventoryItems);
+      ensureOutputDirectory(safeOutputPath);
+
       // Write inventory to temp JSON
-      fs.writeFileSync(tempJsonPath, JSON.stringify(inventoryItems), 'utf8');
+      fs.writeFileSync(tempJsonPath, JSON.stringify(uniqueInventory), 'utf8');
 
       // Build safe argument array (not string concatenation)
       const args = [
         '-File', scriptPath,
         '-InventoryPath', tempJsonPath,
-        '-OutputPath', outputPath
+        '-OutputPath', safeOutputPath
       ];
 
       if (safeOptions.ruleAction) {
@@ -977,7 +1103,7 @@ function setupIpcHandlers() {
       return {
         success: true,
         output: result.stdout,
-        outputPath: outputPath
+        outputPath: safeOutputPath
       };
     } catch (error) {
       console.error('[IPC] Batch generation error:', error);
@@ -1268,7 +1394,7 @@ function setupIpcHandlers() {
       const window = BrowserWindow.fromWebContents(event.sender);
       const result = await dialog.showOpenDialog(window || undefined, {
         title: options.title || 'Select File',
-        defaultPath: options.defaultPath,
+        defaultPath: options.defaultPath || 'C:\\AppLocker',
         filters: options.filters || [{ name: 'All Files', extensions: ['*'] }],
         properties: options.properties || ['openFile'],
         ...options
@@ -1296,7 +1422,7 @@ function setupIpcHandlers() {
       const window = BrowserWindow.fromWebContents(event.sender);
       const result = await dialog.showSaveDialog(window || undefined, {
         title: options.title || 'Save File',
-        defaultPath: options.defaultPath,
+        defaultPath: options.defaultPath || 'C:\\AppLocker',
         filters: options.filters || [{ name: 'All Files', extensions: ['*'] }],
         ...options
       });
@@ -1321,7 +1447,7 @@ function setupIpcHandlers() {
       const window = BrowserWindow.fromWebContents(event.sender);
       const result = await dialog.showOpenDialog(window || undefined, {
         title: options.title || 'Select Directory',
-        defaultPath: options.defaultPath,
+        defaultPath: options.defaultPath || 'C:\\AppLocker',
         properties: ['openDirectory', 'createDirectory'],
         ...options
       });
@@ -1850,13 +1976,16 @@ function setupIpcHandlers() {
    * // Returns: { success: true, ous: [{ path: "OU=Workstations,DC=corp,DC=local", name: "Workstations", computerCount: 50 }] }
    *
    * @since v1.2.10
-   */
+  */
   ipcMain.handle('ad:getOUsWithComputers', async () => {
     try {
       const command = `
+        $ErrorActionPreference = 'Stop'
         try {
+          Import-Module ActiveDirectory -ErrorAction Stop
           # Get all computers and extract unique OUs
-          $computers = Get-ADComputer -Filter * -Properties DistinguishedName -ErrorAction SilentlyContinue
+          $computers = Get-ADComputer -Filter * -Properties DistinguishedName, OperatingSystem -ErrorAction Stop |
+            Where-Object { $_.OperatingSystem -match 'Windows' }
 
           if (-not $computers) {
             @{ success = $true; ous = @() } | ConvertTo-Json -Compress -Depth 5
@@ -2030,6 +2159,7 @@ function setupIpcHandlers() {
           Import-Module ActiveDirectory -ErrorAction Stop
 
           $computers = Get-ADComputer -Filter * -Properties OperatingSystem, LastLogonDate, DistinguishedName, Description |
+            Where-Object { $_.OperatingSystem -match 'Windows' } |
             Select-Object -First 200 Name, OperatingSystem, LastLogonDate, DistinguishedName, Description,
               @{N='OU';E={($_.DistinguishedName -split ',', 2)[1]}} |
             ForEach-Object {
@@ -2148,12 +2278,72 @@ function setupIpcHandlers() {
         }
       }
 
+      if (options.onlineOnly === true) {
+        args.push('-OnlineOnly');
+      }
+
       const result = await executePowerShellScript(scanScriptPath, args, {
         timeout: options.timeout || 600000,
         env: scanEnv
       });
 
-      return { success: true, output: result.stdout };
+      const stdout = result.stdout || '';
+      let parsed = null;
+      const startToken = 'GA_APPLOCKER_SCAN_RESULT_START';
+      const endToken = 'GA_APPLOCKER_SCAN_RESULT_END';
+      if (stdout.includes(startToken) && stdout.includes(endToken)) {
+        const jsonText = stdout.split(startToken)[1].split(endToken)[0].trim();
+        try {
+          parsed = JSON.parse(jsonText);
+        } catch (error) {
+          console.warn('[IPC] Failed to parse scan JSON output:', error);
+        }
+      } else if (stdout.trim().startsWith('{')) {
+        try {
+          parsed = JSON.parse(stdout.trim());
+        } catch (error) {
+          console.warn('[IPC] Failed to parse scan JSON output:', error);
+        }
+      }
+
+      if (parsed) {
+        const rawResults = Array.isArray(parsed.Results)
+          ? parsed.Results
+          : Array.isArray(parsed.results)
+            ? parsed.results
+            : [];
+        const normalizedResults = rawResults.map((entry) => ({
+          computerName: entry.ComputerName ?? entry.computerName ?? '',
+          status: entry.Status ?? entry.status ?? 'Unknown',
+          outputPath: entry.OutputPath ?? entry.outputPath,
+          error: entry.Error ?? entry.error,
+          operatingSystem: entry.OperatingSystem ?? entry.operatingSystem,
+          pingStatus: entry.PingStatus ?? entry.pingStatus,
+          winRMStatus: entry.WinRMStatus ?? entry.winRMStatus
+        }));
+        const summary = {
+          totalMachines: parsed.TotalMachines ?? parsed.totalMachines ?? normalizedResults.length,
+          successful: parsed.Successful ?? parsed.successful ?? normalizedResults.filter(item => item.status === 'Success').length,
+          failed: parsed.Failed ?? parsed.failed ?? normalizedResults.filter(item => item.status === 'Failed').length,
+          skipped: parsed.Skipped ?? parsed.skipped ?? normalizedResults.filter(item => item.status !== 'Success' && item.status !== 'Failed').length,
+          results: normalizedResults
+        };
+        const failures = normalizedResults.filter(item => item.status !== 'Success');
+        return { success: failures.length === 0, summary, failures };
+      }
+
+      return {
+        success: true,
+        summary: {
+          totalMachines: 0,
+          successful: 0,
+          failed: 0,
+          skipped: 0,
+          results: []
+        },
+        failures: [],
+        output: stdout
+      };
     } catch (error) {
       console.error('[IPC] Start scan error:', error);
       return { success: false, error: sanitizeErrorMessage(error) };
@@ -2483,6 +2673,18 @@ function setupIpcHandlers() {
         return { success: false, error: 'Output path not allowed' };
       }
 
+      const normalizedOutputPath = path.resolve(outputPath).toLowerCase();
+      const normalizedDefaultRoot = path.resolve(DEFAULT_EVENTS_BACKUP_ROOT).toLowerCase();
+      if (
+        normalizedOutputPath !== normalizedDefaultRoot &&
+        !normalizedOutputPath.startsWith(`${normalizedDefaultRoot}${path.sep}`)
+      ) {
+        return {
+          success: false,
+          error: `Output path must be under ${DEFAULT_EVENTS_BACKUP_ROOT}`
+        };
+      }
+
       const safeOutputPath = escapePowerShellString(outputPath);
       const targetSystems = Array.isArray(options.systems)
         ? options.systems
@@ -2805,9 +3007,14 @@ function setupIpcHandlers() {
   // Create publisher rule
   ipcMain.handle('policy:createPublisherRule', async (event, options, outputPath) => {
     try {
-      if (!isPathAllowed(outputPath)) {
+      const safeOutputPath = resolveRulesOutputPath(
+        outputPath,
+        `Publisher-Rule-${Date.now()}.xml`
+      );
+      if (!isPathAllowed(safeOutputPath)) {
         return { success: false, error: 'Output path not allowed' };
       }
+      ensureOutputDirectory(safeOutputPath);
 
       const publisher = escapePowerShellString(options.publisher);
       const action = options.action || 'Allow';
@@ -2828,8 +3035,8 @@ function setupIpcHandlers() {
   </RuleCollection>
 </AppLockerPolicy>
 "@
-          $rule | Out-File -FilePath "${escapePowerShellString(outputPath)}" -Encoding UTF8
-          @{ success = $true; outputPath = "${escapePowerShellString(outputPath)}" } | ConvertTo-Json -Compress
+          $rule | Out-File -FilePath "${escapePowerShellString(safeOutputPath)}" -Encoding UTF8
+          @{ success = $true; outputPath = "${escapePowerShellString(safeOutputPath)}" } | ConvertTo-Json -Compress
         } catch {
           @{ success = $false; error = $_.Exception.Message } | ConvertTo-Json -Compress
         }
@@ -2846,12 +3053,17 @@ function setupIpcHandlers() {
   // Batch create publisher rules
   ipcMain.handle('policy:batchCreatePublisherRules', async (event, publishers, outputPath, options = {}) => {
     try {
-      if (!isPathAllowed(outputPath)) {
+      const safeOutputPath = resolveRulesOutputPath(
+        outputPath,
+        `Publishers-${Date.now()}.xml`
+      );
+      if (!isPathAllowed(safeOutputPath)) {
         return { success: false, error: 'Output path not allowed' };
       }
 
       const action = options.action || 'Allow';
-      const rules = publishers.map(pub => {
+      const uniquePublishers = Array.from(new Set(publishers.map(pub => pub?.toString().trim()).filter(Boolean)));
+      const rules = uniquePublishers.map(pub => {
         const safePub = escapePowerShellString(pub);
         return `    <FilePublisherRule Id="${crypto.randomUUID()}" Name="${safePub}" Action="${action}" UserOrGroupSid="S-1-1-0">
       <Conditions>
@@ -2869,8 +3081,9 @@ ${rules}
   </RuleCollection>
 </AppLockerPolicy>`;
 
-      fs.writeFileSync(outputPath, xml, 'utf8');
-      return { success: true, outputPath, ruleCount: publishers.length };
+      ensureOutputDirectory(safeOutputPath);
+      fs.writeFileSync(safeOutputPath, xml, 'utf8');
+      return { success: true, outputPath: safeOutputPath, ruleCount: uniquePublishers.length };
     } catch (error) {
       console.error('[IPC] Batch create publisher rules error:', error);
       return { success: false, error: sanitizeErrorMessage(error) };

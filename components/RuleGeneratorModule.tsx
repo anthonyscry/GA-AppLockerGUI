@@ -56,6 +56,14 @@ const RuleGeneratorModule: React.FC = () => {
   const [genCategoryFilter, setGenCategoryFilter] = useState('All');
   const [importedArtifacts, setImportedArtifacts] = useState<InventoryItem[]>([]);
   const [importedFrom, setImportedFrom] = useState<string>('');
+  const [importMode, setImportMode] = useState<'append' | 'replace'>('append');
+  const [importSummary, setImportSummary] = useState<{
+    added: number;
+    removedDuplicates: number;
+    skipped: number;
+    source: string;
+    mode: 'append' | 'replace';
+  } | null>(null);
 
   // Generated rules storage
   const [generatedRules, setGeneratedRules] = useState<GeneratedRule[]>([]);
@@ -144,6 +152,16 @@ const RuleGeneratorModule: React.FC = () => {
     setSelectedApp(null);
     setSelectedPublisher(null);
     setGenSearchQuery('');
+  };
+
+  const buildArtifactKey = (item: InventoryItem): string | null => {
+    const pathKey = (item.path || '').trim().toLowerCase();
+    const publisherKey = (item.publisher || '').trim().toLowerCase();
+    const hashKey = (item.hash || '').trim().toLowerCase();
+    if (!pathKey && !publisherKey && !hashKey) {
+      return null;
+    }
+    return `${pathKey}|${publisherKey}|${hashKey}`;
   };
 
   const handleGenerateRule = async () => {
@@ -394,167 +412,233 @@ const RuleGeneratorModule: React.FC = () => {
 
               {/* Import Artifacts (scanned tab only) */}
               {generatorTab === 'scanned' && (
-                <label className="block">
-                  <input
-                    type="file"
-                    accept=".csv,.json"
-                    multiple
-                    onChange={(e) => {
-                      const files = Array.from(e.target.files || []);
-                      if (files.length === 0) return;
-
-                      let allItems: InventoryItem[] = [];
-                      const fileNames: string[] = [];
-
-                      /**
-                       * Parse CSV line handling quoted fields properly
-                       * Handles: "field,with,commas", "field""with""quotes", regular,fields
-                       */
-                      const parseCSVLine = (line: string): string[] => {
-                        const result: string[] = [];
-                        let current = '';
-                        let inQuotes = false;
-
-                        for (let i = 0; i < line.length; i++) {
-                          const char = line[i];
-                          const nextChar = line[i + 1];
-
-                          if (inQuotes) {
-                            if (char === '"' && nextChar === '"') {
-                              // Escaped quote
-                              current += '"';
-                              i++;
-                            } else if (char === '"') {
-                              // End of quoted field
-                              inQuotes = false;
-                            } else {
-                              current += char;
-                            }
-                          } else {
-                            if (char === '"') {
-                              inQuotes = true;
-                            } else if (char === ',') {
-                              result.push(current.trim());
-                              current = '';
-                            } else {
-                              current += char;
-                            }
-                          }
-                        }
-                        result.push(current.trim());
-                        return result;
-                      };
-
-                      const parseFile = (text: string, fileName: string, baseOffset: number): InventoryItem[] => {
-                        const baseId = Date.now() + baseOffset * 10000;
-                        let items: InventoryItem[] = [];
-
-                        // Validate file has content
-                        if (!text || !text.trim()) {
-                          console.warn(`Empty file: ${fileName}`);
-                          return [];
-                        }
-
-                        if (fileName.toLowerCase().endsWith('.json')) {
-                          try {
-                            const data = JSON.parse(text);
-                            if (data.Executables && Array.isArray(data.Executables)) {
-                              items = data.Executables.map((exe: any, index: number) => ({
-                                id: `imported-${baseId}-${index}`,
-                                name: exe.Name || exe.name || 'Unknown',
-                                publisher: exe.Publisher || exe.publisher || 'Unknown',
-                                path: exe.Path || exe.path || '',
-                                version: exe.Version || exe.version || '',
-                                type: (exe.Type || exe.type || 'EXE') as InventoryItem['type']
-                              }));
-                            } else if (Array.isArray(data)) {
-                              items = data.map((item: any, index: number) => ({
-                                id: `imported-${baseId}-${index}`,
-                                name: item.Name || item.name || 'Unknown',
-                                publisher: item.Publisher || item.publisher || 'Unknown',
-                                path: item.Path || item.path || '',
-                                version: item.Version || item.version || '',
-                                type: (item.Type || item.type || 'EXE') as InventoryItem['type']
-                              }));
-                            }
-                          } catch (jsonErr) {
-                            console.error(`Invalid JSON in ${fileName}:`, jsonErr);
-                            return [];
-                          }
-                        } else if (fileName.toLowerCase().endsWith('.csv')) {
-                          const lines = text.split('\n').filter(l => l.trim());
-
-                          // Need at least header + 1 data row
-                          if (lines.length < 2) {
-                            console.warn(`CSV file ${fileName} has no data rows`);
-                            return [];
-                          }
-
-                          const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase());
-
-                          items = lines.slice(1).map((line, index) => {
-                            const values = parseCSVLine(line);
-                            const getField = (name: string, fallbackIdx: number): string => {
-                              const idx = headers.indexOf(name);
-                              return (idx >= 0 ? values[idx] : values[fallbackIdx]) || '';
-                            };
-
-                            return {
-                              id: `imported-${baseId}-${index}`,
-                              name: getField('name', 0) || 'Unknown',
-                              publisher: getField('publisher', 1) || 'Unknown',
-                              path: getField('path', 2),
-                              version: getField('version', 3),
-                              type: (getField('type', 4) || 'EXE') as InventoryItem['type']
-                            };
-                          }).filter(item => item.name !== 'Unknown' || item.path);
-                        } else {
-                          console.warn(`Unsupported file type: ${fileName}`);
-                          return [];
-                        }
-                        return items;
-                      };
-
-                      const processFiles = async () => {
-                        let offset = 0;
-                        for (const file of files) {
-                          try {
-                            const text = await file.text();
-                            if (text) {
-                              const items = parseFile(text, file.name, offset);
-                              allItems = [...allItems, ...items];
-                              fileNames.push(file.name);
-                            }
-                          } catch (error) {
-                            console.error(`Error parsing ${file.name}:`, error);
-                          }
-                          offset++;
-                        }
-
-                        const uniqueItems = allItems.filter((item, index, self) =>
-                          index === self.findIndex(t => t.path === item.path && t.path !== '')
-                        );
-
-                        if (uniqueItems.length > 0) {
-                          setImportedArtifacts(prev => [...prev, ...uniqueItems]);
-                          setImportedFrom(fileNames.length > 1 ? `${fileNames.length} files` : fileNames[0]);
-                          setToastMessage({ type: 'success', message: `Imported ${uniqueItems.length} items from ${fileNames.length} file(s)` });
-                        }
-                      };
-
-                      processFiles().catch(err => {
-                        console.error('Failed to process files:', err);
-                        setToastMessage({ type: 'error', message: `Failed to import files: ${err instanceof Error ? err.message : 'Unknown error'}` });
-                      });
-                    }}
-                    className="hidden"
-                  />
-                  <div className="border-2 border-dashed border-blue-300 rounded-xl p-3 text-center cursor-pointer hover:border-blue-500 transition-colors bg-blue-50/50">
-                    <Import size={16} className="mx-auto mb-1 text-blue-600" />
-                    <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest">Import Scan Artifacts</p>
-                    <p className="text-[9px] text-blue-500">CSV, JSON (multiple files)</p>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between rounded-lg bg-slate-100 p-1 text-[9px] font-black uppercase tracking-widest text-slate-600">
+                    <span className="px-2">Import Mode</span>
+                    <div className="flex rounded-md bg-white shadow-sm">
+                      <button
+                        onClick={() => setImportMode('append')}
+                        className={`px-2.5 py-1 rounded-md transition-all ${importMode === 'append' ? 'bg-blue-600 text-white' : 'text-slate-500'}`}
+                        type="button"
+                      >
+                        Append/Merge
+                      </button>
+                      <button
+                        onClick={() => setImportMode('replace')}
+                        className={`px-2.5 py-1 rounded-md transition-all ${importMode === 'replace' ? 'bg-blue-600 text-white' : 'text-slate-500'}`}
+                        type="button"
+                      >
+                        Replace
+                      </button>
+                    </div>
                   </div>
-                </label>
+                  <label className="block">
+                    <input
+                      type="file"
+                      accept=".csv,.json"
+                      multiple
+                      onChange={(e) => {
+                        const files = Array.from(e.target.files || []);
+                        if (files.length === 0) return;
+
+                        let allItems: InventoryItem[] = [];
+                        const fileNames: string[] = [];
+
+                        /**
+                         * Parse CSV line handling quoted fields properly
+                         * Handles: "field,with,commas", "field""with""quotes", regular,fields
+                         */
+                        const parseCSVLine = (line: string): string[] => {
+                          const result: string[] = [];
+                          let current = '';
+                          let inQuotes = false;
+
+                          for (let i = 0; i < line.length; i++) {
+                            const char = line[i];
+                            const nextChar = line[i + 1];
+
+                            if (inQuotes) {
+                              if (char === '"' && nextChar === '"') {
+                                // Escaped quote
+                                current += '"';
+                                i++;
+                              } else if (char === '"') {
+                                // End of quoted field
+                                inQuotes = false;
+                              } else {
+                                current += char;
+                              }
+                            } else {
+                              if (char === '"') {
+                                inQuotes = true;
+                              } else if (char === ',') {
+                                result.push(current.trim());
+                                current = '';
+                              } else {
+                                current += char;
+                              }
+                            }
+                          }
+                          result.push(current.trim());
+                          return result;
+                        };
+
+                        const parseFile = (text: string, fileName: string, baseOffset: number): InventoryItem[] => {
+                          const baseId = Date.now() + baseOffset * 10000;
+                          let items: InventoryItem[] = [];
+
+                          // Validate file has content
+                          if (!text || !text.trim()) {
+                            console.warn(`Empty file: ${fileName}`);
+                            return [];
+                          }
+
+                          if (fileName.toLowerCase().endsWith('.json')) {
+                            try {
+                              const data = JSON.parse(text);
+                              if (data.Executables && Array.isArray(data.Executables)) {
+                                items = data.Executables.map((exe: any, index: number) => ({
+                                  id: `imported-${baseId}-${index}`,
+                                  name: exe.Name || exe.name || 'Unknown',
+                                  publisher: exe.Publisher || exe.publisher || 'Unknown',
+                                  path: exe.Path || exe.path || '',
+                                  hash: exe.Hash || exe.hash || exe.SHA256 || exe.sha256 || '',
+                                  version: exe.Version || exe.version || '',
+                                  type: (exe.Type || exe.type || 'EXE') as InventoryItem['type']
+                                }));
+                              } else if (Array.isArray(data)) {
+                                items = data.map((item: any, index: number) => ({
+                                  id: `imported-${baseId}-${index}`,
+                                  name: item.Name || item.name || 'Unknown',
+                                  publisher: item.Publisher || item.publisher || 'Unknown',
+                                  path: item.Path || item.path || '',
+                                  hash: item.Hash || item.hash || item.SHA256 || item.sha256 || '',
+                                  version: item.Version || item.version || '',
+                                  type: (item.Type || item.type || 'EXE') as InventoryItem['type']
+                                }));
+                              }
+                            } catch (jsonErr) {
+                              console.error(`Invalid JSON in ${fileName}:`, jsonErr);
+                              return [];
+                            }
+                          } else if (fileName.toLowerCase().endsWith('.csv')) {
+                            const lines = text.split('\n').filter(l => l.trim());
+
+                            // Need at least header + 1 data row
+                            if (lines.length < 2) {
+                              console.warn(`CSV file ${fileName} has no data rows`);
+                              return [];
+                            }
+
+                            const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase());
+
+                            items = lines.slice(1).map((line, index) => {
+                              const values = parseCSVLine(line);
+                              const getField = (name: string, fallbackIdx: number): string => {
+                                const idx = headers.indexOf(name);
+                                return (idx >= 0 ? values[idx] : values[fallbackIdx]) || '';
+                              };
+                              const getHash = () => {
+                                return getField('hash', -1) || getField('sha256', -1);
+                              };
+
+                              return {
+                                id: `imported-${baseId}-${index}`,
+                                name: getField('name', 0) || 'Unknown',
+                                publisher: getField('publisher', 1) || 'Unknown',
+                                path: getField('path', 2),
+                                hash: getHash(),
+                                version: getField('version', 3),
+                                type: (getField('type', 4) || 'EXE') as InventoryItem['type']
+                              };
+                            }).filter(item => item.name !== 'Unknown' || item.path);
+                          } else {
+                            console.warn(`Unsupported file type: ${fileName}`);
+                            return [];
+                          }
+                          return items;
+                        };
+
+                        const processFiles = async () => {
+                          let offset = 0;
+                          for (const file of files) {
+                            try {
+                              const text = await file.text();
+                              if (text) {
+                                const items = parseFile(text, file.name, offset);
+                                allItems = [...allItems, ...items];
+                                fileNames.push(file.name);
+                              }
+                            } catch (error) {
+                              console.error(`Error parsing ${file.name}:`, error);
+                            }
+                            offset++;
+                          }
+
+                          const existingItems = importMode === 'append'
+                            ? [...(inventory || []), ...importedArtifacts]
+                            : (inventory || []);
+                          const seenKeys = new Set(
+                            existingItems
+                              .map(item => buildArtifactKey(item))
+                              .filter((key): key is string => Boolean(key))
+                          );
+                          let removedDuplicates = 0;
+                          let skippedCount = 0;
+                          const addedItems: InventoryItem[] = [];
+
+                          allItems.forEach((item) => {
+                            const key = buildArtifactKey(item);
+                            if (!key) {
+                              skippedCount += 1;
+                              return;
+                            }
+                            if (seenKeys.has(key)) {
+                              removedDuplicates += 1;
+                              return;
+                            }
+                            seenKeys.add(key);
+                            addedItems.push(item);
+                          });
+
+                          if (addedItems.length > 0) {
+                            if (importMode === 'append') {
+                              setImportedArtifacts(prev => [...prev, ...addedItems]);
+                            } else {
+                              setImportedArtifacts(addedItems);
+                            }
+                            setImportedFrom(fileNames.length > 1 ? `${fileNames.length} files` : fileNames[0]);
+                          }
+
+                          setImportSummary({
+                            added: addedItems.length,
+                            removedDuplicates,
+                            skipped: skippedCount,
+                            source: fileNames.length > 1 ? `${fileNames.length} files` : fileNames[0],
+                            mode: importMode
+                          });
+
+                          if (addedItems.length > 0) {
+                            setToastMessage({ type: 'success', message: `Imported ${addedItems.length} items from ${fileNames.length} file(s)` });
+                          } else if (removedDuplicates > 0 || skippedCount > 0) {
+                            setToastMessage({ type: 'warning', message: 'No new items were added from the selected files.' });
+                          }
+                        };
+
+                        processFiles().catch(err => {
+                          console.error('Failed to process files:', err);
+                          setToastMessage({ type: 'error', message: `Failed to import files: ${err instanceof Error ? err.message : 'Unknown error'}` });
+                        });
+                      }}
+                      className="hidden"
+                    />
+                    <div className="border-2 border-dashed border-blue-300 rounded-xl p-3 text-center cursor-pointer hover:border-blue-500 transition-colors bg-blue-50/50">
+                      <Import size={16} className="mx-auto mb-1 text-blue-600" />
+                      <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest">Import Scan Artifacts</p>
+                      <p className="text-[9px] text-blue-500">CSV, JSON (multiple files)</p>
+                    </div>
+                  </label>
+                </div>
               )}
 
               {importedArtifacts.length > 0 && generatorTab === 'scanned' && (
@@ -568,6 +652,28 @@ const RuleGeneratorModule: React.FC = () => {
                   >
                     Clear
                   </button>
+                </div>
+              )}
+
+              {importSummary && generatorTab === 'scanned' && (
+                <div className="bg-white border border-slate-200 rounded-xl p-3">
+                  <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">
+                    Import Summary ({importSummary.mode === 'append' ? 'Append/Merge' : 'Replace'})
+                  </p>
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div className="rounded-lg bg-emerald-50 p-2">
+                      <p className="text-[9px] uppercase text-emerald-600 font-bold">Added</p>
+                      <p className="text-sm font-black text-emerald-700">{importSummary.added}</p>
+                    </div>
+                    <div className="rounded-lg bg-amber-50 p-2">
+                      <p className="text-[9px] uppercase text-amber-600 font-bold">Removed</p>
+                      <p className="text-sm font-black text-amber-700">{importSummary.removedDuplicates}</p>
+                    </div>
+                    <div className="rounded-lg bg-slate-50 p-2">
+                      <p className="text-[9px] uppercase text-slate-500 font-bold">Skipped</p>
+                      <p className="text-sm font-black text-slate-700">{importSummary.skipped}</p>
+                    </div>
+                  </div>
                 </div>
               )}
 

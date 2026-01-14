@@ -11,7 +11,7 @@
  */
 
 import { IMachineRepository, MachineFilter, ScanOptions } from '../../domain/interfaces/IMachineRepository';
-import { MachineScan } from '../../shared/types';
+import { BatchScanResponse, MachineScan } from '../../shared/types';
 import { ipcClient } from '../ipc/ipcClient';
 import { IPCChannels } from '../ipc/channels';
 import { logger } from '../logging/Logger';
@@ -76,11 +76,20 @@ export class MachineRepository implements IMachineRepository {
     return this.filterMachines(all, filter);
   }
 
-  async startScan(options: ScanOptions = {}): Promise<void> {
+  async startScan(options: ScanOptions = {}): Promise<BatchScanResponse> {
     try {
       logger.info('Starting batch scan', { options });
-      await ipcClient.invoke(IPCChannels.MACHINE.START_SCAN, options);
+      const result = await ipcClient.invoke<BatchScanResponse | { success: false; error: string }>(
+        IPCChannels.MACHINE.START_SCAN,
+        options
+      );
+
+      if (result && typeof result === 'object' && 'success' in result && !result.success && 'error' in result) {
+        throw new ExternalServiceError('Machine Service', result.error, new Error(result.error));
+      }
+
       logger.info('Batch scan started successfully');
+      return result as BatchScanResponse;
     } catch (error) {
       logger.error('Failed to start scan', error as Error);
       throw new ExternalServiceError('Machine Service', 'Failed to start scan', error as Error);
@@ -93,17 +102,21 @@ export class MachineRepository implements IMachineRepository {
       const hostname = machine?.hostname || '';
       const status = machine?.status || '';
       const riskLevel = machine?.riskLevel || '';
+      const ou = machine?.ou || '';
+      const os = machine?.os || '';
       const searchQuery = filter?.searchQuery?.toLowerCase() || '';
       const ouPath = filter?.ouPath?.toLowerCase() || '';
 
       const matchesSearch = !searchQuery ||
-        hostname.toLowerCase().includes(searchQuery);
+        hostname.toLowerCase().includes(searchQuery) ||
+        ou.toLowerCase().includes(searchQuery) ||
+        os.toLowerCase().includes(searchQuery);
       const matchesStatus = !filter.status || filter.status === 'All' ||
-        status === filter.status;
+        status.toLowerCase() === filter.status.toLowerCase();
       const matchesRisk = !filter.riskLevel || filter.riskLevel === 'All' ||
-        riskLevel === filter.riskLevel;
+        riskLevel.toLowerCase() === filter.riskLevel.toLowerCase();
       const matchesOU = !ouPath ||
-        hostname.toLowerCase().includes(ouPath);
+        ou.toLowerCase().includes(ouPath);
       return matchesSearch && matchesStatus && matchesRisk && matchesOU;
     });
   }
