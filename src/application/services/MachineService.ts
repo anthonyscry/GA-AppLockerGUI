@@ -4,7 +4,7 @@
  */
 
 import { IMachineRepository, MachineFilter, ScanOptions } from '../../domain/interfaces/IMachineRepository';
-import { MachineScan } from '../../shared/types';
+import { BatchScanResponse, MachineScan } from '../../shared/types';
 import { logger } from '../../infrastructure/logging/Logger';
 import { MachineValidator } from '../../infrastructure/validation/validators/MachineValidator';
 
@@ -45,9 +45,9 @@ export class MachineService {
   /**
    * Start a batch scan operation
    */
-  async startBatchScan(options: ScanOptions = {}): Promise<void> {
+  async startBatchScan(options: ScanOptions = {}): Promise<BatchScanResponse> {
     this.validator.validateScanOptions(options);
     logger.info('Starting batch scan', { options });
-    await this.repository.startScan(options);
+    return this.repository.startScan(options);
   }
 }

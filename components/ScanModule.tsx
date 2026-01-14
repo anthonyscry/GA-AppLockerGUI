@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { useAppServices } from '../src/presentation/contexts/AppContext';
 import { useAsync } from '../src/presentation/hooks/useAsync';
-import { MachineScan, getMachineTypeFromOU, groupMachinesByOU } from '../src/shared/types';
+import { BatchScanSummary, getMachineTypeFromOU, groupMachinesByOU } from '../src/shared/types';
 import { MachineFilter } from '../src/domain/interfaces/IMachineRepository';
 import { NotFoundError, ExternalServiceError } from '../src/domain/errors';
 
@@ -47,6 +47,8 @@ const ScanModule: React.FC = () => {
   const [scanUsername, setScanUsername] = useState('');
   const [scanPassword, setScanPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [scanInProgress, setScanInProgress] = useState(false);
+  const [scanSummary, setScanSummary] = useState<BatchScanSummary | null>(null);
 
   // Selected machines for targeted scanning
   const [selectedMachines, setSelectedMachines] = useState<Set<string>>(new Set());
@@ -121,8 +123,9 @@ const ScanModule: React.FC = () => {
   }, [gpoStatusData]);
 
   // Handle targeted scan of selected machines or all filtered machines
-  const handleScan = useCallback(async () => {
+  const runBatchScan = useCallback(async (overrideTargets?: string[]) => {
     try {
+      setScanInProgress(true);
       const scanOptions: any = {};
 
       // Add credentials if not using current user
@@ -144,19 +147,40 @@ const ScanModule: React.FC = () => {
         scanOptions.targetOUs = [ouPath];
       }
 
-      // If specific machines are selected, scan only those
-      if (selectedMachines.size > 0) {
+      if (overrideTargets && overrideTargets.length > 0) {
+        scanOptions.computerNames = overrideTargets;
+      } else if (selectedMachines.size > 0) {
+        // If specific machines are selected, scan only those
         scanOptions.computerNames = Array.from(selectedMachines);
       }
 
-      await machine.startBatchScan(scanOptions);
+      const response = await machine.startBatchScan(scanOptions);
+      if (response?.summary) {
+        setScanSummary(response.summary);
+      }
       setSelectedMachines(new Set()); // Clear selection after scan
       await refetchMachines();
     } catch (error) {
       console.error('Failed to start scan:', error);
       alert(`Failed to start scan: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setScanInProgress(false);
     }
   }, [machine, refetchMachines, useCurrentUser, scanUsername, scanPassword, domainInfo.domain, ouPath, selectedMachines]);
+
+  const handleScan = useCallback(async () => {
+    await runBatchScan();
+  }, [runBatchScan]);
+
+  const failedScanTargets = useMemo(() => {
+    if (!scanSummary) return [];
+    return scanSummary.results.filter(result => result.status !== 'Success');
+  }, [scanSummary]);
+
+  const handleRetryFailed = useCallback(async () => {
+    if (failedScanTargets.length === 0) return;
+    await runBatchScan(failedScanTargets.map(result => result.computerName));
+  }, [failedScanTargets, runBatchScan]);
 
   // Toggle machine selection
   const toggleMachineSelection = useCallback((machineId: string) => {
@@ -748,6 +772,74 @@ const ScanModule: React.FC = () => {
           </tbody>
         </table>
       </div>
+
+      {scanSummary && (
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-4">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <h3 className="text-lg font-bold text-slate-900">Latest Scan Results</h3>
+              <p className="text-xs text-slate-500 font-medium">
+                Per-host status from the most recent batch scan.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="px-3 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700">
+                Total: {scanSummary.totalMachines}
+              </span>
+              <span className="px-3 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700">
+                Success: {scanSummary.successful}
+              </span>
+              <span className="px-3 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700">
+                Failed: {scanSummary.failed}
+              </span>
+              <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-700">
+                Skipped: {scanSummary.skipped}
+              </span>
+              <button
+                onClick={handleRetryFailed}
+                disabled={failedScanTargets.length === 0 || scanInProgress}
+                className="px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {scanInProgress ? 'Retrying...' : `Retry Failed (${failedScanTargets.length})`}
+              </button>
+            </div>
+          </div>
+
+          <div className="divide-y divide-slate-100 border border-slate-200 rounded-lg overflow-hidden">
+            {scanSummary.results.map((result) => (
+              <div key={`${result.computerName}-${result.status}`} className="p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <p className="font-bold text-slate-900">{result.computerName}</p>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-widest ${
+                      result.status === 'Success'
+                        ? 'bg-green-100 text-green-700'
+                        : result.status === 'Failed'
+                          ? 'bg-red-100 text-red-700'
+                          : 'bg-amber-100 text-amber-700'
+                    }`}>
+                      {result.status}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    {result.operatingSystem ? `OS: ${result.operatingSystem} • ` : ''}
+                    {result.pingStatus ? `Ping: ${result.pingStatus} • ` : ''}
+                    {result.winRMStatus ? `WinRM: ${result.winRMStatus}` : ''}
+                  </p>
+                  {result.error && (
+                    <p className="text-[11px] text-red-600 font-medium mt-1">{result.error}</p>
+                  )}
+                </div>
+                {result.outputPath && (
+                  <div className="text-[11px] text-slate-500 font-mono break-all max-w-md">
+                    {result.outputPath}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       
       <div className="bg-[#002868] p-8 rounded-2xl text-white relative overflow-hidden shadow-xl shadow-blue-900/20">
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
@@ -832,12 +924,18 @@ const ScanModule: React.FC = () => {
             </div>
             <button
               onClick={handleScan}
-              disabled={filteredMachines.length === 0}
+              disabled={filteredMachines.length === 0 || scanInProgress}
               className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl transition-all font-bold shadow-lg shadow-blue-500/20 text-sm min-h-[44px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
               aria-label={selectedMachines.size > 0 ? `Scan ${selectedMachines.size} selected machines` : "Scan all machines"}
             >
               <RefreshCw size={18} aria-hidden="true" />
-              <span>{selectedMachines.size > 0 ? `Scan Selected (${selectedMachines.size})` : 'Scan All for Artifacts'}</span>
+              <span>
+                {scanInProgress
+                  ? 'Scanning...'
+                  : selectedMachines.size > 0
+                    ? `Scan Selected (${selectedMachines.size})`
+                    : 'Scan All for Artifacts'}
+              </span>
             </button>
           </div>
         </div>

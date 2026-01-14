@@ -24,6 +24,7 @@ export const ScanOptionsSchema = z.object({
   timeout: z.number().positive().optional(),
   credentials: ScanCredentialsSchema.optional(),
   computerNames: z.array(z.string()).optional(),
+  onlineOnly: z.boolean().optional(),
 });
 
 export type MachineFilterInput = z.infer<typeof MachineFilterSchema>;
