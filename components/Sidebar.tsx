@@ -19,6 +19,14 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
   });
 
   React.useEffect(() => {
+    let isMounted = true;
+
+    const safeSetDomainInfo = (nextInfo: typeof domainInfo) => {
+      if (isMounted) {
+        setDomainInfo(nextInfo);
+      }
+    };
+
     // Get domain info from DC (auto-detect)
     const fetchDomainInfo = async () => {
       try {
@@ -29,7 +37,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
           if (info) {
             const isDomainJoined = !!(info.DomainName || info.DomainNetBIOS) &&
               (info.DomainName || info.DomainNetBIOS) !== 'WORKGROUP';
-            setDomainInfo({
+            safeSetDomainInfo({
               principal: `${info.UserDomain || info.DomainNetBIOS || 'LOCAL'}\\${info.UserName}`,
               domain: info.DomainName || info.DomainNetBIOS || '',
               isDC: info.IsDomainController || false,
@@ -44,7 +52,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
           const user = await electron.ipc.invoke('system:getUserInfo');
           if (user) {
             const isDomainJoined = user.domain && user.domain !== 'WORKGROUP';
-            setDomainInfo({
+            safeSetDomainInfo({
               principal: user.principal || 'Unknown',
               domain: user.domain || '',
               isDC: false,
@@ -61,7 +69,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
         const username = process.env.USERNAME || 'user';
         const hostname = process.env.COMPUTERNAME || '';
         const isDomainJoined = domain && domain !== 'WORKGROUP' && domain !== hostname;
-        setDomainInfo({
+        safeSetDomainInfo({
           principal: `${domain || 'LOCAL'}\\${username}`,
           domain: isDomainJoined ? domain : '',
           isDC: false,
@@ -71,7 +79,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
         });
       } catch (error) {
         console.warn('Could not fetch domain info:', error);
-        setDomainInfo({
+        safeSetDomainInfo({
           principal: 'Local\\User',
           domain: '',
           isDC: false,
@@ -83,6 +91,9 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
     };
     
     fetchDomainInfo();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   return (
