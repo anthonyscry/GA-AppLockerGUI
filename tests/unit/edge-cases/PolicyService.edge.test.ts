@@ -274,8 +274,12 @@ describe('PolicyService Edge Cases', () => {
         ruleType: 'Publisher' as const,
         targetGroup: 'Users',
         subject: {
+          id: '1',
           name: 'Test<App>',
-          publisher: 'O="Test & Co", L=City'
+          publisher: 'O="Test & Co", L=City',
+          path: 'C:\\Program Files\\Test\\app.exe', // Required to identify as InventoryItem
+          version: '1.0',
+          type: 'EXE',
         } as InventoryItem,
       };
 
