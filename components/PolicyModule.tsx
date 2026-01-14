@@ -15,7 +15,6 @@ import {
   Check,
   X,
   Search,
-  Filter,
   CheckCircle,
   Archive,
   Users,
@@ -59,6 +58,7 @@ type DeploymentHistoryEntry = {
 };
 
 const PolicyModule: React.FC = () => {
+  const DEFAULT_RULES_DIR = 'C:\\AppLocker\\rules';
   const { policy, machine } = useAppServices();
   const [selectedPhase, setSelectedPhase] = useState<PolicyPhase>(PolicyPhase.PHASE_1);
   const [healthResults, setHealthResults] = useState<{c: number, w: number, i: number, score: number} | null>(null);
@@ -128,7 +128,7 @@ const PolicyModule: React.FC = () => {
   
   // Advanced Features State
   const [showPublisherGrouping, setShowPublisherGrouping] = useState(false);
-  const [showDuplicateDetection, setShowDuplicateDetection] = useState(false);
+  const [showRulesSummary, setShowRulesSummary] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showIncrementalUpdate, setShowIncrementalUpdate] = useState(false);
   
@@ -149,7 +149,6 @@ const PolicyModule: React.FC = () => {
   const [isDeploying, setIsDeploying] = useState(false);
   const [deploymentHistory, setDeploymentHistory] = useState<DeploymentHistoryEntry[]>([]);
   const [publisherGroups, setPublisherGroups] = useState<Record<string, InventoryItem[]>>({});
-  const [duplicateReport, setDuplicateReport] = useState<any>(null);
   const [selectedTemplate, setSelectedTemplate] = useState<string>('');
   const [templateCategory, setTemplateCategory] = useState<string>('all');
   
@@ -187,6 +186,46 @@ const PolicyModule: React.FC = () => {
     const scanned: InventoryItem[] = inventory || [];
     return [...scanned, ...importedArtifacts];
   }, [inventory, importedArtifacts]);
+
+  const dedupeByPath = (items: InventoryItem[]) => {
+    const seen = new Set<string>();
+    return items.filter(item => {
+      const itemPath = (item.path || '').trim();
+      if (!itemPath) {
+        return true;
+      }
+      const key = itemPath.toLowerCase();
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+  };
+
+  const dedupedInventory = useMemo(() => dedupeByPath(combinedInventory), [combinedInventory]);
+
+  const rulesSummary = useMemo(() => {
+    const categories: Record<string, number> = {};
+    const publishers: Record<string, number> = {};
+    dedupedInventory.forEach(item => {
+      const category = (item.type || 'EXE').toString().toUpperCase();
+      categories[category] = (categories[category] || 0) + 1;
+      const publisher = item.publisher || 'Unknown';
+      publishers[publisher] = (publishers[publisher] || 0) + 1;
+    });
+    const totalRules = dedupedInventory.length;
+    const actions = {
+      Allow: ruleAction === 'Allow' ? totalRules : 0,
+      Deny: ruleAction === 'Deny' ? totalRules : 0
+    };
+    return {
+      totalRules,
+      categories,
+      publishers,
+      actions
+    };
+  }, [dedupedInventory, ruleAction]);
   
   // Auto-group by publisher when inventory changes
   React.useEffect(() => {
@@ -212,6 +251,11 @@ const PolicyModule: React.FC = () => {
       (item.path?.toLowerCase() || '').includes(query)
     );
   }, [combinedInventory, genSearchQuery]);
+
+  const dedupedFilteredInventory = useMemo(
+    () => dedupeByPath(filteredInventory),
+    [filteredInventory]
+  );
 
   /**
    * Merge COMMON_PUBLISHERS with any additional publishers from certificate store
@@ -312,16 +356,16 @@ const PolicyModule: React.FC = () => {
       return;
     }
     
-    const count = filteredInventory.length;
+    const count = dedupedFilteredInventory.length;
     if (!confirm(`Generate rules for all ${count} items?\n\nPriority: Publisher rules first, Hash rules as fallback.\n\nThis will create rules automatically.`)) {
       return;
     }
     
     try {
-      const outputPath = prompt('Enter output path for generated policy:', '.\\policies\\Batch-Generated.xml');
+      const outputPath = prompt('Enter output path for generated policy:', `${DEFAULT_RULES_DIR}\\Batch-Generated.xml`);
       if (!outputPath) return;
       
-      const result = await policy.batchGenerateRules(filteredInventory, outputPath, {
+      const result = await policy.batchGenerateRules(dedupedFilteredInventory, outputPath, {
         ruleAction: ruleAction,
         targetGroup: targetGroup,
         collectionType: 'Exe',
@@ -677,7 +721,7 @@ const PolicyModule: React.FC = () => {
               <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
                 <p className="text-xs font-bold text-blue-900">
                   This will scan: Software inventory, Event Viewer logs, Writable paths, System paths, and all .exe files.
-                  Duplicates will be automatically removed.
+                  Duplicates are automatically removed during rule generation.
                 </p>
               </div>
               <div>
@@ -814,7 +858,7 @@ const PolicyModule: React.FC = () => {
                             const { showSaveDialog } = await import('../src/infrastructure/ipc/fileDialog');
                             const outputPath = await showSaveDialog({
                               title: 'Save Publisher Rule',
-                              defaultPath: `.\\policies\\Publisher-${publisher.replace(/[^a-zA-Z0-9]/g, '-')}.xml`,
+                              defaultPath: `${DEFAULT_RULES_DIR}\\Publisher-${publisher.replace(/[^a-zA-Z0-9]/g, '-')}.xml`,
                               filters: [
                                 { name: 'XML Files', extensions: ['xml'] },
                                 { name: 'All Files', extensions: ['*'] }
@@ -872,7 +916,7 @@ const PolicyModule: React.FC = () => {
                   const confirmed = confirm(`Generate publisher rules for all ${Object.keys(publisherGroups).length} publishers?\n\nThis will create ${Object.keys(publisherGroups).length} rules covering ${combinedInventory.length} items.`);
                   if (!confirmed) return;
                   
-                  const outputPath = prompt('Enter output path:', '.\\policies\\All-Publishers.xml');
+                  const outputPath = prompt('Enter output path:', `${DEFAULT_RULES_DIR}\\All-Publishers.xml`);
                   if (!outputPath) return;
                   
                   try {
@@ -1132,7 +1176,7 @@ const PolicyModule: React.FC = () => {
                       const outputPath = `${ouPolicyOutputDir}\\${fileName}`;
 
                       // Generate policy using the inventory items
-                      const result = await policy.batchGenerateRules(combinedInventory, outputPath, {
+                      const result = await policy.batchGenerateRules(dedupedInventory, outputPath, {
                         ruleAction: 'Allow',
                         targetGroup: type === 'DomainController' ? 'Domain Admins' :
                                     type === 'Server' ? 'AppLocker-Installers' : 'AppLocker-Standard-Users',
@@ -1140,7 +1184,7 @@ const PolicyModule: React.FC = () => {
                       });
 
                       if (result.success) {
-                        results.push(`${type}: ${combinedInventory.length} rules → ${fileName}`);
+                        results.push(`${type}: ${dedupedInventory.length} rules → ${fileName}`);
                       } else {
                         errors.push(`${type}: ${result.error || 'Unknown error'}`);
                       }
@@ -1436,100 +1480,80 @@ const PolicyModule: React.FC = () => {
         </div>
       )}
 
-      {/* Duplicate Detection Modal */}
-      {showDuplicateDetection && (
+      {/* Rules Summary Modal */}
+      {showRulesSummary && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
           <div className="bg-white rounded-3xl w-[900px] max-h-[90vh] shadow-2xl overflow-hidden flex flex-col">
             <div className="p-6 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
               <div className="flex items-center space-x-3">
-                <div className="p-2 bg-orange-600 text-white rounded-xl">
-                  <Filter size={24} />
+                <div className="p-2 bg-blue-600 text-white rounded-xl">
+                  <Layers size={24} />
                 </div>
                 <div>
-                  <h3 className="font-black text-slate-900 text-lg uppercase tracking-tight">Duplicate Detection</h3>
-                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Find and remove duplicate entries</p>
+                  <h3 className="font-black text-slate-900 text-lg uppercase tracking-tight">Rules Summary</h3>
+                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Total rules, categories, publishers, and actions</p>
                 </div>
               </div>
-              <button onClick={() => setShowDuplicateDetection(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-400">
+              <button onClick={() => setShowRulesSummary(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-400">
                 <X size={24} />
               </button>
             </div>
-            <div className="flex-1 p-6 overflow-y-auto">
-              {combinedInventory.length === 0 ? (
-                <div className="text-center py-12 text-slate-400">
-                  <Filter size={48} className="mx-auto mb-4 opacity-20" />
-                  <p className="text-sm font-bold">No items imported yet</p>
-                  <p className="text-xs mt-2">Import scan artifacts first to detect duplicates</p>
+            <div className="flex-1 p-6 overflow-y-auto space-y-6">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="bg-slate-50 rounded-xl p-4 text-center">
+                  <p className="text-2xl font-black text-slate-900">{rulesSummary.totalRules}</p>
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Total Rules</p>
                 </div>
-              ) : (
-                <div className="space-y-4">
-                  <button
-                    onClick={() => {
-                      const report = policy.detectDuplicates(combinedInventory);
-                      setDuplicateReport(report);
-                    }}
-                    className="w-full bg-orange-600 text-white px-6 py-3 rounded-xl font-bold text-sm hover:bg-orange-700 shadow-lg transition-all flex items-center justify-center space-x-2"
-                  >
-                    <Search size={18} />
-                    <span>Scan for Duplicates ({combinedInventory.length} items)</span>
-                  </button>
-                  
-                  {duplicateReport && (
-                    <div className="space-y-4 mt-6">
-                      <div className="grid grid-cols-3 gap-4">
-                        <div className="bg-slate-50 rounded-xl p-4 text-center">
-                          <p className="text-2xl font-black text-slate-900">{duplicateReport.totalItems}</p>
-                          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Total Items</p>
-                        </div>
-                        <div className={`rounded-xl p-4 text-center ${duplicateReport.pathDupCount > 0 ? 'bg-orange-50' : 'bg-green-50'}`}>
-                          <p className={`text-2xl font-black ${duplicateReport.pathDupCount > 0 ? 'text-orange-600' : 'text-green-600'}`}>{duplicateReport.pathDupCount}</p>
-                          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Path Duplicates</p>
-                        </div>
-                        <div className={`rounded-xl p-4 text-center ${duplicateReport.pubDupCount > 0 ? 'bg-orange-50' : 'bg-green-50'}`}>
-                          <p className={`text-2xl font-black ${duplicateReport.pubDupCount > 0 ? 'text-orange-600' : 'text-green-600'}`}>{duplicateReport.pubDupCount}</p>
-                          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Name Duplicates</p>
-                        </div>
-                      </div>
-                      
-                      {duplicateReport.pathDuplicates?.length > 0 && (
-                        <div>
-                          <h4 className="text-xs font-black text-slate-700 uppercase tracking-widest mb-3">Path Duplicates</h4>
-                          <div className="space-y-2 max-h-[200px] overflow-y-auto">
-                            {duplicateReport.pathDuplicates.slice(0, 10).map(([path, items]: [string, InventoryItem[]], idx: number) => (
-                              <div key={idx} className="bg-orange-50 border border-orange-200 rounded-lg p-3">
-                                <p className="text-xs font-mono text-orange-800 truncate">{path}</p>
-                                <p className="text-[10px] text-orange-600 mt-1">{items.length} duplicate entries</p>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      
-                      {(duplicateReport.pathDupCount > 0 || duplicateReport.pubDupCount > 0) && (
-                        <button
-                          onClick={() => {
-                            const uniquePaths = new Set<string>();
-                            const deduped = combinedInventory.filter(item => {
-                              if (item.path && uniquePaths.has(item.path)) return false;
-                              if (item.path) uniquePaths.add(item.path);
-                              return true;
-                            });
-                            
-                            const removed = combinedInventory.length - deduped.length;
-                            setImportedArtifacts(deduped.filter(item => item.id.startsWith('imported-')));
-                            setDuplicateReport(null);
-                            alert(`Removed ${removed} duplicate entries.\n${deduped.length} unique items remaining.`);
-                          }}
-                          className="w-full bg-green-600 text-white px-6 py-3 rounded-xl font-bold text-sm hover:bg-green-700 shadow-lg transition-all flex items-center justify-center space-x-2"
-                        >
-                          <Check size={18} />
-                          <span>Remove Duplicates</span>
-                        </button>
-                      )}
-                    </div>
-                  )}
+                <div className="bg-slate-50 rounded-xl p-4 text-center">
+                  <p className="text-2xl font-black text-slate-900">{Object.keys(rulesSummary.categories).length}</p>
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Categories</p>
                 </div>
-              )}
+                <div className="bg-slate-50 rounded-xl p-4 text-center">
+                  <p className="text-2xl font-black text-slate-900">{Object.keys(rulesSummary.publishers).length}</p>
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Publishers</p>
+                </div>
+                <div className="bg-slate-50 rounded-xl p-4 text-center">
+                  <p className="text-2xl font-black text-slate-900">
+                    {rulesSummary.actions.Allow}/{rulesSummary.actions.Deny}
+                  </p>
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Allow/Deny</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-3">
+                  <h4 className="text-xs font-black text-slate-700 uppercase tracking-widest">Categories</h4>
+                  <div className="space-y-2 max-h-[220px] overflow-y-auto">
+                    {Object.entries(rulesSummary.categories)
+                      .sort((a, b) => b[1] - a[1])
+                      .map(([category, count]) => (
+                        <div key={category} className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                          <span className="text-xs font-bold text-slate-700">{category}</span>
+                          <span className="text-xs font-black text-slate-900">{count}</span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <h4 className="text-xs font-black text-slate-700 uppercase tracking-widest">Top Publishers</h4>
+                  <div className="space-y-2 max-h-[220px] overflow-y-auto">
+                    {Object.entries(rulesSummary.publishers)
+                      .sort((a, b) => b[1] - a[1])
+                      .slice(0, 10)
+                      .map(([publisher, count]) => (
+                        <div key={publisher} className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                          <span className="text-[10px] font-bold text-slate-700 truncate max-w-[220px]">{publisher}</span>
+                          <span className="text-xs font-black text-slate-900">{count}</span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              </div>
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                <p className="text-xs font-bold text-blue-900">
+                  Summary reflects deduplicated inventory used for rule creation. Current action mode: <strong>{ruleAction}</strong>.
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -1621,7 +1645,7 @@ const PolicyModule: React.FC = () => {
                     return;
                   }
                   
-                  const outputPath = prompt(`Apply template "${template.name}"?\n\nEnter output path:`, `.\\policies\\Template-${template.id}.xml`);
+                  const outputPath = prompt(`Apply template "${template.name}"?\n\nEnter output path:`, `${DEFAULT_RULES_DIR}\\Template-${template.id}.xml`);
                   if (!outputPath) return;
                   
                   try {
@@ -2135,7 +2159,7 @@ const PolicyModule: React.FC = () => {
                             const outputPath = await showSaveDialog({
                               title: 'Save Rule to File',
                               // Sanitize filename: remove special chars, limit length
-                              defaultPath: `.\\policies\\Rule-${'name' in subject ? subject.name.replace(/[^a-zA-Z0-9]/g, '-').slice(0, 30) : 'Generated'}.xml`,
+                              defaultPath: `${DEFAULT_RULES_DIR}\\Rule-${'name' in subject ? subject.name.replace(/[^a-zA-Z0-9]/g, '-').slice(0, 30) : 'Generated'}.xml`,
                               filters: [
                                 { name: 'XML Files', extensions: ['xml'] },
                                 { name: 'All Files', extensions: ['*'] }
@@ -2199,7 +2223,7 @@ const PolicyModule: React.FC = () => {
                               const outputPath = await showSaveDialog({
                                 title: 'Export All Rules to File',
                                 // Include date in filename for versioning
-                                defaultPath: `.\\policies\\Batch-Export-${new Date().toISOString().slice(0,10)}.xml`,
+                                defaultPath: `${DEFAULT_RULES_DIR}\\Batch-Export-${new Date().toISOString().slice(0,10)}.xml`,
                                 filters: [
                                   { name: 'XML Files', extensions: ['xml'] },
                                   { name: 'All Files', extensions: ['*'] }
@@ -2209,7 +2233,7 @@ const PolicyModule: React.FC = () => {
 
                               try {
                                 // Use batch generation with publisher grouping for optimal rule count
-                                const result = await policy.batchGenerateRules(filteredInventory, outputPath, {
+                                const result = await policy.batchGenerateRules(dedupedFilteredInventory, outputPath, {
                                   ruleAction: ruleAction,
                                   targetGroup: targetGroup,
                                   collectionType: 'Exe',
@@ -2217,7 +2241,7 @@ const PolicyModule: React.FC = () => {
                                 });
 
                                 if (result.success) {
-                                  alert(`Exported ${filteredInventory.length} rules to file!\n\nOutput: ${result.outputPath || outputPath}`);
+                                  alert(`Exported ${dedupedFilteredInventory.length} rules to file!\n\nOutput: ${result.outputPath || outputPath}`);
                                 } else {
                                   alert(`Error: ${result.error || 'Unknown error'}`);
                                 }
@@ -2254,6 +2278,16 @@ const PolicyModule: React.FC = () => {
       {activeTab === 'tools' && (
         <div className="space-y-3">
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+            <button
+              onClick={() => setShowRulesSummary(true)}
+              className="bg-blue-50 border border-blue-200 p-3 rounded-xl text-left hover:shadow-md transition-all group"
+            >
+              <div className="p-2 bg-blue-600 text-white rounded-lg w-fit mb-2 group-hover:scale-105 transition-transform">
+                <Layers size={16} />
+              </div>
+              <h3 className="text-xs font-bold text-slate-900 mb-0.5">Summary</h3>
+              <p className="text-[9px] text-slate-500">Rules overview</p>
+            </button>
             <button
               onClick={() => setShowOUDeploy(true)}
               className="bg-emerald-50 border border-emerald-200 p-3 rounded-xl text-left hover:shadow-md transition-all group"
