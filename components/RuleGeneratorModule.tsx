@@ -888,7 +888,7 @@ const RuleGeneratorModule: React.FC = () => {
                 <div>
                   <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1 block">Rule Type</label>
                   <div className="flex space-x-2">
-                    {(['Publisher', 'Path', 'Hash'] as const).map(type => (
+                    {(['Publisher', 'Hash', 'Path'] as const).map(type => (
                       <button
                         key={type}
                         onClick={() => setRuleType(type)}

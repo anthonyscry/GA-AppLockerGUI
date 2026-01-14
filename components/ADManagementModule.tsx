@@ -263,26 +263,29 @@ const ADManagementModule: React.FC = () => {
   };
 
   // Safe user selection handler
-  const handleUserSelect = useCallback((user: ADUser) => {
+  const handleUserSelect = useCallback(async (user: ADUser) => {
     try {
       if (!user) return;
       setLookupError(null);
+      const userId = safeString(user.id) || safeString(user.samAccountName);
+      const refreshed = userId ? await ad.getUserById(userId) : null;
+      const nextUser = refreshed || user;
       setSelectedUser({
-        ...user,
-        id: safeString(user.id) || safeString(user.samAccountName) || 'unknown',
-        displayName: safeString(user.displayName) || safeString(user.samAccountName) || 'Unknown',
-        samAccountName: safeString(user.samAccountName) || 'unknown',
-        groups: Array.isArray(user.groups)
-          ? user.groups.filter((group): group is string => typeof group === 'string')
+        ...nextUser,
+        id: safeString(nextUser.id) || safeString(nextUser.samAccountName) || 'unknown',
+        displayName: safeString(nextUser.displayName) || safeString(nextUser.samAccountName) || 'Unknown',
+        samAccountName: safeString(nextUser.samAccountName) || 'unknown',
+        groups: Array.isArray(nextUser.groups)
+          ? nextUser.groups.filter((group): group is string => typeof group === 'string')
           : [],
-        department: safeString(user.department),
-        ou: safeString(user.ou)
+        department: safeString(nextUser.department),
+        ou: safeString(nextUser.ou)
       });
     } catch (err) {
       console.error('Error selecting user:', err);
       setComponentError('Error selecting user');
     }
-  }, []);
+  }, [ad]);
 
   // Toggle group membership
   const handleToggleGroup = useCallback(async (group: string, isCurrentlyMember: boolean) => {
@@ -314,7 +317,7 @@ const ADManagementModule: React.FC = () => {
       const updatedUser = await ad.getUserById(userId);
       if (updatedUser) {
         setLookupError(null);
-        handleUserSelect(updatedUser);
+        await handleUserSelect(updatedUser);
       } else {
         setLookupError('Active Directory did not return updated user details.');
         setComponentError('Failed to refresh user details from Active Directory');

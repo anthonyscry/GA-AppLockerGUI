@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { 
   Search, 
   RefreshCw, 
@@ -11,6 +11,7 @@ import {
   ToggleLeft, 
   ToggleRight, 
   Loader2,
+  Download,
   MapPin,
   Key,
   User,
@@ -19,9 +20,9 @@ import {
 } from 'lucide-react';
 import { useAppServices } from '../src/presentation/contexts/AppContext';
 import { useAsync } from '../src/presentation/hooks/useAsync';
-import { BatchScanSummary, getMachineTypeFromOU, groupMachinesByOU } from '../src/shared/types';
+import { BatchScanSummary, MachineScan, getMachineTypeFromOU, groupMachinesByOU } from '../src/shared/types';
 import { MachineFilter } from '../src/domain/interfaces/IMachineRepository';
-import { NotFoundError, ExternalServiceError } from '../src/domain/errors';
+import { showOpenDialog, showSaveDialog } from '../src/infrastructure/ipc/fileDialog';
 
 const ScanModule: React.FC = () => {
   const { machine, ad } = useAppServices();
@@ -49,6 +50,7 @@ const ScanModule: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [scanInProgress, setScanInProgress] = useState(false);
   const [scanSummary, setScanSummary] = useState<BatchScanSummary | null>(null);
+  const [importedHosts, setImportedHosts] = useState<MachineScan[]>([]);
 
   // Selected machines for targeted scanning
   const [selectedMachines, setSelectedMachines] = useState<Set<string>>(new Set());
@@ -155,7 +157,11 @@ const ScanModule: React.FC = () => {
 
       // Add OU filter if specified
       if (ouPath) {
-        scanOptions.targetOUs = [ouPath];
+        if (!/DC=/i.test(ouPath)) {
+          alert('Selected OU is not a full distinguished name (DN). Please re-detect OUs.');
+        } else {
+          scanOptions.targetOUs = [ouPath];
+        }
       }
 
       if (overrideTargets && overrideTargets.length > 0) {
@@ -231,8 +237,20 @@ const ScanModule: React.FC = () => {
     }
   }, [ad, gpoStatus, refetchGPO]);
 
+  const combinedMachines = useMemo(() => {
+    if (!machines) return importedHosts;
+    const byId = new Map<string, MachineScan>();
+    machines.forEach((machine) => byId.set(machine.id, machine));
+    importedHosts.forEach((machine) => {
+      if (!byId.has(machine.id)) {
+        byId.set(machine.id, machine);
+      }
+    });
+    return Array.from(byId.values());
+  }, [machines, importedHosts]);
+
   const filteredMachines = useMemo(() => {
-    if (!machines) return [];
+    if (!combinedMachines.length) return [];
     
     const filter: MachineFilter = {
       searchQuery: searchQuery || undefined,
@@ -241,8 +259,8 @@ const ScanModule: React.FC = () => {
       riskLevel: riskFilter !== 'All' ? riskFilter : undefined,
     };
     
-    return machine.filterMachines(machines, filter);
-  }, [machines, searchQuery, ouPath, statusFilter, riskFilter, machine]);
+    return machine.filterMachines(combinedMachines, filter);
+  }, [combinedMachines, searchQuery, ouPath, statusFilter, riskFilter, machine]);
 
   const clearFilters = () => {
     setSearchQuery('');
@@ -253,11 +271,29 @@ const ScanModule: React.FC = () => {
 
   const hasActiveFilters = statusFilter !== 'All' || riskFilter !== 'All' || searchQuery !== '' || ouPath !== '';
 
+  useEffect(() => {
+    if (!ouPath) return;
+    const ouExists = availableOUs.some((ou) => ou.path === ouPath);
+    if (!ouExists) {
+      setOuPath('');
+    }
+  }, [availableOUs, ouPath]);
+
+  const parseHostCsv = (text: string): string[] => {
+    return text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => line.split(',')[0])
+      .map((value) => value.replace(/^"(.+)"$/, '$1').trim())
+      .filter(Boolean);
+  };
+
   // Auto-group machines by OU-derived type
   const machineGroups = useMemo(() => {
-    if (!machines) return { workstations: [], servers: [], domainControllers: [], unknown: [] };
-    return groupMachinesByOU(machines);
-  }, [machines]);
+    if (!combinedMachines.length) return { workstations: [], servers: [], domainControllers: [], unknown: [] };
+    return groupMachinesByOU(combinedMachines);
+  }, [combinedMachines]);
 
   if (machinesLoading) {
     return (
@@ -321,6 +357,39 @@ const ScanModule: React.FC = () => {
           >
             <RefreshCw size={18} aria-hidden="true" />
             <span>Detect Systems</span>
+          </button>
+          <button
+            onClick={async () => {
+              const filePath = await showSaveDialog({
+                title: 'Export Detected Hosts',
+                defaultPath: `C:\\AppLocker\\hosts-${new Date().toISOString().split('T')[0]}.csv`,
+                filters: [{ name: 'CSV Files', extensions: ['csv'] }]
+              });
+              if (!filePath) return;
+              const csv = [
+                ['Hostname', 'Status', 'OU', 'OS', 'Risk', 'LastScan'].join(','),
+                ...combinedMachines.map((machine) => ([
+                  machine.hostname,
+                  machine.status,
+                  machine.ou || '',
+                  machine.os || '',
+                  machine.riskLevel,
+                  machine.lastScan
+                ].map((value) => `"${value ?? ''}"`).join(',')))
+              ].join('\n');
+              const electron = (window as any).electron;
+              if (electron?.ipc) {
+                const result = await electron.ipc.invoke('fs:writeFile', filePath, csv);
+                if (!result?.success) {
+                  alert(`Failed to export hosts:\n${result?.error || 'Unknown error'}`);
+                }
+              }
+            }}
+            className="flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all font-bold text-sm min-h-[44px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+            aria-label="Export detected hosts to CSV"
+          >
+            <Download size={18} aria-hidden="true" />
+            <span>Export Hosts</span>
           </button>
         </div>
       </div>
@@ -572,6 +641,40 @@ const ScanModule: React.FC = () => {
           </select>
           <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={10} />
         </div>
+
+        <label className="inline-flex items-center space-x-2 bg-slate-900 text-white px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-widest cursor-pointer hover:bg-slate-800">
+          <input
+            type="file"
+            accept=".csv"
+            className="hidden"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              const text = await file.text();
+              const hosts = parseHostCsv(text);
+              const now = new Date().toISOString();
+              const imported = hosts.map((hostname, index) => ({
+                id: `imported-${hostname}-${index}`,
+                hostname,
+                lastScan: now,
+                status: 'Offline',
+                riskLevel: 'Low',
+                appCount: 0,
+                os: '',
+                ou: ''
+              })) as MachineScan[];
+              setImportedHosts(imported);
+              e.target.value = '';
+            }}
+          />
+          <span>Import Hosts</span>
+        </label>
+
+        {importedHosts.length > 0 && (
+          <div className="text-[10px] font-bold text-slate-500">
+            Imported: {importedHosts.length}
+          </div>
+        )}
 
         {/* Reset Button */}
         {hasActiveFilters && (

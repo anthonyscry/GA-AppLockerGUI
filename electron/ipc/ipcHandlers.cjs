@@ -1778,7 +1778,7 @@ function setupIpcHandlers() {
           }
 
           foreach ($group in $groups) {
-            $existing = Get-ADGroup -Filter "Name -eq '$($group.Name)'" -ErrorAction SilentlyContinue
+            $existing = Get-ADGroup -Identity $group.Name -ErrorAction SilentlyContinue
             if ($existing) {
               $results += @{
                 name = $group.Name
@@ -1901,9 +1901,14 @@ function setupIpcHandlers() {
             Set-GPRegistryValue -Name $gpoName -Key "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WinRM\\Service" -ValueName "AllowAutoConfig" -Type DWord -Value 1
             Set-GPRegistryValue -Name $gpoName -Key "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WinRM\\Service" -ValueName "IPv4Filter" -Type String -Value "*"
             Set-GPRegistryValue -Name $gpoName -Key "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WinRM\\Service" -ValueName "IPv6Filter" -Type String -Value "*"
+            Set-GPRegistryValue -Name $gpoName -Key "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WinRM\\Service" -ValueName "AllowRemoteShellAccess" -Type DWord -Value 1
+
+            # Configure Windows Firewall to allow WinRM (HTTP/HTTPS)
+            Set-GPRegistryValue -Name $gpoName -Key "HKLM\\SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\FirewallRules" -ValueName "WINRM-HTTP-In-TCP" -Type String -Value "v2.31|Action=Allow|Active=TRUE|Dir=In|Protocol=6|LPort=5985|App=System|Name=Windows Remote Management (HTTP-In)|"
+            Set-GPRegistryValue -Name $gpoName -Key "HKLM\\SOFTWARE\\Policies\\Microsoft\\WindowsFirewall\\FirewallRules" -ValueName "WINRM-HTTPS-In-TCP" -Type String -Value "v2.31|Action=Allow|Active=TRUE|Dir=In|Protocol=6|LPort=5986|App=System|Name=Windows Remote Management (HTTPS-In)|"
 
             # Enable the GPO
-            $gpo.GpoStatus = 'AllSettingsEnabled'
+            Set-GPO -Name $gpoName -GpoStatus AllSettingsEnabled | Out-Null
 
             # Link GPO to domain root if not already linked
             $domain = Get-ADDomain
