@@ -337,15 +337,40 @@ const ADManagementModule: React.FC = () => {
           <h2 className="text-xl font-black text-slate-900 tracking-tight italic uppercase">AD Manager</h2>
           <p className="text-slate-500 text-xs font-medium">Drag users into security groups to update AppLocker permissions.</p>
         </div>
-        <button
-          onClick={handleScanAD}
-          disabled={isScanning}
-          className="bg-[#002868] text-white px-4 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-[#001f4d] shadow-lg shadow-blue-900/20 transition-all flex items-center space-x-2 disabled:opacity-50 min-h-[36px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-          aria-label={isScanning ? "Syncing Active Directory domain" : "Refresh Active Directory inventory"}
-        >
-          {isScanning ? <Activity className="animate-spin" size={14} aria-hidden="true" /> : <RefreshCw size={14} aria-hidden="true" />}
-          <span>{isScanning ? 'Syncing...' : 'Refresh AD Inventory'}</span>
-        </button>
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={async () => {
+              try {
+                const electron = (window as any).electron;
+                if (electron?.ipc) {
+                  const result = await electron.ipc.invoke('ad:createAppLockerGroups', {});
+                  if (result.success) {
+                    alert(`AppLocker security groups created successfully!\n\nGroups: ${APPLOCKER_GROUPS.join(', ')}`);
+                  } else {
+                    alert(`Failed to create groups: ${result.error || 'Unknown error'}`);
+                  }
+                }
+              } catch (error) {
+                console.error('Failed to create AppLocker groups:', error);
+                setComponentError('Failed to create AppLocker groups');
+              }
+            }}
+            className="bg-green-600 text-white px-4 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-green-700 shadow-lg shadow-green-900/20 transition-all flex items-center space-x-2 min-h-[36px] focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+            aria-label="Create AppLocker security groups in AD"
+          >
+            <UserPlus size={14} aria-hidden="true" />
+            <span>Create Groups</span>
+          </button>
+          <button
+            onClick={handleScanAD}
+            disabled={isScanning}
+            className="bg-[#002868] text-white px-4 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-[#001f4d] shadow-lg shadow-blue-900/20 transition-all flex items-center space-x-2 disabled:opacity-50 min-h-[36px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            aria-label={isScanning ? "Syncing Active Directory domain" : "Refresh Active Directory inventory"}
+          >
+            {isScanning ? <Activity className="animate-spin" size={14} aria-hidden="true" /> : <RefreshCw size={14} aria-hidden="true" />}
+            <span>{isScanning ? 'Syncing...' : 'Refresh AD Inventory'}</span>
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
