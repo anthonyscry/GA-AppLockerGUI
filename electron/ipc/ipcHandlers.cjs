@@ -2270,18 +2270,17 @@ function setupIpcHandlers() {
               $publisher = ''
               $action = ''
 
-              # Try to extract path (usually in quotes or after "was")
-              if ($msg -match '([A-Z]:\\\\[^"]+\\.exe|[A-Z]:\\\\[^\\s]+\\.exe)') {
-                $path = $matches[1]
-              } elseif ($msg -match '"([^"]+)"') {
+              # Try to extract path - simpler regex to avoid escaping issues
+              # Look for .exe paths
+              if ($msg -match '([A-Za-z]:[^*?"<>|]+\.exe)') {
                 $path = $matches[1]
               }
 
               # Try to extract publisher information
-              if ($msg -match 'Publisher:\\s*([^\\r\\n]+)') {
-                $publisher = $matches[1].Trim()
-              } elseif ($msg -match 'signed by\\s+([^\\r\\n]+)') {
-                $publisher = $matches[1].Trim()
+              if ($msg -match 'Publisher:\s*(.+)') {
+                $publisher = ($matches[1] -split "`r")[0].Trim()
+              } elseif ($msg -match 'signed by\s+(.+)') {
+                $publisher = ($matches[1] -split "`r")[0].Trim()
               }
 
               # Map event ID to action type
