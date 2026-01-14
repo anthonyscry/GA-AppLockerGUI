@@ -2510,16 +2510,20 @@ function setupIpcHandlers() {
                 # ignore XML parse errors, fallback to message parsing
               }
 
-              # Try to extract path - simpler regex to avoid escaping issues
-              # Look for .exe paths
-              $pathCandidates = @('FilePath', 'FileName', 'Path', 'ProcessName', 'Executable', 'ImagePath')
+              # Try to extract path - prefer structured EventData fields
+              $pathCandidates = @('FilePath', 'FileName', 'FullPath', 'Path', 'ProcessName', 'Executable', 'ImagePath')
               foreach ($key in $pathCandidates) {
                 if (-not $path -and $eventData.ContainsKey($key)) {
                   $path = $eventData[$key]
                 }
               }
 
-              if (-not $path -and $msg -match '([A-Za-z]:[^*?"<>|]+\.exe)') {
+              # Try to parse a labeled file path line from the message
+              if (-not $path -and $msg -match '(?im)^\s*(File Name|FilePath|File Path|Image Path|Path|Executable)\s*:\s*(.+)$') {
+                $path = ($matches[2] -split '\r?\n')[0].Trim()
+              }
+
+              if (-not $path -and $msg -match '([A-Za-z]:\\\\[^\\\\r\\\\n"]+\\.(exe|dll|msi|ps1|bat|cmd))') {
                 $path = $matches[1]
               }
 
@@ -2528,6 +2532,10 @@ function setupIpcHandlers() {
                 $publisher = $eventData['Publisher']
               } elseif ($eventData.ContainsKey('PublisherName')) {
                 $publisher = $eventData['PublisherName']
+              } elseif ($eventData.ContainsKey('Fqbn')) {
+                $publisher = $eventData['Fqbn']
+              } elseif ($eventData.ContainsKey('PackageFamilyName')) {
+                $publisher = $eventData['PackageFamilyName']
               } elseif ($msg -match 'Publisher:\s*(.+)') {
                 $publisher = ($matches[1] -split '\r?\n')[0].Trim()
               } elseif ($msg -match 'signed by\s+(.+)') {

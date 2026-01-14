@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { PolicyPhase, InventoryItem, TrustedPublisher, MachineScan, MachineType, getMachineTypeFromOU, groupMachinesByOU, MachinesByType, PolicyRule } from '../src/shared/types';
+import { InventoryItem, TrustedPublisher } from '../src/shared/types';
 import {
   Archive,
   Search,
@@ -44,7 +44,7 @@ interface GeneratedRule {
 }
 
 const RuleGeneratorModule: React.FC = () => {
-  const { policy, machine } = useAppServices();
+  const { policy } = useAppServices();
 
   // Generator State
   const [generatorTab, setGeneratorTab] = useState<'scanned' | 'trusted'>('trusted');
@@ -82,7 +82,7 @@ const RuleGeneratorModule: React.FC = () => {
   }, [toastMessage]);
 
   // Fetch inventory
-  const { data: inventory, loading: inventoryLoading, refetch: refetchInventory } = useAsync(
+  const { data: inventory, loading: inventoryLoading } = useAsync(
     () => policy.getInventory()
   );
 
@@ -266,6 +266,18 @@ const RuleGeneratorModule: React.FC = () => {
     }
   };
 
+  const normalizeRuleType = (value: string | undefined): GeneratedRule['type'] => {
+    const normalized = (value || '').toLowerCase();
+    if (normalized === 'path') return 'Path';
+    if (normalized === 'hash') return 'Hash';
+    return 'Publisher';
+  };
+
+  const normalizeRuleAction = (value: string | undefined): GeneratedRule['action'] => {
+    const normalized = (value || '').toLowerCase();
+    return normalized === 'deny' ? 'Deny' : 'Allow';
+  };
+
   const parseRulesFromXml = (xmlText: string): GeneratedRule[] => {
     if (typeof window === 'undefined' || !('DOMParser' in window)) return [];
     const parser = new DOMParser();
@@ -323,23 +335,25 @@ const RuleGeneratorModule: React.FC = () => {
     try {
       const text = await file.text();
       let importedRules: GeneratedRule[] = [];
+      const fileName = file.name.toLowerCase();
 
-      if (file.name.endsWith('.json')) {
+      if (fileName.endsWith('.json')) {
         const data = JSON.parse(text);
         if (Array.isArray(data)) {
           importedRules = data.map((r: any, i: number) => ({
             id: r.id || `imported-rule-${Date.now()}-${i}`,
             name: r.name || 'Unknown',
-            type: r.type || 'Publisher',
-            action: r.action || 'Allow',
+            type: normalizeRuleType(r.type),
+            action: normalizeRuleAction(r.action),
             targetGroup: r.targetGroup || APPLOCKER_GROUPS[0],
             publisher: r.publisher,
             path: r.path,
+            hash: r.hash,
             xml: r.xml,
             createdAt: r.createdAt || new Date().toISOString()
           }));
         }
-      } else if (file.name.endsWith('.xml')) {
+      } else if (fileName.endsWith('.xml')) {
         importedRules = parseRulesFromXml(text);
       }
 
@@ -367,7 +381,7 @@ const RuleGeneratorModule: React.FC = () => {
     setActivePanel('builder');
   };
 
-  if (inventoryLoading && publishersLoading) {
+  if (inventoryLoading || publishersLoading) {
     return <LoadingState message="Loading Rule Generator..." />;
   }
 
