@@ -2708,11 +2708,7 @@ function setupIpcHandlers() {
             $targetSystems = @($env:COMPUTERNAME)
           }
           $targetSystems = $targetSystems | ForEach-Object {
-            if ($_ -match '^(?i:local|localhost|\\.)$') {
-              $env:COMPUTERNAME
-            } else {
-              $_
-            }
+            if ($_ -match '^(?i)(local|localhost)$') { $env:COMPUTERNAME } else { $_ }
           }
 
           # Create output directory if needed
