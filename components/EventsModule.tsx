@@ -27,7 +27,6 @@ import {
   RefreshCw,
   Save,
   FolderArchive,
-  Server,
   AlertCircle,
   X
 } from 'lucide-react';
@@ -126,7 +125,7 @@ const EventRow: React.FC<{ event: AppEvent }> = ({ event }) => {
  * Main Event Monitor component
  */
 const EventsModule: React.FC = () => {
-  const { event, machine } = useAppServices();
+  const { event } = useAppServices();
 
   // Search and filter state
   const [searchQuery, setSearchQuery] = useState('');
@@ -136,11 +135,7 @@ const EventsModule: React.FC = () => {
   // Backup modal state
   const [showBackupModal, setShowBackupModal] = useState(false);
   const [backupProgress, setBackupProgress] = useState<{current: number; total: number; status: string} | null>(null);
-  const [selectedBackupSystems, setSelectedBackupSystems] = useState<Set<string>>(new Set());
   const [backupPath, setBackupPath] = useState('C:\\AppLocker\\backups\\events');
-
-  // Online/Offline filter for machine list
-  const [onlineFilter, setOnlineFilter] = useState<'all' | 'online' | 'offline'>('all');
 
   // Error state for component-level error handling
   const [componentError, setComponentError] = useState<string | null>(null);
@@ -158,9 +153,6 @@ const EventsModule: React.FC = () => {
     data: eventStats,
     loading: statsLoading
   } = useAsync(() => event.getEventStats());
-
-  // Fetch machines for backup selection
-  const { data: machines } = useAsync(() => machine.getAllMachines());
 
   // Normalize events to ensure we always have an array with valid objects
   const events = useMemo(() => {
@@ -274,11 +266,6 @@ const EventsModule: React.FC = () => {
 
   // Backup events handler - creates a single combined log file
   const handleBackupEvents = useCallback(async () => {
-    if (selectedBackupSystems.size === 0) {
-      alert('Please select at least one system to backup');
-      return;
-    }
-
     const electron = (window as any).electron;
     if (!electron?.ipc) {
       alert('Backup feature requires the Electron app');
@@ -286,16 +273,13 @@ const EventsModule: React.FC = () => {
     }
 
     try {
-      const systemsArray = Array.from(selectedBackupSystems);
       const now = new Date();
       const monthFolder = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
       const dateStr = now.toISOString().split('T')[0];
       const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '');
 
-      // Create a single combined log file with all selected systems listed
-      const filename = systemsArray.length === 1
-        ? `${systemsArray[0]}-${dateStr}-${timeStr}.evtx`
-        : `combined-${systemsArray.length}systems-${dateStr}-${timeStr}.evtx`;
+      // Create a single log file for the local system
+      const filename = `local-${dateStr}-${timeStr}.evtx`;
       const outputPath = `${backupPath}\\${monthFolder}\\${filename}`;
 
       setBackupProgress({ current: 0, total: 1, status: 'Backing up AppLocker events...' });
@@ -303,10 +287,9 @@ const EventsModule: React.FC = () => {
       try {
         // Backup as a single combined file
         const result = await electron.ipc.invoke('events:backup', {
-          systemName: systemsArray.join(','), // Pass all systems for logging purposes
+          systemName: 'local',
           outputPath,
-          createFolderIfMissing: true,
-          systems: systemsArray // Pass the systems array
+          createFolderIfMissing: true
         });
 
         setBackupProgress({ current: 1, total: 1, status: 'Complete!' });
@@ -316,8 +299,7 @@ const EventsModule: React.FC = () => {
           alert(`Backup failed: ${result?.error || 'Unknown error'}`);
         } else {
           setShowBackupModal(false);
-          setSelectedBackupSystems(new Set());
-          alert(`Backup complete!\n\nSaved AppLocker events to:\n${outputPath}\n\nSystems included: ${systemsArray.length}`);
+          alert(`Backup complete!\n\nSaved AppLocker events to:\n${outputPath}\n\nBackup scope: Local system only.`);
         }
       } catch (err) {
         console.warn('Error backing up:', err);
@@ -330,30 +312,7 @@ const EventsModule: React.FC = () => {
       console.error('Backup failed:', error);
       alert(`Backup failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-  }, [selectedBackupSystems, backupPath]);
-
-  // Toggle backup system selection
-  const toggleBackupSystem = useCallback((hostname: string) => {
-    setSelectedBackupSystems(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(hostname)) {
-        newSet.delete(hostname);
-      } else {
-        newSet.add(hostname);
-      }
-      return newSet;
-    });
-  }, []);
-
-  // Select all machines for backup
-  const selectAllForBackup = useCallback(() => {
-    if (machines && Array.isArray(machines)) {
-      const hostnames = machines
-        .filter(m => m?.hostname)
-        .map(m => m.hostname);
-      setSelectedBackupSystems(new Set(hostnames));
-    }
-  }, [machines]);
+  }, [backupPath]);
 
   // Clear component error after displaying
   useEffect(() => {
@@ -429,10 +388,10 @@ const EventsModule: React.FC = () => {
           <button
             onClick={() => setShowBackupModal(true)}
             className="flex items-center space-x-2 bg-emerald-600 text-white px-4 py-2.5 rounded-lg hover:bg-emerald-700 min-h-[44px] focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2"
-            aria-label="Backup AppLocker events from systems"
+            aria-label="Backup AppLocker events from the local system"
           >
             <FolderArchive size={18} aria-hidden="true" />
-            <span>Backup Events</span>
+            <span>Backup Events (Local)</span>
           </button>
           <button
             onClick={handleExportCSV}
@@ -456,11 +415,11 @@ const EventsModule: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="font-bold text-slate-900 text-lg">Backup AppLocker Events</h3>
-                  <p className="text-xs text-slate-500">Select systems to backup event logs from</p>
+                  <p className="text-xs text-slate-500">Local-only backup for the current machine</p>
                 </div>
               </div>
               <button
-                onClick={() => { setShowBackupModal(false); setSelectedBackupSystems(new Set()); }}
+                onClick={() => { setShowBackupModal(false); }}
                 className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-400"
                 aria-label="Close backup modal"
               >
@@ -481,109 +440,15 @@ const EventsModule: React.FC = () => {
                   placeholder="C:\AppLocker-Backups"
                   className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
                 />
-                <p className="text-[10px] text-slate-400 mt-1">Files saved as: [path]\[YYYY-MM]\[hostname]-[date]-[time].evtx</p>
+                <p className="text-[10px] text-slate-400 mt-1">Files saved as: [path]\[YYYY-MM]\local-[date]-[time].evtx</p>
               </div>
 
-              {/* Machine Selection */}
               <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-xs font-bold text-slate-600 uppercase tracking-widest">
-                    Select Systems ({selectedBackupSystems.size} selected)
-                  </label>
-                  <div className="flex items-center space-x-2">
-                    <button
-                      onClick={selectAllForBackup}
-                      className="text-xs text-emerald-600 hover:text-emerald-800 font-bold"
-                    >
-                      Select All
-                    </button>
-                    <span className="text-slate-300">|</span>
-                    <button
-                      onClick={() => setSelectedBackupSystems(new Set())}
-                      className="text-xs text-slate-500 hover:text-slate-700 font-bold"
-                    >
-                      Clear
-                    </button>
-                  </div>
-                </div>
-
-                {/* Online/Offline Filter Toggle */}
-                <div className="flex items-center space-x-2 mb-2 p-2 bg-slate-50 rounded-lg">
-                  <span className="text-xs font-bold text-slate-500">Filter:</span>
-                  <button
-                    onClick={() => setOnlineFilter('all')}
-                    className={`px-2 py-1 rounded text-[10px] font-bold transition-colors ${
-                      onlineFilter === 'all' ? 'bg-slate-700 text-white' : 'bg-white text-slate-500 hover:bg-slate-100'
-                    }`}
-                  >
-                    All
-                  </button>
-                  <button
-                    onClick={() => setOnlineFilter('online')}
-                    className={`px-2 py-1 rounded text-[10px] font-bold transition-colors flex items-center space-x-1 ${
-                      onlineFilter === 'online' ? 'bg-green-600 text-white' : 'bg-white text-slate-500 hover:bg-green-50'
-                    }`}
-                  >
-                    <span className="w-2 h-2 rounded-full bg-green-500"></span>
-                    <span>Online</span>
-                  </button>
-                  <button
-                    onClick={() => setOnlineFilter('offline')}
-                    className={`px-2 py-1 rounded text-[10px] font-bold transition-colors flex items-center space-x-1 ${
-                      onlineFilter === 'offline' ? 'bg-slate-600 text-white' : 'bg-white text-slate-500 hover:bg-slate-100'
-                    }`}
-                  >
-                    <span className="w-2 h-2 rounded-full bg-slate-400"></span>
-                    <span>Offline</span>
-                  </button>
-                </div>
-
-                <div className="border border-slate-200 rounded-lg max-h-[300px] overflow-y-auto">
-                  {machines && Array.isArray(machines) && machines.length > 0 ? (
-                    <div className="divide-y divide-slate-100">
-                      {machines.filter(m => {
-                        if (!m?.hostname) return false;
-                        // Also filter for Windows systems only
-                        const isWindows = !m.os || m.os.toLowerCase().includes('windows');
-                        if (onlineFilter === 'all') return isWindows;
-                        if (onlineFilter === 'online') return m.status === 'Online' && isWindows;
-                        if (onlineFilter === 'offline') return m.status !== 'Online' && isWindows;
-                        return isWindows;
-                      }).map((m) => (
-                        <label
-                          key={m.id || m.hostname}
-                          className={`flex items-center p-3 cursor-pointer hover:bg-slate-50 transition-colors ${
-                            selectedBackupSystems.has(m.hostname) ? 'bg-emerald-50' : ''
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selectedBackupSystems.has(m.hostname)}
-                            onChange={() => toggleBackupSystem(m.hostname)}
-                            className="w-4 h-4 text-emerald-600 border-slate-300 rounded focus:ring-2 focus:ring-emerald-500"
-                          />
-                          <div className="ml-3 flex-1">
-                            <div className="flex items-center space-x-2">
-                              <Server size={14} className="text-slate-400" />
-                              <span className="font-bold text-slate-900 text-sm">{m.hostname}</span>
-                              <span className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase ${
-                                m.status === 'Online' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'
-                              }`}>
-                                {m.status || 'Unknown'}
-                              </span>
-                            </div>
-                            <p className="text-[10px] text-slate-400 mt-0.5 truncate">{m.ou || 'No OU'}</p>
-                          </div>
-                        </label>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="p-8 text-center text-slate-400">
-                      <Server size={32} className="mx-auto mb-2 opacity-30" />
-                      <p className="text-sm font-bold">No machines available</p>
-                      <p className="text-xs mt-1">Run a remote scan first to discover machines</p>
-                    </div>
-                  )}
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                  <p className="font-semibold">Local-only backup</p>
+                  <p className="text-xs text-amber-700 mt-1">
+                    Remote system backups are not supported. This export captures AppLocker events from the current machine only.
+                  </p>
                 </div>
               </div>
 
@@ -601,7 +466,7 @@ const EventsModule: React.FC = () => {
                     />
                   </div>
                   <p className="text-xs text-emerald-600 mt-1">
-                    {backupProgress.current} of {backupProgress.total} systems
+                    Local system ({backupProgress.current} of {backupProgress.total})
                   </p>
                 </div>
               )}
@@ -609,14 +474,14 @@ const EventsModule: React.FC = () => {
 
             <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end space-x-3">
               <button
-                onClick={() => { setShowBackupModal(false); setSelectedBackupSystems(new Set()); }}
+                onClick={() => { setShowBackupModal(false); }}
                 className="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-lg font-bold text-sm hover:bg-slate-50"
               >
                 Cancel
               </button>
               <button
                 onClick={handleBackupEvents}
-                disabled={selectedBackupSystems.size === 0 || backupProgress !== null}
+                disabled={backupProgress !== null}
                 className="px-6 py-2 bg-emerald-600 text-white rounded-lg font-bold text-sm hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
               >
                 {backupProgress ? (
