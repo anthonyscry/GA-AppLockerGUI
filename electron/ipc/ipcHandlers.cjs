@@ -47,7 +47,7 @@ function isPathAllowed(filePath, allowedRoots = null) {
     return false;
   }
 
-  // Default allowed roots
+  // Default allowed roots (Windows AppLocker management paths)
   const defaultAllowedRoots = [
     process.cwd(),
     require('os').tmpdir(),
@@ -56,7 +56,7 @@ function isPathAllowed(filePath, allowedRoots = null) {
     path.join(require('os').homedir(), 'AppData'),
     'C:\\AppLocker',
     'C:\\AppLockerBackups',
-    'C:\\AppLocker'
+    'C:\\AppLockerEvidence'
   ];
 
   const roots = allowedRoots || defaultAllowedRoots;
@@ -2291,7 +2291,7 @@ function setupIpcHandlers() {
 
             # Also try wevtutil silently (may fail without elevation but try anyway)
             $primaryLog = 'Microsoft-Windows-AppLocker/EXE and DLL'
-            Start-Process -FilePath "wevtutil.exe" -ArgumentList "epl `"$primaryLog`" `"${safeOutputPath}`" /ow:true" -WindowStyle Hidden -Wait -ErrorAction SilentlyContinue 2>$null
+            Start-Process -FilePath "wevtutil.exe" -ArgumentList "epl \`"$primaryLog\`" \`"${safeOutputPath}\`" /ow:true" -WindowStyle Hidden -Wait -ErrorAction SilentlyContinue 2>$null
 
             @{
               success = $true

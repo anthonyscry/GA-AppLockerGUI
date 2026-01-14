@@ -16,7 +16,8 @@ import {
   Import,
   ChevronDown,
   Wand2,
-  Info
+  Info,
+  AlertCircle
 } from 'lucide-react';
 import { APPLOCKER_GROUPS, COMMON_PUBLISHERS } from '../constants';
 import { useAppServices } from '../src/presentation/contexts/AppContext';
@@ -37,6 +38,17 @@ const RuleGeneratorModule: React.FC = () => {
   const [genCategoryFilter, setGenCategoryFilter] = useState('All');
   const [importedArtifacts, setImportedArtifacts] = useState<InventoryItem[]>([]);
   const [importedFrom, setImportedFrom] = useState<string>('');
+
+  // Toast notification state
+  const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error' | 'warning'; message: string } | null>(null);
+
+  // Auto-dismiss toast after 5 seconds
+  useEffect(() => {
+    if (toastMessage) {
+      const timer = setTimeout(() => setToastMessage(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [toastMessage]);
 
   // Fetch inventory
   const { data: inventory, loading: inventoryLoading, refetch: refetchInventory } = useAsync(
@@ -114,7 +126,7 @@ const RuleGeneratorModule: React.FC = () => {
 
   const handleGenerateRule = async () => {
     if (!selectedApp && !selectedPublisher) {
-      alert('Please select an application or publisher first.');
+      setToastMessage({ type: 'warning', message: 'Please select an application or publisher first.' });
       return;
     }
 
@@ -136,11 +148,11 @@ const RuleGeneratorModule: React.FC = () => {
       };
 
       await policy.createRule(ruleConfig);
-      alert(`Rule created successfully for ${selectedApp?.name || selectedPublisher?.name}`);
+      setToastMessage({ type: 'success', message: `Rule created successfully for ${selectedApp?.name || selectedPublisher?.name}` });
       resetGenerator();
     } catch (error) {
       console.error('Failed to create rule:', error);
-      alert(`Failed to create rule: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setToastMessage({ type: 'error', message: `Failed to create rule: ${error instanceof Error ? error.message : 'Unknown error'}` });
     }
   };
 
@@ -150,6 +162,23 @@ const RuleGeneratorModule: React.FC = () => {
 
   return (
     <div className="space-y-4 animate-in slide-in-from-bottom-4 duration-500 pb-8">
+      {/* Toast notification */}
+      {toastMessage && (
+        <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-lg flex items-center space-x-2 animate-in slide-in-from-right ${
+          toastMessage.type === 'success' ? 'bg-green-600 text-white' :
+          toastMessage.type === 'error' ? 'bg-red-600 text-white' :
+          'bg-yellow-500 text-white'
+        }`}>
+          {toastMessage.type === 'success' ? <CheckCircle size={16} /> :
+           toastMessage.type === 'error' ? <AlertCircle size={16} /> :
+           <Info size={16} />}
+          <span className="text-xs font-medium">{toastMessage.message}</span>
+          <button onClick={() => setToastMessage(null)} className="p-1 hover:bg-white/20 rounded">
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -208,45 +237,111 @@ const RuleGeneratorModule: React.FC = () => {
                       let allItems: InventoryItem[] = [];
                       const fileNames: string[] = [];
 
+                      /**
+                       * Parse CSV line handling quoted fields properly
+                       * Handles: "field,with,commas", "field""with""quotes", regular,fields
+                       */
+                      const parseCSVLine = (line: string): string[] => {
+                        const result: string[] = [];
+                        let current = '';
+                        let inQuotes = false;
+
+                        for (let i = 0; i < line.length; i++) {
+                          const char = line[i];
+                          const nextChar = line[i + 1];
+
+                          if (inQuotes) {
+                            if (char === '"' && nextChar === '"') {
+                              // Escaped quote
+                              current += '"';
+                              i++;
+                            } else if (char === '"') {
+                              // End of quoted field
+                              inQuotes = false;
+                            } else {
+                              current += char;
+                            }
+                          } else {
+                            if (char === '"') {
+                              inQuotes = true;
+                            } else if (char === ',') {
+                              result.push(current.trim());
+                              current = '';
+                            } else {
+                              current += char;
+                            }
+                          }
+                        }
+                        result.push(current.trim());
+                        return result;
+                      };
+
                       const parseFile = (text: string, fileName: string, baseOffset: number): InventoryItem[] => {
                         const baseId = Date.now() + baseOffset * 10000;
                         let items: InventoryItem[] = [];
 
-                        if (fileName.endsWith('.json')) {
-                          const data = JSON.parse(text);
-                          if (data.Executables) {
-                            items = data.Executables.map((exe: any, index: number) => ({
-                              id: `imported-${baseId}-${index}`,
-                              name: exe.Name || exe.name || 'Unknown',
-                              publisher: exe.Publisher || exe.publisher || 'Unknown',
-                              path: exe.Path || exe.path || '',
-                              version: exe.Version || exe.version || '',
-                              type: (exe.Type || exe.type || 'EXE') as InventoryItem['type']
-                            }));
-                          } else if (Array.isArray(data)) {
-                            items = data.map((item: any, index: number) => ({
-                              id: `imported-${baseId}-${index}`,
-                              name: item.Name || item.name || 'Unknown',
-                              publisher: item.Publisher || item.publisher || 'Unknown',
-                              path: item.Path || item.path || '',
-                              version: item.Version || item.version || '',
-                              type: (item.Type || item.type || 'EXE') as InventoryItem['type']
-                            }));
+                        // Validate file has content
+                        if (!text || !text.trim()) {
+                          console.warn(`Empty file: ${fileName}`);
+                          return [];
+                        }
+
+                        if (fileName.toLowerCase().endsWith('.json')) {
+                          try {
+                            const data = JSON.parse(text);
+                            if (data.Executables && Array.isArray(data.Executables)) {
+                              items = data.Executables.map((exe: any, index: number) => ({
+                                id: `imported-${baseId}-${index}`,
+                                name: exe.Name || exe.name || 'Unknown',
+                                publisher: exe.Publisher || exe.publisher || 'Unknown',
+                                path: exe.Path || exe.path || '',
+                                version: exe.Version || exe.version || '',
+                                type: (exe.Type || exe.type || 'EXE') as InventoryItem['type']
+                              }));
+                            } else if (Array.isArray(data)) {
+                              items = data.map((item: any, index: number) => ({
+                                id: `imported-${baseId}-${index}`,
+                                name: item.Name || item.name || 'Unknown',
+                                publisher: item.Publisher || item.publisher || 'Unknown',
+                                path: item.Path || item.path || '',
+                                version: item.Version || item.version || '',
+                                type: (item.Type || item.type || 'EXE') as InventoryItem['type']
+                              }));
+                            }
+                          } catch (jsonErr) {
+                            console.error(`Invalid JSON in ${fileName}:`, jsonErr);
+                            return [];
                           }
-                        } else {
+                        } else if (fileName.toLowerCase().endsWith('.csv')) {
                           const lines = text.split('\n').filter(l => l.trim());
-                          const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+
+                          // Need at least header + 1 data row
+                          if (lines.length < 2) {
+                            console.warn(`CSV file ${fileName} has no data rows`);
+                            return [];
+                          }
+
+                          const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase());
+
                           items = lines.slice(1).map((line, index) => {
-                            const values = line.split(',').map(v => v.trim());
+                            const values = parseCSVLine(line);
+                            const getField = (name: string, fallbackIdx: number): string => {
+                              const idx = headers.indexOf(name);
+                              return (idx >= 0 ? values[idx] : values[fallbackIdx]) || '';
+                            };
+
                             return {
                               id: `imported-${baseId}-${index}`,
-                              name: values[headers.indexOf('name')] || values[0] || 'Unknown',
-                              publisher: values[headers.indexOf('publisher')] || values[1] || 'Unknown',
-                              path: values[headers.indexOf('path')] || values[2] || '',
-                              version: values[headers.indexOf('version')] || values[3] || '',
-                              type: (values[headers.indexOf('type')] || values[4] || 'EXE') as InventoryItem['type']
+                              name: getField('name', 0) || 'Unknown',
+                              publisher: getField('publisher', 1) || 'Unknown',
+                              path: getField('path', 2),
+                              version: getField('version', 3),
+                              type: (getField('type', 4) || 'EXE') as InventoryItem['type']
                             };
-                          });
+                          }).filter(item => item.name !== 'Unknown' || item.path);
+                        } else {
+                          console.warn(`Unsupported file type: ${fileName}`);
+                          return [];
                         }
                         return items;
                       };
@@ -274,11 +369,14 @@ const RuleGeneratorModule: React.FC = () => {
                         if (uniqueItems.length > 0) {
                           setImportedArtifacts(prev => [...prev, ...uniqueItems]);
                           setImportedFrom(fileNames.length > 1 ? `${fileNames.length} files` : fileNames[0]);
-                          alert(`Imported ${uniqueItems.length} items from ${fileNames.length} file(s)`);
+                          setToastMessage({ type: 'success', message: `Imported ${uniqueItems.length} items from ${fileNames.length} file(s)` });
                         }
                       };
 
-                      processFiles();
+                      processFiles().catch(err => {
+                        console.error('Failed to process files:', err);
+                        setToastMessage({ type: 'error', message: `Failed to import files: ${err instanceof Error ? err.message : 'Unknown error'}` });
+                      });
                     }}
                     className="hidden"
                   />
