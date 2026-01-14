@@ -685,46 +685,69 @@ function setupIpcHandlers() {
   // Policy merger handler
   ipcMain.handle('policy:mergePolicies', async (event, policyPaths, outputPath, options = {}) => {
     try {
-      // SECURITY: Validate output path
-      if (!isPathAllowed(outputPath)) {
-        return { success: false, error: 'Output path not allowed' };
-      }
+      const payload = Array.isArray(policyPaths)
+        ? { policyPaths, outputPath, options }
+        : policyPaths;
 
-      // SECURITY: Validate all policy paths
-      if (!Array.isArray(policyPaths) || policyPaths.length === 0) {
-        return { success: false, error: 'Policy paths array is required' };
-      }
-      for (const pPath of policyPaths) {
-        if (!isPathAllowed(pPath)) {
-          return { success: false, error: 'One or more policy paths not allowed' };
-        }
-      }
-
-      // SECURITY: Validate conflict resolution against whitelist
-      const validResolutions = ['KeepFirst', 'KeepLast', 'MergeAll', 'Newest'];
-      if (options.conflictResolution && !validResolutions.includes(options.conflictResolution)) {
+      const validResolutions = ['First', 'Last', 'Strict'];
+      const conflictResolution = payload?.options?.conflictResolution ?? options?.conflictResolution;
+      if (conflictResolution && !validResolutions.includes(conflictResolution)) {
         return { success: false, error: 'Invalid conflict resolution option' };
       }
 
       const scriptPath = path.join(scriptsDir, 'Merge-AppLockerPolicies.ps1');
-      const args = [
-        '-PolicyPaths', ...policyPaths.map(p => escapePowerShellString(p)),
-        '-OutputPath', escapePowerShellString(outputPath)
-      ];
 
-      if (options.conflictResolution) {
-        args.push('-ConflictResolution', options.conflictResolution);
+      const runMerge = async (policyPathsForMerge, outputPathForMerge) => {
+        if (!isPathAllowed(outputPathForMerge)) {
+          return { success: false, error: 'Output path not allowed', outputPath: outputPathForMerge };
+        }
+        if (!Array.isArray(policyPathsForMerge) || policyPathsForMerge.length === 0) {
+          return { success: false, error: 'Policy paths array is required', outputPath: outputPathForMerge };
+        }
+        for (const pPath of policyPathsForMerge) {
+          if (!isPathAllowed(pPath)) {
+            return { success: false, error: 'One or more policy paths not allowed', outputPath: outputPathForMerge };
+          }
+        }
+
+        const args = [
+          '-PolicyPaths', ...policyPathsForMerge.map(p => escapePowerShellString(p)),
+          '-OutputPath', escapePowerShellString(outputPathForMerge)
+        ];
+
+        if (conflictResolution) {
+          args.push('-ConflictResolution', conflictResolution);
+        }
+
+        const result = await executePowerShellScript(scriptPath, args, {
+          timeout: 300000 // 5 minutes
+        });
+
+        return {
+          success: true,
+          output: result.stdout,
+          outputPath: outputPathForMerge
+        };
+      };
+
+      if (payload?.machineTypeGroups) {
+        const groupResults = {};
+        const groupEntries = Object.entries(payload.machineTypeGroups);
+        if (groupEntries.length === 0) {
+          return { success: false, error: 'Machine type groups are required' };
+        }
+
+        for (const [machineType, group] of groupEntries) {
+          groupResults[machineType] = await runMerge(group.policyPaths, group.outputPath);
+        }
+
+        return {
+          success: true,
+          groupedResults: groupResults
+        };
       }
 
-      const result = await executePowerShellScript(scriptPath, args, {
-        timeout: 300000 // 5 minutes
-      });
-
-      return {
-        success: true,
-        output: result.stdout,
-        outputPath: outputPath
-      };
+      return await runMerge(payload?.policyPaths ?? policyPaths, payload?.outputPath ?? outputPath);
     } catch (error) {
       console.error('[IPC] Policy merge error:', error);
       return {

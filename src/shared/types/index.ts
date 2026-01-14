@@ -38,18 +38,29 @@ export type MachineType = 'Workstation' | 'Server' | 'DomainController' | 'Unkno
 export function getMachineTypeFromOU(ou: string | undefined): MachineType {
   if (!ou) return 'Unknown';
   const ouLower = ou.toLowerCase();
-  
-  // Domain Controllers are in a special OU
-  if (ouLower.includes('domain controllers')) return 'DomainController';
-  
-  // Common naming conventions for servers
-  if (ouLower.includes('server') || ouLower.includes('srv')) return 'Server';
-  
-  // Common naming conventions for workstations
-  if (ouLower.includes('workstation') || ouLower.includes('computer') || 
-      ouLower.includes('desktop') || ouLower.includes('laptop') ||
-      ouLower.includes('wkst') || ouLower.includes('ws')) return 'Workstation';
-  
+  const ouSegments = ouLower.split(',').map((segment) => segment.trim());
+  const ouNames = ouSegments
+    .map((segment) => segment.replace(/^ou=/, '').replace(/^cn=/, '').trim())
+    .filter(Boolean);
+  const tokens = ouNames
+    .flatMap((name) => name.split(/[^a-z0-9]+/))
+    .map((token) => token.trim())
+    .filter(Boolean);
+
+  const hasToken = (values: string[]) => values.some((value) => tokens.includes(value));
+
+  if (ouNames.some((name) => name.includes('domain controllers')) || hasToken(['domaincontroller', 'domaincontrollers', 'dc', 'dcs'])) {
+    return 'DomainController';
+  }
+
+  if (hasToken(['server', 'servers', 'srv'])) {
+    return 'Server';
+  }
+
+  if (hasToken(['workstation', 'workstations', 'computer', 'computers', 'desktop', 'laptop', 'wkst', 'ws'])) {
+    return 'Workstation';
+  }
+
   return 'Unknown';
 }
 
