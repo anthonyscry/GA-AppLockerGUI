@@ -75,7 +75,7 @@ export function getMachineTypeFromOU(ou: string | undefined): MachineType {
 
   const hasToken = (values: string[]) => values.some((value) => tokens.includes(value));
 
-  if (ouNames.some((name) => name.includes('domain controllers')) || hasToken(['domaincontroller', 'domaincontrollers', 'dc', 'dcs'])) {
+  if (ouNames.some((name) => name.includes('domain controllers')) || hasToken(['domaincontroller', 'domaincontrollers'])) {
     return 'DomainController';
   }
 
