@@ -258,8 +258,9 @@ function setupIpcHandlers() {
             return { success: false, error: 'Invalid OU path format' };
           }
         }
-        args.push('-OUPath');
-        args.push(options.ouPaths.map(p => escapePowerShellString(p)).join(','));
+        args.push('-OUPath', ...options.ouPaths.map(p => escapePowerShellString(p)));
+      } else if (options.ouPaths) {
+        return { success: false, error: 'At least one valid OU path is required to link the GPO' };
       }
 
       if (options.phase) {
