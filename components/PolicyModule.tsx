@@ -46,6 +46,18 @@ type MergePolicyFile = {
 
 const MACHINE_TYPE_OPTIONS: MergeMachineType[] = ['Workstation', 'Server', 'DomainController'];
 
+type DeploymentHistoryEntry = {
+  id: string;
+  timestamp: string;
+  gpoName: string;
+  policyPath: string;
+  ouTargets: string[];
+  phase: 'Phase1' | 'Phase2' | 'Phase3';
+  enforcementMode: 'AuditOnly' | 'Enabled';
+  status: 'success' | 'failure';
+  message: string;
+};
+
 const PolicyModule: React.FC = () => {
   const { policy, machine } = useAppServices();
   const [selectedPhase, setSelectedPhase] = useState<PolicyPhase>(PolicyPhase.PHASE_1);
@@ -123,10 +135,11 @@ const PolicyModule: React.FC = () => {
   const [deployPolicyPath, setDeployPolicyPath] = useState('');
   const [deployOUPaths, setDeployOUPaths] = useState<string[]>([]);
   const [newOUPath, setNewOUPath] = useState('');
-  const [deployPhase, setDeployPhase] = useState<'Phase1' | 'Phase2' | 'Phase3' | 'Phase4'>('Phase1');
+  const [deployPhase, setDeployPhase] = useState<'Phase1' | 'Phase2' | 'Phase3'>('Phase1');
   const [deployEnforcement, setDeployEnforcement] = useState<'AuditOnly' | 'Enabled'>('AuditOnly');
   const [createGPOIfMissing, setCreateGPOIfMissing] = useState(true);
   const [isDeploying, setIsDeploying] = useState(false);
+  const [deploymentHistory, setDeploymentHistory] = useState<DeploymentHistoryEntry[]>([]);
   const [publisherGroups, setPublisherGroups] = useState<Record<string, InventoryItem[]>>({});
   const [duplicateReport, setDuplicateReport] = useState<any>(null);
   const [selectedTemplate, setSelectedTemplate] = useState<string>('');
@@ -315,6 +328,19 @@ const PolicyModule: React.FC = () => {
     setSelectedPublisher(null);
     setGenSearchQuery('');
     setGenCategoryFilter('All');
+  };
+
+  const logDeployment = (entry: Omit<DeploymentHistoryEntry, 'id' | 'timestamp'>) => {
+    const timestamp = new Date().toISOString();
+    const id = `${timestamp}-${Math.random().toString(16).slice(2)}`;
+    setDeploymentHistory((prev) => [
+      {
+        id,
+        timestamp,
+        ...entry
+      },
+      ...prev
+    ].slice(0, 20));
   };
 
   // Show loading state if data is loading
@@ -1232,7 +1258,7 @@ const PolicyModule: React.FC = () => {
                       </div>
                     ))
                   ) : (
-                    <p className="text-xs text-slate-400 italic p-2">No OUs added. GPO will be created but not linked.</p>
+                    <p className="text-xs text-slate-400 italic p-2">No OUs added yet. Add at least one target OU to deploy.</p>
                   )}
                 </div>
               </div>
@@ -1244,28 +1270,27 @@ const PolicyModule: React.FC = () => {
                   <select
                     value={deployPhase}
                     onChange={(e) => {
-                      const phase = e.target.value as 'Phase1' | 'Phase2' | 'Phase3' | 'Phase4';
+                      const phase = e.target.value as 'Phase1' | 'Phase2' | 'Phase3';
                       setDeployPhase(phase);
-                      // Auto-set enforcement based on phase
-                      setDeployEnforcement(phase === 'Phase4' ? 'Enabled' : 'AuditOnly');
+                      setDeployEnforcement(phase === 'Phase3' ? 'Enabled' : 'AuditOnly');
                     }}
                     className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-emerald-500 outline-none"
                   >
-                    <option value="Phase1">Phase 1 - EXE Only (Audit)</option>
-                    <option value="Phase2">Phase 2 - EXE + Script (Audit)</option>
-                    <option value="Phase3">Phase 3 - EXE + Script + MSI (Audit)</option>
-                    <option value="Phase4">Phase 4 - All including DLL (Enforce)</option>
+                    <option value="Phase1">Phase 1 - Pilot (Audit)</option>
+                    <option value="Phase2">Phase 2 - Broad (Audit)</option>
+                    <option value="Phase3">Phase 3 - Enforce (Block)</option>
                   </select>
+                  <p className="text-[10px] text-slate-400 mt-2">Phase selection drives the enforcement mode for deployment.</p>
                 </div>
                 
                 <div>
                   <label className="block text-xs font-black text-slate-700 uppercase tracking-widest mb-2">Enforcement Mode</label>
                   <select
                     value={deployEnforcement}
-                    onChange={(e) => setDeployEnforcement(e.target.value as 'AuditOnly' | 'Enabled')}
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-emerald-500 outline-none"
+                    disabled
+                    className="w-full px-4 py-3 bg-slate-100 border border-slate-200 rounded-lg text-sm font-medium text-slate-500 outline-none cursor-not-allowed"
                   >
-                    <option value="AuditOnly">Audit Only (Recommended for Testing)</option>
+                    <option value="AuditOnly">Audit Only (Monitor)</option>
                     <option value="Enabled">Enabled (Enforce Rules)</option>
                   </select>
                 </div>
@@ -1299,6 +1324,10 @@ const PolicyModule: React.FC = () => {
                     alert('Please enter the policy XML path');
                     return;
                   }
+                  if (deployOUPaths.length === 0) {
+                    alert('Please add at least one target OU to link the GPO.');
+                    return;
+                  }
                   
                   setIsDeploying(true);
                   try {
@@ -1313,19 +1342,58 @@ const PolicyModule: React.FC = () => {
                       
                       if (result.Success || result.success) {
                         alert(`✅ Policy deployed successfully!\n\nGPO: ${deployGPOName}\nOUs Linked: ${deployOUPaths.length}\nPhase: ${deployPhase}\nMode: ${deployEnforcement}`);
+                        logDeployment({
+                          gpoName: deployGPOName,
+                          policyPath: deployPolicyPath,
+                          ouTargets: deployOUPaths,
+                          phase: deployPhase,
+                          enforcementMode: deployEnforcement,
+                          status: 'success',
+                          message: `Linked to ${deployOUPaths.length} OU${deployOUPaths.length === 1 ? '' : 's'}`
+                        });
                         setShowOUDeploy(false);
                         // Reset form
                         setDeployGPOName('');
                         setDeployPolicyPath('');
                         setDeployOUPaths([]);
                       } else {
-                        alert(`❌ Deployment failed:\n${result.Error || result.error || 'Unknown error'}`);
+                        const errorMessage = result.Error || result.error || 'Unknown error';
+                        alert(`❌ Deployment failed:\n${errorMessage}`);
+                        logDeployment({
+                          gpoName: deployGPOName,
+                          policyPath: deployPolicyPath,
+                          ouTargets: deployOUPaths,
+                          phase: deployPhase,
+                          enforcementMode: deployEnforcement,
+                          status: 'failure',
+                          message: errorMessage
+                        });
                       }
                     } else {
-                      alert('Electron IPC not available. This feature requires running in the Electron app.');
+                      const errorMessage = 'Electron IPC not available. This feature requires running in the Electron app.';
+                      alert(errorMessage);
+                      logDeployment({
+                        gpoName: deployGPOName,
+                        policyPath: deployPolicyPath,
+                        ouTargets: deployOUPaths,
+                        phase: deployPhase,
+                        enforcementMode: deployEnforcement,
+                        status: 'failure',
+                        message: errorMessage
+                      });
                     }
                   } catch (error: any) {
-                    alert(`Deployment error: ${error?.message || error}`);
+                    const errorMessage = error?.message || String(error);
+                    alert(`Deployment error: ${errorMessage}`);
+                    logDeployment({
+                      gpoName: deployGPOName,
+                      policyPath: deployPolicyPath,
+                      ouTargets: deployOUPaths,
+                      phase: deployPhase,
+                      enforcementMode: deployEnforcement,
+                      status: 'failure',
+                      message: errorMessage
+                    });
                   } finally {
                     setIsDeploying(false);
                   }
@@ -2149,6 +2217,49 @@ const PolicyModule: React.FC = () => {
               <h3 className="text-xs font-bold text-slate-900 mb-0.5">Incremental</h3>
               <p className="text-[9px] text-slate-500">Add new rules</p>
             </button>
+          </div>
+
+          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest">Deployment History</h3>
+                <p className="text-[10px] text-slate-500">Recent policy deployments and OU targets</p>
+              </div>
+              <span className="text-[10px] font-bold text-slate-400">{deploymentHistory.length} entries</span>
+            </div>
+            {deploymentHistory.length === 0 ? (
+              <div className="text-center py-6 text-slate-400 text-xs">
+                No deployments logged yet. Run a deployment to see history here.
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {deploymentHistory.map((entry) => (
+                  <div
+                    key={entry.id}
+                    className={`border rounded-xl p-3 text-xs ${
+                      entry.status === 'success'
+                        ? 'border-emerald-200 bg-emerald-50'
+                        : 'border-red-200 bg-red-50'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-900">{entry.gpoName}</span>
+                      <span className="text-[10px] text-slate-500">{new Date(entry.timestamp).toLocaleString()}</span>
+                    </div>
+                    <div className="mt-1 text-[10px] text-slate-600">
+                      Policy: <span className="font-mono text-slate-700">{entry.policyPath.split(/\\|\//).pop()}</span>
+                    </div>
+                    <div className="mt-1 text-[10px] text-slate-600">
+                      OUs: <span className="font-mono text-slate-700">{entry.ouTargets.join('; ')}</span>
+                    </div>
+                    <div className="mt-1 text-[10px] text-slate-600">
+                      Phase: {entry.phase} • Mode: {entry.enforcementMode}
+                    </div>
+                    <div className="mt-1 text-[10px] font-semibold text-slate-700">{entry.message}</div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
