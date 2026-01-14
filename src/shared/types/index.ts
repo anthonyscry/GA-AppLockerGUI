@@ -28,6 +28,7 @@ export interface MachineScan {
   status: 'Online' | 'Offline' | 'Scanning';
   riskLevel: 'Low' | 'Medium' | 'High';
   appCount: number;
+  os?: string;
   ou?: string;  // Organizational Unit path (e.g., "OU=Workstations,OU=Computers,DC=domain,DC=com")
 }
 
