@@ -85,10 +85,19 @@ export class EventRepository implements IEventRepository {
    */
   async getStats(): Promise<{ totalBlocked: number; totalAudit: number; totalAllowed: number; uniquePaths: number }> {
     try {
-      const stats = await ipcClient.invoke<{ totalBlocked: number; totalAudit: number; totalAllowed: number; uniquePaths: number }>(
-        IPCChannels.EVENT.GET_STATS
-      );
-      return stats || { totalBlocked: 0, totalAudit: 0, totalAllowed: 0, uniquePaths: 0 };
+      const stats = await ipcClient.invoke<{
+        totalBlocked?: number;
+        totalAudit?: number;
+        totalAllowed?: number;
+        uniquePaths?: number;
+        totalWarnings?: number;
+      }>(IPCChannels.EVENT.GET_STATS);
+      return {
+        totalBlocked: stats?.totalBlocked ?? 0,
+        totalAudit: stats?.totalAudit ?? stats?.totalWarnings ?? 0,
+        totalAllowed: stats?.totalAllowed ?? 0,
+        uniquePaths: stats?.uniquePaths ?? 0,
+      };
     } catch (error) {
       // Gracefully handle browser mode
       if (!ipcClient.isAvailable()) {

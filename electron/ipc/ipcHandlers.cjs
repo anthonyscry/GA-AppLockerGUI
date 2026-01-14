@@ -2351,17 +2351,33 @@ function setupIpcHandlers() {
           $logName = 'Microsoft-Windows-AppLocker/EXE and DLL'
           $events = Get-WinEvent -LogName $logName -MaxEvents 1000 -ErrorAction SilentlyContinue
           $blocked = ($events | Where-Object { $_.Id -eq 8004 }).Count
-          $warnings = ($events | Where-Object { $_.Id -eq 8003 }).Count
+          $audit = ($events | Where-Object { $_.Id -eq 8003 }).Count
           $allowed = ($events | Where-Object { $_.Id -eq 8002 }).Count
+
+          $uniquePaths = 0
+          try {
+            $pathSet = New-Object 'System.Collections.Generic.HashSet[string]'
+            foreach ($event in $events) {
+              if ($event.Message) {
+                $match = [regex]::Match($event.Message, '[A-Z]:\\[^\\r\\n"]+')
+                if ($match.Success) {
+                  $null = $pathSet.Add($match.Value)
+                }
+              }
+            }
+            $uniquePaths = $pathSet.Count
+          } catch {
+            $uniquePaths = 0
+          }
 
           @{
             totalBlocked = $blocked
-            totalWarnings = $warnings
+            totalAudit = $audit
             totalAllowed = $allowed
-            totalEvents = $events.Count
+            uniquePaths = $uniquePaths
           } | ConvertTo-Json -Compress
         } catch {
-          @{ totalBlocked = 0; totalWarnings = 0; totalAllowed = 0; totalEvents = 0 } | ConvertTo-Json -Compress
+          @{ totalBlocked = 0; totalAudit = 0; totalAllowed = 0; uniquePaths = 0 } | ConvertTo-Json -Compress
         }
       `;
       const result = await executePowerShellCommand(command, { timeout: 30000 });
@@ -2369,10 +2385,10 @@ function setupIpcHandlers() {
       if (result.stdout) {
         return JSON.parse(result.stdout);
       }
-      return { totalBlocked: 0, totalWarnings: 0, totalAllowed: 0, totalEvents: 0 };
+      return { totalBlocked: 0, totalAudit: 0, totalAllowed: 0, uniquePaths: 0 };
     } catch (error) {
       console.error('[IPC] Get event stats error:', error);
-      return { totalBlocked: 0, totalWarnings: 0, totalAllowed: 0, totalEvents: 0 };
+      return { totalBlocked: 0, totalAudit: 0, totalAllowed: 0, uniquePaths: 0 };
     }
   });
 
