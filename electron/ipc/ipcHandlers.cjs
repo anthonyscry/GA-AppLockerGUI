@@ -2206,21 +2206,113 @@ function setupIpcHandlers() {
     }
   });
 
-  // Generate evidence package
+  /**
+   * Generate and export compliance evidence package
+   *
+   * Collects:
+   * - AppLocker policies (effective and local)
+   * - Audit event logs (last 30 days)
+   * - System configuration snapshots
+   * - Compliance report with checks
+   *
+   * @param {Object} options - Configuration options
+   * @param {string} options.outputDirectory - Where to save evidence (default: ./compliance)
+   * @returns {Object} Result with outputPath, details (policies, events, machines counts)
+   */
   ipcMain.handle('compliance:generateEvidence', async (event, options = {}) => {
     try {
+      console.log('[IPC] Starting compliance evidence collection...');
       const scriptsDir = getScriptsDirectory();
       const scriptPath = path.join(scriptsDir, 'Export-ComplianceEvidence.ps1');
 
       const outputDir = options.outputDirectory || path.join(process.cwd(), 'compliance');
-      const args = ['-OutputDirectory', outputDir];
+      const args = ['-OutputDirectory', `"${outputDir}"`];
+
+      let evidencePath = outputDir;
+      let policiesIncluded = 0;
+      let eventsIncluded = 0;
+      let machinesScanned = 1; // At minimum, local machine
 
       if (fs.existsSync(scriptPath)) {
+        console.log('[IPC] Running Export-ComplianceEvidence.ps1...');
         const result = await executePowerShellScript(scriptPath, args, { timeout: 300000 });
-        return { success: true, path: outputDir, output: result.stdout };
+
+        // Try to parse the JSON output from the script
+        try {
+          const stdout = result.stdout || '';
+          // Look for JSON in the output (script outputs JSON at the end)
+          const jsonMatch = stdout.match(/\{[^{}]*"success"[^{}]*\}/);
+          if (jsonMatch) {
+            const scriptResult = JSON.parse(jsonMatch[0]);
+            if (scriptResult.outputPath) {
+              evidencePath = scriptResult.outputPath;
+            }
+          }
+        } catch (parseErr) {
+          console.warn('[IPC] Could not parse script JSON output:', parseErr.message);
+        }
+
+        // Count collected evidence from the newest Evidence_* folder
+        try {
+          const evidenceDirs = fs.readdirSync(outputDir)
+            .filter(d => d.startsWith('Evidence_'))
+            .map(d => path.join(outputDir, d))
+            .filter(p => fs.statSync(p).isDirectory())
+            .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
+
+          if (evidenceDirs.length > 0) {
+            evidencePath = evidenceDirs[0];
+
+            // Count policies
+            const policiesDir = path.join(evidencePath, 'policies');
+            if (fs.existsSync(policiesDir)) {
+              policiesIncluded = fs.readdirSync(policiesDir)
+                .filter(f => f.endsWith('.xml') || f.endsWith('.json')).length;
+            }
+
+            // Count events from CSV or stats
+            const auditLogsDir = path.join(evidencePath, 'audit-logs');
+            if (fs.existsSync(auditLogsDir)) {
+              const statsFile = path.join(auditLogsDir, 'EventStatistics.json');
+              if (fs.existsSync(statsFile)) {
+                try {
+                  const stats = JSON.parse(fs.readFileSync(statsFile, 'utf8'));
+                  eventsIncluded = stats.TotalEvents || 0;
+                } catch (e) {
+                  // Fall back to counting CSV lines
+                  const csvFile = path.join(auditLogsDir, 'AppLockerEvents.csv');
+                  if (fs.existsSync(csvFile)) {
+                    const lines = fs.readFileSync(csvFile, 'utf8').split('\n');
+                    eventsIncluded = Math.max(0, lines.length - 1); // Minus header
+                  }
+                }
+              }
+            }
+
+            // Check for machine info in snapshots
+            const snapshotsDir = path.join(evidencePath, 'snapshots');
+            if (fs.existsSync(snapshotsDir)) {
+              machinesScanned = fs.readdirSync(snapshotsDir)
+                .filter(f => f.endsWith('.json')).length || 1;
+            }
+          }
+        } catch (countErr) {
+          console.warn('[IPC] Error counting evidence files:', countErr.message);
+        }
+
+        console.log(`[IPC] Evidence collected: ${policiesIncluded} policies, ${eventsIncluded} events`);
+
+        return {
+          success: true,
+          outputPath: evidencePath,
+          policiesIncluded,
+          eventsIncluded,
+          machinesScanned
+        };
       }
 
-      // Create evidence directory structure
+      // Fallback: Create evidence directory structure manually
+      console.log('[IPC] PowerShell script not found, creating structure manually...');
       const dirs = ['policies', 'audit-logs', 'snapshots', 'reports'];
       for (const dir of dirs) {
         const dirPath = path.join(outputDir, dir);
@@ -2229,7 +2321,14 @@ function setupIpcHandlers() {
         }
       }
 
-      return { success: true, path: outputDir };
+      return {
+        success: true,
+        outputPath: outputDir,
+        policiesIncluded: 0,
+        eventsIncluded: 0,
+        machinesScanned: 0,
+        note: 'Manual structure created - run on Windows with AppLocker for full collection'
+      };
     } catch (error) {
       console.error('[IPC] Generate evidence error:', error);
       return { success: false, error: sanitizeErrorMessage(error) };

@@ -91,18 +91,18 @@ const ComplianceModule: React.FC = () => {
           onClick={handleGenerateEvidence}
           disabled={isGenerating}
           className="bg-blue-600 text-white px-5 py-2 rounded-xl font-bold shadow-lg shadow-blue-500/20 hover:bg-blue-700 flex items-center space-x-2 min-h-[40px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-          aria-label="Export evidence package"
+          aria-label="Collect and export evidence package"
           aria-busy={isGenerating}
         >
           {isGenerating ? (
             <>
               <Loader2 size={16} className="animate-spin" aria-hidden="true" />
-              <span>Generating...</span>
+              <span>Collecting...</span>
             </>
           ) : (
             <>
               <Download size={16} aria-hidden="true" />
-              <span>Export Evidence Package</span>
+              <span>Collect and Export Evidence</span>
             </>
           )}
         </button>
