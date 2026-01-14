@@ -2704,6 +2704,9 @@ function setupIpcHandlers() {
           if (-not $targetSystems -or $targetSystems.Count -eq 0) {
             $targetSystems = @($env:COMPUTERNAME)
           }
+          $targetSystems = $targetSystems | ForEach-Object {
+            if ($_ -match '^(?i)(local|localhost)$') { $env:COMPUTERNAME } else { $_ }
+          }
 
           # Create output directory if needed
           $outputDir = Split-Path -Parent "${safeOutputPath}"
