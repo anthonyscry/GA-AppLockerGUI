@@ -37,8 +37,9 @@ param(
 $ErrorActionPreference = "Stop"
 
 try {
-    # Import GroupPolicy module
+    # Import required modules
     Import-Module GroupPolicy -ErrorAction Stop
+    Import-Module ActiveDirectory -ErrorAction Stop
 
     Write-Host "Checking for existing GPO: $GPOName" -ForegroundColor Cyan
 
