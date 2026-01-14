@@ -131,20 +131,13 @@ const RuleGeneratorModule: React.FC = () => {
     }
 
     try {
-      // Prepare rule parameters
+      // Prepare rule parameters - must match RuleCreationOptions interface
+      // Subject must be the full InventoryItem or TrustedPublisher object
       const ruleConfig = {
-        type: ruleType,
+        ruleType: ruleType,  // Must be 'ruleType' not 'type'
         action: ruleAction,
         targetGroup,
-        ...(selectedApp ? {
-          name: selectedApp.name,
-          publisher: selectedApp.publisher,
-          path: selectedApp.path,
-          version: selectedApp.version
-        } : {
-          name: selectedPublisher!.name,
-          publisher: selectedPublisher!.publisherName
-        })
+        subject: selectedApp || selectedPublisher!  // Pass the full object as 'subject'
       };
 
       await policy.createRule(ruleConfig);
