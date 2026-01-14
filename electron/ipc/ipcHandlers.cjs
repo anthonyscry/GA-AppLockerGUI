@@ -2503,9 +2503,9 @@ function setupIpcHandlers() {
 
               # Try to extract publisher information
               if ($msg -match 'Publisher:\s*(.+)') {
-                $publisher = ($matches[1] -split "`r")[0].Trim()
+                $publisher = $matches[1].Split([char]13)[0].Trim()
               } elseif ($msg -match 'signed by\s+(.+)') {
-                $publisher = ($matches[1] -split "`r")[0].Trim()
+                $publisher = $matches[1].Split([char]13)[0].Trim()
               }
 
               # Map event ID to action type
