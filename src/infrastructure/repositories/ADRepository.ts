@@ -12,12 +12,26 @@ import { NotFoundError, ExternalServiceError } from '../../domain/errors';
 export class ADRepository implements IADRepository {
   async getAllUsers(): Promise<ADUser[]> {
     try {
-      const users = await ipcClient.invoke<ADUser[]>(IPCChannels.AD.GET_USERS);
+      const result = await ipcClient.invoke<ADUser[] | { error: string; errorType?: string }>(IPCChannels.AD.GET_USERS);
+
+      // Check if the result is an error response from PowerShell
+      if (result && typeof result === 'object' && 'error' in result) {
+        const errorMsg = (result as { error: string }).error;
+        const errorType = (result as { errorType?: string }).errorType || 'Unknown';
+        logger.error(`AD query failed: ${errorMsg} (${errorType})`);
+        throw new ExternalServiceError('Active Directory', errorMsg, new Error(errorMsg));
+      }
+
+      const users = result as ADUser[];
       return users || [];
     } catch (error) {
       if (!ipcClient.isAvailable()) {
         logger.warn('IPC not available (browser mode), returning empty users list');
         return [];
+      }
+      // Re-throw ExternalServiceError as-is
+      if (error instanceof ExternalServiceError) {
+        throw error;
       }
       logger.error('Failed to fetch AD users', error as Error);
       throw new ExternalServiceError('AD Service', 'Failed to fetch AD users', error as Error);

@@ -1399,7 +1399,11 @@ function setupIpcHandlers() {
     try {
       // Query AD users with proper field mapping to match TypeScript interface
       const command = `
+        $ErrorActionPreference = 'Stop'
         try {
+          # Explicitly import ActiveDirectory module
+          Import-Module ActiveDirectory -ErrorAction Stop
+
           $users = Get-ADUser -Filter * -Properties DisplayName, Title, Department, EmailAddress, Enabled, MemberOf, DistinguishedName |
             Select-Object -First 200 @{N='id';E={$_.ObjectGUID.ToString()}},
               @{N='samAccountName';E={$_.SamAccountName}},
@@ -1407,23 +1411,27 @@ function setupIpcHandlers() {
               @{N='department';E={if($_.Department){$_.Department}else{'Unassigned'}}},
               @{N='ou';E={$_.DistinguishedName}},
               @{N='groups';E={@($_.MemberOf | ForEach-Object { ($_ -split ',')[0] -replace 'CN=' })}}
+
           if ($users) {
-            $users | ConvertTo-Json -Compress -Depth 3
+            @{ success = $true; data = @($users) } | ConvertTo-Json -Compress -Depth 4
           } else {
-            '[]'
+            @{ success = $true; data = @(); message = 'No users found in Active Directory' } | ConvertTo-Json -Compress
           }
         } catch {
-          Write-Error $_.Exception.Message
-          '[]'
+          @{ success = $false; error = $_.Exception.Message; errorType = $_.Exception.GetType().Name } | ConvertTo-Json -Compress
         }
       `;
       const result = await executePowerShellCommand(command, { timeout: 60000 });
 
-      if (result.stdout && result.stdout.trim() && result.stdout.trim() !== '[]') {
+      if (result.stdout) {
         try {
-          const users = JSON.parse(result.stdout);
+          const parsed = JSON.parse(result.stdout);
+          if (parsed.success === false) {
+            console.error('[IPC] ad:getUsers AD error:', parsed.error);
+            return { error: parsed.error, errorType: parsed.errorType };
+          }
           // Ensure array format and validate structure
-          const userArray = Array.isArray(users) ? users : [users];
+          const userArray = Array.isArray(parsed.data) ? parsed.data : [];
           return userArray.map(u => ({
             id: u.id || u.samAccountName || `user-${Math.random().toString(36).substr(2, 9)}`,
             samAccountName: u.samAccountName || 'unknown',
@@ -1436,10 +1444,10 @@ function setupIpcHandlers() {
           console.warn('[IPC] Could not parse AD users:', e);
         }
       }
-      return [];
+      return { error: 'No response from PowerShell command' };
     } catch (error) {
       console.error('[IPC] Get AD users error:', error);
-      return [];
+      return { error: sanitizeErrorMessage(error) };
     }
   });
 
@@ -1564,7 +1572,11 @@ function setupIpcHandlers() {
       const escapedOuPath = ouPath ? escapePowerShellString(ouPath) : '';
 
       const command = `
+        $ErrorActionPreference = 'Stop'
         try {
+          # Import ActiveDirectory module
+          Import-Module ActiveDirectory -ErrorAction Stop
+
           $groups = @(
             @{ Name = 'AppLocker-Admins'; Description = 'Full AppLocker bypass for IT administrators' },
             @{ Name = 'AppLocker-Installers'; Description = 'Users authorized to install software' },
@@ -1608,9 +1620,9 @@ function setupIpcHandlers() {
             }
           }
 
-          @{ success = $true; results = $results } | ConvertTo-Json -Compress -Depth 3
+          @{ success = $true; results = $results; targetOU = $targetOU } | ConvertTo-Json -Compress -Depth 3
         } catch {
-          @{ success = $false; error = $_.Exception.Message } | ConvertTo-Json -Compress
+          @{ success = $false; error = $_.Exception.Message; errorType = $_.Exception.GetType().Name } | ConvertTo-Json -Compress
         }
       `;
 
@@ -1673,38 +1685,88 @@ function setupIpcHandlers() {
       // Check if script exists, otherwise use inline command
       if (fs.existsSync(scriptPath)) {
         const result = await executePowerShellScript(scriptPath, [], { timeout: 300000 });
+        // Try to parse JSON from script output
+        if (result.stdout) {
+          try {
+            return JSON.parse(result.stdout);
+          } catch {
+            return { success: true, output: result.stdout };
+          }
+        }
         return { success: true, output: result.stdout };
       } else {
-        // Inline implementation
+        // Inline implementation with proper module import and GPO linking
         const command = enable ? `
+          $ErrorActionPreference = 'Stop'
           try {
+            # Import required modules
+            Import-Module GroupPolicy -ErrorAction Stop
+            Import-Module ActiveDirectory -ErrorAction Stop
+
             $gpoName = "Enable-WinRM"
             $gpo = Get-GPO -Name $gpoName -ErrorAction SilentlyContinue
+
             if (-not $gpo) {
               $gpo = New-GPO -Name $gpoName -Comment "Enables WinRM for remote management"
+              Write-Host "Created new GPO: $gpoName"
             }
+
             # Configure WinRM settings via GPO
             Set-GPRegistryValue -Name $gpoName -Key "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WinRM\\Service" -ValueName "AllowAutoConfig" -Type DWord -Value 1
             Set-GPRegistryValue -Name $gpoName -Key "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WinRM\\Service" -ValueName "IPv4Filter" -Type String -Value "*"
-            @{ success = $true } | ConvertTo-Json -Compress
+            Set-GPRegistryValue -Name $gpoName -Key "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WinRM\\Service" -ValueName "IPv6Filter" -Type String -Value "*"
+
+            # Enable the GPO
+            $gpo.GpoStatus = 'AllSettingsEnabled'
+
+            # Link GPO to domain root if not already linked
+            $domain = Get-ADDomain
+            $domainDN = $domain.DistinguishedName
+            $existingLink = Get-GPInheritance -Target $domainDN | Select-Object -ExpandProperty GpoLinks | Where-Object { $_.DisplayName -eq $gpoName }
+
+            if (-not $existingLink) {
+              New-GPLink -Name $gpoName -Target $domainDN -LinkEnabled Yes
+              Write-Host "Linked GPO to domain: $domainDN"
+            }
+
+            @{
+              success = $true
+              gpoName = $gpoName
+              gpoId = $gpo.Id.ToString()
+              status = 'Enabled'
+              linkedTo = $domainDN
+            } | ConvertTo-Json -Compress
           } catch {
-            @{ success = $false; error = $_.Exception.Message } | ConvertTo-Json -Compress
+            @{ success = $false; error = $_.Exception.Message; errorType = $_.Exception.GetType().Name } | ConvertTo-Json -Compress
           }
         ` : `
+          $ErrorActionPreference = 'Stop'
           try {
+            Import-Module GroupPolicy -ErrorAction Stop
+
             $gpoName = "Enable-WinRM"
             $gpo = Get-GPO -Name $gpoName -ErrorAction SilentlyContinue
+
             if ($gpo) {
               $gpo.GpoStatus = 'AllSettingsDisabled'
+              @{ success = $true; status = 'Disabled'; gpoName = $gpoName } | ConvertTo-Json -Compress
+            } else {
+              @{ success = $true; status = 'NotFound'; message = 'GPO does not exist' } | ConvertTo-Json -Compress
             }
-            @{ success = $true } | ConvertTo-Json -Compress
           } catch {
-            @{ success = $false; error = $_.Exception.Message } | ConvertTo-Json -Compress
+            @{ success = $false; error = $_.Exception.Message; errorType = $_.Exception.GetType().Name } | ConvertTo-Json -Compress
           }
         `;
 
         const result = await executePowerShellCommand(command, { timeout: 300000 });
-        return JSON.parse(result.stdout || '{"success":false}');
+        if (result.stdout) {
+          try {
+            return JSON.parse(result.stdout);
+          } catch {
+            return { success: false, error: 'Failed to parse PowerShell output' };
+          }
+        }
+        return { success: false, error: 'No response from PowerShell command' };
       }
     } catch (error) {
       console.error('[IPC] Toggle WinRM GPO error:', error);
@@ -1895,7 +1957,11 @@ function setupIpcHandlers() {
   ipcMain.handle('machine:getAll', async () => {
     try {
       const command = `
+        $ErrorActionPreference = 'Stop'
         try {
+          # Explicitly import ActiveDirectory module
+          Import-Module ActiveDirectory -ErrorAction Stop
+
           $computers = Get-ADComputer -Filter * -Properties OperatingSystem, LastLogonDate, DistinguishedName, Description |
             Select-Object -First 200 Name, OperatingSystem, LastLogonDate, DistinguishedName, Description,
               @{N='OU';E={($_.DistinguishedName -split ',', 2)[1]}} |
@@ -1910,26 +1976,36 @@ function setupIpcHandlers() {
                 riskLevel = 'Low'
                 appCount = 0
               }
-            } | ConvertTo-Json -Compress
-          $computers
+            }
+
+          if ($computers) {
+            @{ success = $true; data = @($computers) } | ConvertTo-Json -Compress -Depth 4
+          } else {
+            @{ success = $true; data = @(); message = 'No computers found in Active Directory' } | ConvertTo-Json -Compress
+          }
         } catch {
-          '[]'
+          @{ success = $false; error = $_.Exception.Message; errorType = $_.Exception.GetType().Name } | ConvertTo-Json -Compress
         }
       `;
       const result = await executePowerShellCommand(command, { timeout: 60000 });
 
-      if (result.stdout && result.stdout.trim() !== '[]') {
+      if (result.stdout) {
         try {
-          const machines = JSON.parse(result.stdout);
-          return Array.isArray(machines) ? machines : [machines];
+          const parsed = JSON.parse(result.stdout);
+          if (parsed.success === false) {
+            console.error('[IPC] machine:getAll AD error:', parsed.error);
+            // Return error object so UI can display message
+            return { error: parsed.error, errorType: parsed.errorType };
+          }
+          return Array.isArray(parsed.data) ? parsed.data : [];
         } catch (e) {
           console.warn('[IPC] Could not parse machines:', e);
         }
       }
-      return [];
+      return { error: 'No response from PowerShell command' };
     } catch (error) {
       console.error('[IPC] Get all machines error:', error);
-      return [];
+      return { error: sanitizeErrorMessage(error) };
     }
   });
 
@@ -2101,14 +2177,26 @@ function setupIpcHandlers() {
   ipcMain.handle('event:getAll', async () => {
     try {
       const command = `
+        $ErrorActionPreference = 'Stop'
         try {
+          # Check if AppLocker log exists
+          $logExists = Get-WinEvent -ListLog "Microsoft-Windows-AppLocker/EXE and DLL" -ErrorAction SilentlyContinue
+
+          if (-not $logExists) {
+            @{
+              success = $false
+              error = 'AppLocker event log not found. AppLocker may not be configured on this system.'
+              errorType = 'LogNotFound'
+            } | ConvertTo-Json -Compress
+            return
+          }
+
           # Fetch last 100 AppLocker events from EXE and DLL log
-          $events = Get-WinEvent -LogName "Microsoft-Windows-AppLocker/EXE and DLL" -MaxEvents 100 -ErrorAction SilentlyContinue |
+          $events = Get-WinEvent -LogName "Microsoft-Windows-AppLocker/EXE and DLL" -MaxEvents 100 -ErrorAction Stop |
             ForEach-Object {
               $msg = $_.Message
 
               # Parse file path from event message
-              # AppLocker messages include path in various formats
               $path = ''
               $publisher = ''
               $action = ''
@@ -2140,26 +2228,50 @@ function setupIpcHandlers() {
                 publisher = $publisher
                 action = $action
               }
+            }
+
+          if ($events -and $events.Count -gt 0) {
+            @{ success = $true; data = @($events) } | ConvertTo-Json -Compress -Depth 4
+          } else {
+            @{
+              success = $true
+              data = @()
+              message = 'No AppLocker events found. This may mean AppLocker is not configured or no applications have been blocked/audited yet.'
             } | ConvertTo-Json -Compress
-          if ($events) { $events } else { '[]' }
-        } catch {
-          '[]'
+          }
+        } catch [System.Exception] {
+          if ($_.Exception.Message -match 'No events were found') {
+            @{
+              success = $true
+              data = @()
+              message = 'No AppLocker events found. Configure AppLocker policies to start generating events.'
+            } | ConvertTo-Json -Compress
+          } else {
+            @{ success = $false; error = $_.Exception.Message; errorType = $_.Exception.GetType().Name } | ConvertTo-Json -Compress
+          }
         }
       `;
       const result = await executePowerShellCommand(command, { timeout: 30000 });
 
-      if (result.stdout && result.stdout.trim() !== '[]') {
+      if (result.stdout) {
         try {
-          const events = JSON.parse(result.stdout);
-          return Array.isArray(events) ? events : [events];
+          const parsed = JSON.parse(result.stdout);
+          if (parsed.success === false) {
+            console.warn('[IPC] event:getAll:', parsed.error);
+            return { error: parsed.error, errorType: parsed.errorType };
+          }
+          if (parsed.message) {
+            console.log('[IPC] event:getAll:', parsed.message);
+          }
+          return Array.isArray(parsed.data) ? parsed.data : [];
         } catch (e) {
           console.warn('[IPC] Could not parse events:', e);
         }
       }
-      return [];
+      return { error: 'No response from PowerShell command' };
     } catch (error) {
       console.error('[IPC] Get events error:', error);
-      return [];
+      return { error: sanitizeErrorMessage(error) };
     }
   });
 

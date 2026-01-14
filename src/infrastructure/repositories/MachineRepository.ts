@@ -14,7 +14,17 @@ export class MachineRepository implements IMachineRepository {
   async findAll(): Promise<MachineScan[]> {
     try {
       logger.debug('MachineRepository.findAll called');
-      const machines = await ipcClient.invoke<MachineScan[]>(IPCChannels.MACHINE.GET_ALL);
+      const result = await ipcClient.invoke<MachineScan[] | { error: string; errorType?: string }>(IPCChannels.MACHINE.GET_ALL);
+
+      // Check if the result is an error response from PowerShell
+      if (result && typeof result === 'object' && 'error' in result) {
+        const errorMsg = (result as { error: string }).error;
+        const errorType = (result as { errorType?: string }).errorType || 'Unknown';
+        logger.error(`AD query failed: ${errorMsg} (${errorType})`);
+        throw new ExternalServiceError('Active Directory', errorMsg, new Error(errorMsg));
+      }
+
+      const machines = result as MachineScan[];
       logger.info(`Retrieved ${machines?.length || 0} machines`);
       return machines || [];
     } catch (error) {
@@ -22,6 +32,10 @@ export class MachineRepository implements IMachineRepository {
       if (!ipcClient.isAvailable()) {
         logger.warn('IPC not available (browser mode), returning empty machines list');
         return [];
+      }
+      // Re-throw ExternalServiceError as-is
+      if (error instanceof ExternalServiceError) {
+        throw error;
       }
       logger.error('Failed to fetch machines', error as Error);
       throw new ExternalServiceError('Machine Service', 'Failed to fetch machines', error as Error);
