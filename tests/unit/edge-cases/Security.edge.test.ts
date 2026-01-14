@@ -306,7 +306,7 @@ describe('Security Edge Cases', () => {
       if (!Array.isArray(ous)) return [];
       return ous.filter(ou =>
         typeof ou === 'string' &&
-        ou.length > 0 &&
+        ou.trim().length > 0 &&
         ou.length <= 1024
       );
     }

@@ -146,18 +146,16 @@ describe('Dashboard Chart Data Generation Edge Cases', () => {
     });
 
     it('should skip events with empty string timestamp', () => {
-      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
-
+      // Empty string is falsy, so the event is skipped early without parsing
+      // This means no warning is logged - the check `if (!e?.timestamp) return;` handles it
       const events = [
         { id: '1', timestamp: '', eventId: 8003, path: '/test', publisher: 'Test', machine: 'PC1' },
       ] as any[];
 
       const result = generateChartData(events);
 
-      expect(warnSpy).toHaveBeenCalled();
+      // Event with empty timestamp should be skipped, resulting in all zeros
       expect(result.every(d => d.allowed === 0 && d.blocked === 0)).toBe(true);
-
-      warnSpy.mockRestore();
     });
 
     it('should handle malformed ISO date strings', () => {
