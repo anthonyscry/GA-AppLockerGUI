@@ -3,7 +3,7 @@
  * Defines contract for machine data access
  */
 
-import { MachineScan } from '../../shared/types';
+import { BatchScanResponse, MachineScan } from '../../shared/types';
 
 export interface MachineFilter {
   searchQuery?: string;
@@ -24,11 +24,12 @@ export interface ScanOptions {
   timeout?: number;
   credentials?: ScanCredentials;
   computerNames?: string[];
+  onlineOnly?: boolean;
 }
 
 export interface IMachineRepository {
   findAll(): Promise<MachineScan[]>;
   findById(id: string): Promise<MachineScan | null>;
   findByFilter(filter: MachineFilter): Promise<MachineScan[]>;
-  startScan(options: ScanOptions): Promise<void>;
+  startScan(options: ScanOptions): Promise<BatchScanResponse>;
 }

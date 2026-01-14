@@ -11,7 +11,7 @@
  */
 
 import { IMachineRepository, MachineFilter, ScanOptions } from '../../domain/interfaces/IMachineRepository';
-import { MachineScan } from '../../shared/types';
+import { BatchScanResponse, MachineScan } from '../../shared/types';
 import { ipcClient } from '../ipc/ipcClient';
 import { IPCChannels } from '../ipc/channels';
 import { logger } from '../logging/Logger';
@@ -76,11 +76,20 @@ export class MachineRepository implements IMachineRepository {
     return this.filterMachines(all, filter);
   }
 
-  async startScan(options: ScanOptions = {}): Promise<void> {
+  async startScan(options: ScanOptions = {}): Promise<BatchScanResponse> {
     try {
       logger.info('Starting batch scan', { options });
-      await ipcClient.invoke(IPCChannels.MACHINE.START_SCAN, options);
+      const result = await ipcClient.invoke<BatchScanResponse | { success: false; error: string }>(
+        IPCChannels.MACHINE.START_SCAN,
+        options
+      );
+
+      if (result && typeof result === 'object' && 'success' in result && !result.success && 'error' in result) {
+        throw new ExternalServiceError('Machine Service', result.error, new Error(result.error));
+      }
+
       logger.info('Batch scan started successfully');
+      return result as BatchScanResponse;
     } catch (error) {
       logger.error('Failed to start scan', error as Error);
       throw new ExternalServiceError('Machine Service', 'Failed to start scan', error as Error);

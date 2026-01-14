@@ -2172,12 +2172,72 @@ function setupIpcHandlers() {
         }
       }
 
+      if (options.onlineOnly === true) {
+        args.push('-OnlineOnly');
+      }
+
       const result = await executePowerShellScript(scanScriptPath, args, {
         timeout: options.timeout || 600000,
         env: scanEnv
       });
 
-      return { success: true, output: result.stdout };
+      const stdout = result.stdout || '';
+      let parsed = null;
+      const startToken = 'GA_APPLOCKER_SCAN_RESULT_START';
+      const endToken = 'GA_APPLOCKER_SCAN_RESULT_END';
+      if (stdout.includes(startToken) && stdout.includes(endToken)) {
+        const jsonText = stdout.split(startToken)[1].split(endToken)[0].trim();
+        try {
+          parsed = JSON.parse(jsonText);
+        } catch (error) {
+          console.warn('[IPC] Failed to parse scan JSON output:', error);
+        }
+      } else if (stdout.trim().startsWith('{')) {
+        try {
+          parsed = JSON.parse(stdout.trim());
+        } catch (error) {
+          console.warn('[IPC] Failed to parse scan JSON output:', error);
+        }
+      }
+
+      if (parsed) {
+        const rawResults = Array.isArray(parsed.Results)
+          ? parsed.Results
+          : Array.isArray(parsed.results)
+            ? parsed.results
+            : [];
+        const normalizedResults = rawResults.map((entry) => ({
+          computerName: entry.ComputerName ?? entry.computerName ?? '',
+          status: entry.Status ?? entry.status ?? 'Unknown',
+          outputPath: entry.OutputPath ?? entry.outputPath,
+          error: entry.Error ?? entry.error,
+          operatingSystem: entry.OperatingSystem ?? entry.operatingSystem,
+          pingStatus: entry.PingStatus ?? entry.pingStatus,
+          winRMStatus: entry.WinRMStatus ?? entry.winRMStatus
+        }));
+        const summary = {
+          totalMachines: parsed.TotalMachines ?? parsed.totalMachines ?? normalizedResults.length,
+          successful: parsed.Successful ?? parsed.successful ?? normalizedResults.filter(item => item.status === 'Success').length,
+          failed: parsed.Failed ?? parsed.failed ?? normalizedResults.filter(item => item.status === 'Failed').length,
+          skipped: parsed.Skipped ?? parsed.skipped ?? normalizedResults.filter(item => item.status !== 'Success' && item.status !== 'Failed').length,
+          results: normalizedResults
+        };
+        const failures = normalizedResults.filter(item => item.status !== 'Success');
+        return { success: failures.length === 0, summary, failures };
+      }
+
+      return {
+        success: true,
+        summary: {
+          totalMachines: 0,
+          successful: 0,
+          failed: 0,
+          skipped: 0,
+          results: []
+        },
+        failures: [],
+        output: stdout
+      };
     } catch (error) {
       console.error('[IPC] Start scan error:', error);
       return { success: false, error: sanitizeErrorMessage(error) };

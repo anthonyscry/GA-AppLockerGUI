@@ -31,6 +31,31 @@ export interface MachineScan {
   ou?: string;  // Organizational Unit path (e.g., "OU=Workstations,OU=Computers,DC=domain,DC=com")
 }
 
+export interface BatchScanHostResult {
+  computerName: string;
+  status: string;
+  outputPath?: string;
+  error?: string;
+  operatingSystem?: string;
+  pingStatus?: string;
+  winRMStatus?: string;
+}
+
+export interface BatchScanSummary {
+  totalMachines: number;
+  successful: number;
+  failed: number;
+  skipped: number;
+  results: BatchScanHostResult[];
+}
+
+export interface BatchScanResponse {
+  success: boolean;
+  summary: BatchScanSummary;
+  failures: BatchScanHostResult[];
+  output?: string;
+}
+
 // Machine type derived from OU path
 export type MachineType = 'Workstation' | 'Server' | 'DomainController' | 'Unknown';
 
