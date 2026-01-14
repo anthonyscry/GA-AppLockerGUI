@@ -112,7 +112,13 @@ if ($PasswordEnvVar -and (Test-Path "env:$PasswordEnvVar")) {
     Write-Log "Using password from command line (less secure - consider using -PasswordEnvVar)" "WARNING"
 }
 
-if (-not $UseCurrentUser -and $Username -and $ActualPassword) {
+if ($UseCurrentUser) {
+    Write-Log "Using current user credentials for remote scanning" "INFO"
+} else {
+    if (-not $Username -or -not $ActualPassword) {
+        throw "UseCurrentUser is set to false, but username/password were not provided."
+    }
+
     $SecurePassword = ConvertTo-SecureString -String $ActualPassword -AsPlainText -Force
     # Clear plaintext password from memory
     $ActualPassword = $null
@@ -122,8 +128,6 @@ if (-not $UseCurrentUser -and $Username -and $ActualPassword) {
         $Credential = New-Object System.Management.Automation.PSCredential($Username, $SecurePassword)
     }
     Write-Log "Using provided credentials for remote scanning" "INFO"
-} else {
-    Write-Log "Using current user credentials for remote scanning" "INFO"
 }
 
 # Discover machines from AD if ComputerNames not provided
