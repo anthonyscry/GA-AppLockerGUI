@@ -59,6 +59,7 @@ const ScanModule: React.FC = () => {
     type: string;
   }>>([]);
   const [ousLoading, setOusLoading] = useState(false);
+  const [ouError, setOuError] = useState<string | null>(null);
 
   // Auto-detect domain on mount
   React.useEffect(() => {
@@ -86,15 +87,24 @@ const ScanModule: React.FC = () => {
   React.useEffect(() => {
     const fetchOUs = async () => {
       setOusLoading(true);
+      setOuError(null);
       try {
         const electron = (window as any).electron;
         if (electron?.ipc) {
           const result = await electron.ipc.invoke('ad:getOUsWithComputers');
           if (result.success && Array.isArray(result.ous)) {
             setAvailableOUs(result.ous);
+            return;
           }
+          setAvailableOUs([]);
+          setOuError(result?.error || 'Failed to load OUs from Active Directory.');
+          return;
         }
+        setAvailableOUs([]);
+        setOuError('Active Directory integration is unavailable in browser mode.');
       } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        setOuError(message);
         console.warn('Could not fetch OUs:', error);
       } finally {
         setOusLoading(false);
@@ -236,30 +246,27 @@ const ScanModule: React.FC = () => {
     );
   }
 
-  if (machinesError) {
-    return (
-      <div role="alert" className="bg-red-50 border-l-4 border-red-500 p-6 rounded-xl">
-        <div className="flex items-start">
-          <ShieldAlert className="text-red-500 mr-3 mt-0.5 shrink-0" size={20} aria-hidden="true" />
-          <div className="flex-1">
-            <h3 className="font-bold text-red-800">Unable to load machines</h3>
-            <p className="text-red-700 text-sm mt-1">{machinesError.message}</p>
-            <button 
-              onClick={() => refetchMachines()}
-              className="mt-3 text-sm font-bold text-red-800 hover:text-red-900 underline flex items-center space-x-1 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 rounded px-2 py-1"
-              aria-label="Retry loading machines"
-            >
-              <RefreshCw size={14} aria-hidden="true" />
-              <span>Retry</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500 pb-12">
+      {machinesError && (
+        <div role="alert" className="bg-red-50 border-l-4 border-red-500 p-4 rounded-xl">
+          <div className="flex items-start">
+            <ShieldAlert className="text-red-500 mr-3 mt-0.5 shrink-0" size={18} aria-hidden="true" />
+            <div className="flex-1">
+              <h3 className="font-bold text-red-800 text-sm">Unable to load machines</h3>
+              <p className="text-red-700 text-xs mt-1">{machinesError.message}</p>
+              <button 
+                onClick={() => refetchMachines()}
+                className="mt-2 text-xs font-bold text-red-800 hover:text-red-900 underline flex items-center space-x-1 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 rounded px-2 py-1"
+                aria-label="Retry loading machines"
+              >
+                <RefreshCw size={12} aria-hidden="true" />
+                <span>Retry</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Header Section */}
       <div className="flex items-center justify-between">
         <div>
@@ -535,6 +542,12 @@ const ScanModule: React.FC = () => {
           </button>
         )}
       </div>
+      {ouError && (
+        <div role="alert" className="bg-amber-50 border-l-4 border-amber-500 p-3 rounded-lg flex items-start space-x-2 text-amber-900 text-xs font-semibold">
+          <ShieldAlert className="mt-0.5 shrink-0" size={14} aria-hidden="true" />
+          <span>{ouError}</span>
+        </div>
+      )}
 
       {/* OU-Based Auto-Grouping Summary - Compact */}
       <div className="grid grid-cols-4 gap-2">

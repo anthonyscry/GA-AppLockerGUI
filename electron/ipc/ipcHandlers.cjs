@@ -1852,13 +1852,16 @@ function setupIpcHandlers() {
    * // Returns: { success: true, ous: [{ path: "OU=Workstations,DC=corp,DC=local", name: "Workstations", computerCount: 50 }] }
    *
    * @since v1.2.10
-   */
+  */
   ipcMain.handle('ad:getOUsWithComputers', async () => {
     try {
       const command = `
+        $ErrorActionPreference = 'Stop'
         try {
+          Import-Module ActiveDirectory -ErrorAction Stop
           # Get all computers and extract unique OUs
-          $computers = Get-ADComputer -Filter * -Properties DistinguishedName -ErrorAction SilentlyContinue
+          $computers = Get-ADComputer -Filter * -Properties DistinguishedName, OperatingSystem -ErrorAction Stop |
+            Where-Object { $_.OperatingSystem -match 'Windows' }
 
           if (-not $computers) {
             @{ success = $true; ous = @() } | ConvertTo-Json -Compress -Depth 5
@@ -2032,6 +2035,7 @@ function setupIpcHandlers() {
           Import-Module ActiveDirectory -ErrorAction Stop
 
           $computers = Get-ADComputer -Filter * -Properties OperatingSystem, LastLogonDate, DistinguishedName, Description |
+            Where-Object { $_.OperatingSystem -match 'Windows' } |
             Select-Object -First 200 Name, OperatingSystem, LastLogonDate, DistinguishedName, Description,
               @{N='OU';E={($_.DistinguishedName -split ',', 2)[1]}} |
             ForEach-Object {
