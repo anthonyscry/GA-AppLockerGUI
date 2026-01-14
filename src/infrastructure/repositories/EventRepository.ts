@@ -10,6 +10,14 @@
  * - 8003: Application would have been blocked (audit mode warning)
  * - 8004: Application blocked (enforcement mode)
  *
+ * LESSON LEARNED: IPC handlers may return error objects instead of data arrays.
+ * Common errors include:
+ * - "AppLocker event log not found" - AppLocker not configured on system
+ * - "Access denied" - Insufficient permissions to read event logs
+ * Always check for error responses before treating result as valid data.
+ *
+ * See docs/LESSONS_LEARNED.md for full documentation.
+ *
  * @module EventRepository
  */
 
@@ -30,13 +38,27 @@ export class EventRepository implements IEventRepository {
    */
   async findAll(): Promise<AppEvent[]> {
     try {
-      const events = await ipcClient.invoke<AppEvent[]>(IPCChannels.EVENT.GET_ALL);
+      const result = await ipcClient.invoke<AppEvent[] | { error: string; errorType?: string }>(IPCChannels.EVENT.GET_ALL);
+
+      // Check if the result is an error response from PowerShell
+      if (result && typeof result === 'object' && 'error' in result) {
+        const errorMsg = (result as { error: string }).error;
+        const errorType = (result as { errorType?: string }).errorType || 'Unknown';
+        logger.error(`AppLocker event query failed: ${errorMsg} (${errorType})`);
+        throw new ExternalServiceError('AppLocker Events', errorMsg, new Error(errorMsg));
+      }
+
+      const events = result as AppEvent[];
       return events || [];
     } catch (error) {
       // Gracefully handle browser mode (no Electron IPC available)
       if (!ipcClient.isAvailable()) {
         logger.warn('IPC not available (browser mode), returning empty events list');
         return [];
+      }
+      // Re-throw ExternalServiceError as-is
+      if (error instanceof ExternalServiceError) {
+        throw error;
       }
       logger.error('Failed to fetch events', error as Error);
       throw new ExternalServiceError('Event Service', 'Failed to fetch events', error as Error);

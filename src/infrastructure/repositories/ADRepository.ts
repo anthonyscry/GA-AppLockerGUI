@@ -1,5 +1,15 @@
 /**
  * AD Repository Implementation
+ *
+ * LESSON LEARNED: IPC handlers may return error objects instead of data arrays.
+ * Always check: if (result && typeof result === 'object' && 'error' in result)
+ * before treating the result as valid data. This ensures users see actual error
+ * messages like "ActiveDirectory module not found" instead of empty results.
+ *
+ * LESSON LEARNED: Re-throw ExternalServiceError as-is to preserve error context.
+ * Only wrap in new ExternalServiceError if it's an unexpected error type.
+ *
+ * See docs/LESSONS_LEARNED.md for full documentation.
  */
 
 import { IADRepository, UserFilter, GPOSettings } from '../../domain/interfaces/IADRepository';
@@ -12,12 +22,26 @@ import { NotFoundError, ExternalServiceError } from '../../domain/errors';
 export class ADRepository implements IADRepository {
   async getAllUsers(): Promise<ADUser[]> {
     try {
-      const users = await ipcClient.invoke<ADUser[]>(IPCChannels.AD.GET_USERS);
+      const result = await ipcClient.invoke<ADUser[] | { error: string; errorType?: string }>(IPCChannels.AD.GET_USERS);
+
+      // Check if the result is an error response from PowerShell
+      if (result && typeof result === 'object' && 'error' in result) {
+        const errorMsg = (result as { error: string }).error;
+        const errorType = (result as { errorType?: string }).errorType || 'Unknown';
+        logger.error(`AD query failed: ${errorMsg} (${errorType})`);
+        throw new ExternalServiceError('Active Directory', errorMsg, new Error(errorMsg));
+      }
+
+      const users = result as ADUser[];
       return users || [];
     } catch (error) {
       if (!ipcClient.isAvailable()) {
         logger.warn('IPC not available (browser mode), returning empty users list');
         return [];
+      }
+      // Re-throw ExternalServiceError as-is
+      if (error instanceof ExternalServiceError) {
+        throw error;
       }
       logger.error('Failed to fetch AD users', error as Error);
       throw new ExternalServiceError('AD Service', 'Failed to fetch AD users', error as Error);

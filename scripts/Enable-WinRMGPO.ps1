@@ -6,9 +6,20 @@
     Creates or updates a GPO to enable Windows Remote Management (WinRM)
     across the domain for remote AppLocker management and scanning.
 
+    LESSON LEARNED: Creating a GPO with New-GPO is NOT enough!
+    The GPO must be LINKED to a domain or OU using New-GPLink.
+    Without linking, the GPO exists but never applies to any machines.
+
+    This script:
+    1. Creates the GPO (if not exists)
+    2. Configures WinRM registry settings
+    3. LINKS the GPO to the domain root (CRITICAL STEP)
+
 .NOTES
     Requires: GroupPolicy PowerShell module, Domain Admin privileges
     Author: GA-ASI AppLocker Toolkit
+
+    See docs/LESSONS_LEARNED.md for debugging patterns.
 #>
 
 [CmdletBinding()]
@@ -91,7 +102,9 @@ try {
         Write-Host "No target OU specified, linking to domain root: $TargetOU" -ForegroundColor Yellow
     }
 
-    # Link GPO to target (root domain or specified OU)
+    # CRITICAL: Link GPO to target (root domain or specified OU)
+    # LESSON LEARNED: Without this step, the GPO does NOTHING!
+    # New-GPO creates the policy object, but New-GPLink makes it apply to machines.
     Write-Host "Linking GPO to: $TargetOU" -ForegroundColor Cyan
 
     # Check if link already exists
