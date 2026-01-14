@@ -1,71 +1,241 @@
-import React, { useState, useCallback } from 'react';
-import { Activity, Download, Trash2, Calendar, Filter, ExternalLink, Loader2, ShieldAlert, RefreshCw, Save, FolderArchive, Server, CheckSquare } from 'lucide-react';
+/**
+ * Event Monitor Module
+ *
+ * Displays AppLocker audit events (8001-8004) from Windows Event Viewer.
+ * Provides filtering, search, export, and backup capabilities.
+ *
+ * Event ID Reference:
+ * - 8001: AppLocker policy applied successfully
+ * - 8002: Application allowed (matched allow rule)
+ * - 8003: Application would have been blocked (audit mode warning)
+ * - 8004: Application blocked (enforcement mode)
+ *
+ * @module EventsModule
+ * @since v1.2.0
+ */
+
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import {
+  Activity,
+  Download,
+  Trash2,
+  Calendar,
+  Filter,
+  ExternalLink,
+  Loader2,
+  ShieldAlert,
+  RefreshCw,
+  Save,
+  FolderArchive,
+  Server,
+  AlertCircle,
+  X
+} from 'lucide-react';
 import { useAppServices } from '../src/presentation/contexts/AppContext';
 import { useAsync } from '../src/presentation/hooks/useAsync';
 import { useDebounce } from '../src/presentation/hooks/useDebounce';
 import { AppEvent } from '../src/shared/types';
-import { showSaveDialog, showOpenDialog } from '../src/infrastructure/ipc/fileDialog';
+import { showSaveDialog } from '../src/infrastructure/ipc/fileDialog';
 
+/**
+ * Safe accessor for event properties
+ * Returns empty string for null/undefined values to prevent crashes
+ */
+const safeString = (value: string | null | undefined): string => {
+  return value ?? '';
+};
+
+/**
+ * Event stat card component with click-to-filter functionality
+ */
+const EventStatCard: React.FC<{
+  label: string;
+  value: string;
+  color: string;
+  onClick?: () => void;
+  active?: boolean;
+}> = ({ label, value, color, onClick, active }) => (
+  <button
+    onClick={onClick}
+    className={`bg-white p-4 rounded-xl shadow-sm border text-left transition-all w-full min-h-[44px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+      active
+        ? 'border-blue-500 ring-2 ring-blue-500/20 shadow-md'
+        : 'border-slate-200 hover:border-slate-300 hover:shadow-md'
+    }`}
+    aria-pressed={active}
+  >
+    <p className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mb-1">{label}</p>
+    <p className={`text-2xl font-black ${color}`}>{value}</p>
+  </button>
+);
+
+/**
+ * Single event row component for the events table
+ * Handles null/undefined properties safely
+ */
+const EventRow: React.FC<{ event: AppEvent }> = ({ event }) => {
+  const eventId = event?.eventId ?? 0;
+  const timestamp = safeString(event?.timestamp);
+  const machine = safeString(event?.machine);
+  const path = safeString(event?.path);
+  const publisher = safeString(event?.publisher);
+
+  // Determine status color based on event ID
+  const statusClass = eventId === 8004 ? 'text-red-600' :
+                      eventId === 8003 ? 'text-blue-600' :
+                      'text-green-600';
+
+  const badgeClass = eventId === 8004 ? 'bg-red-100 text-red-700' :
+                     eventId === 8003 ? 'bg-blue-100 text-blue-700' :
+                     'bg-green-100 text-green-700';
+
+  const statusLabel = eventId === 8004 ? 'Blocked' :
+                      eventId === 8003 ? 'Audit' :
+                      'Allowed';
+
+  return (
+    <tr className="hover:bg-slate-50 group">
+      <td className="px-6 py-4">
+        <span className={`flex items-center space-x-1.5 font-bold ${statusClass}`}>
+          <Activity size={14} />
+          <span>{eventId}</span>
+          <span className={`text-[9px] px-1.5 py-0.5 rounded uppercase font-black ${badgeClass}`}>
+            {statusLabel}
+          </span>
+        </span>
+      </td>
+      <td className="px-6 py-4 text-slate-500">{timestamp || 'N/A'}</td>
+      <td className="px-6 py-4 font-semibold text-slate-800">{machine || 'Unknown'}</td>
+      <td className="px-6 py-4 font-mono text-xs text-slate-600">
+        <div className="max-w-[300px] truncate" title={path}>{path || 'N/A'}</div>
+      </td>
+      <td className="px-6 py-4 text-slate-500 italic">{publisher || 'Unknown'}</td>
+      <td className="px-6 py-4 text-right">
+        <button
+          className="opacity-0 group-hover:opacity-100 text-blue-600 p-3 min-w-[44px] min-h-[44px] hover:bg-blue-50 rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+          aria-label="View event details"
+        >
+          <ExternalLink size={16} aria-hidden="true" />
+        </button>
+      </td>
+    </tr>
+  );
+};
+
+/**
+ * Main Event Monitor component
+ */
 const EventsModule: React.FC = () => {
   const { event, machine } = useAppServices();
+
+  // Search and filter state
   const [searchQuery, setSearchQuery] = useState('');
   const [eventTypeFilter, setEventTypeFilter] = useState<'all' | 'blocked' | 'audit' | 'allowed'>('all');
-  const [showBackupModal, setShowBackupModal] = useState(false);
-  const [backupProgress, setBackupProgress] = useState<{current: number, total: number, status: string} | null>(null);
-  const [selectedBackupSystems, setSelectedBackupSystems] = useState<Set<string>>(new Set());
-  const [backupPath, setBackupPath] = useState('.\\backups\\events');
   const debouncedSearch = useDebounce(searchQuery, 300);
 
-  // Fetch events
-  const { data: events, loading: eventsLoading, error: eventsError, refetch: refetchEvents } = useAsync(
-    () => event.getAllEvents()
-  );
+  // Backup modal state
+  const [showBackupModal, setShowBackupModal] = useState(false);
+  const [backupProgress, setBackupProgress] = useState<{current: number; total: number; status: string} | null>(null);
+  const [selectedBackupSystems, setSelectedBackupSystems] = useState<Set<string>>(new Set());
+  const [backupPath, setBackupPath] = useState('.\\backups\\events');
+
+  // Error state for component-level error handling
+  const [componentError, setComponentError] = useState<string | null>(null);
+
+  // Fetch events with error handling
+  const {
+    data: rawEvents,
+    loading: eventsLoading,
+    error: eventsError,
+    refetch: refetchEvents
+  } = useAsync(() => event.getAllEvents());
 
   // Fetch event stats
-  const { data: eventStats, loading: statsLoading } = useAsync(
-    () => event.getEventStats()
-  );
-
-  // Filter events based on search and event type (client-side filtering)
-  const filteredEvents = React.useMemo(() => {
-    if (!events) return [];
-
-    let filtered = events;
-
-    // Filter by event type
-    if (eventTypeFilter !== 'all') {
-      filtered = filtered.filter((e: AppEvent) => {
-        switch (eventTypeFilter) {
-          case 'blocked': return e.eventId === 8004;
-          case 'audit': return e.eventId === 8003;
-          case 'allowed': return e.eventId === 8002 || e.eventId === 8001;
-          default: return true;
-        }
-      });
-    }
-
-    // Apply search filter (client-side)
-    if (debouncedSearch) {
-      const query = debouncedSearch.toLowerCase();
-      filtered = filtered.filter((e: AppEvent) =>
-        e.machine?.toLowerCase().includes(query) ||
-        e.path?.toLowerCase().includes(query) ||
-        e.publisher?.toLowerCase().includes(query)
-      );
-    }
-
-    return filtered;
-  }, [events, debouncedSearch, eventTypeFilter]);
+  const {
+    data: eventStats,
+    loading: statsLoading
+  } = useAsync(() => event.getEventStats());
 
   // Fetch machines for backup selection
   const { data: machines } = useAsync(() => machine.getAllMachines());
 
-  const handleExportCSV = async () => {
+  // Normalize events to ensure we always have an array with valid objects
+  const events = useMemo(() => {
     try {
-      if (!events) return;
+      if (!rawEvents) return [];
+      if (!Array.isArray(rawEvents)) {
+        console.warn('Events data is not an array:', typeof rawEvents);
+        return [];
+      }
+      // Filter out any null/undefined entries and ensure each has required fields
+      return rawEvents.filter((e): e is AppEvent => {
+        return e != null && typeof e === 'object';
+      });
+    } catch (err) {
+      console.error('Error normalizing events:', err);
+      setComponentError('Failed to process events data');
+      return [];
+    }
+  }, [rawEvents]);
+
+  // Safe filtering with comprehensive null checks
+  const filteredEvents = useMemo(() => {
+    try {
+      if (!events || events.length === 0) return [];
+
+      let filtered = [...events];
+
+      // Filter by event type
+      if (eventTypeFilter !== 'all') {
+        filtered = filtered.filter((e) => {
+          const eventId = e?.eventId;
+          if (eventId == null) return false;
+
+          switch (eventTypeFilter) {
+            case 'blocked': return eventId === 8004;
+            case 'audit': return eventId === 8003;
+            case 'allowed': return eventId === 8002 || eventId === 8001;
+            default: return true;
+          }
+        });
+      }
+
+      // Apply search filter with null-safe property access
+      if (debouncedSearch && debouncedSearch.trim()) {
+        const query = debouncedSearch.toLowerCase().trim();
+        filtered = filtered.filter((e) => {
+          const machineMatch = safeString(e?.machine).toLowerCase().includes(query);
+          const pathMatch = safeString(e?.path).toLowerCase().includes(query);
+          const publisherMatch = safeString(e?.publisher).toLowerCase().includes(query);
+          return machineMatch || pathMatch || publisherMatch;
+        });
+      }
+
+      return filtered;
+    } catch (err) {
+      console.error('Error filtering events:', err);
+      return [];
+    }
+  }, [events, debouncedSearch, eventTypeFilter]);
+
+  // Safe stats with defaults
+  const safeStats = useMemo(() => ({
+    totalBlocked: eventStats?.totalBlocked ?? 0,
+    totalAudit: eventStats?.totalAudit ?? 0,
+    totalAllowed: eventStats?.totalAllowed ?? 0,
+    uniquePaths: eventStats?.uniquePaths ?? 0,
+  }), [eventStats]);
+
+  // Export to CSV with error handling
+  const handleExportCSV = useCallback(async () => {
+    try {
+      if (!events || events.length === 0) {
+        alert('No events to export');
+        return;
+      }
+
       const csv = await event.exportToCSV(events);
 
-      // Use file dialog to save
       const filePath = await showSaveDialog({
         title: 'Export Events to CSV',
         defaultPath: `applocker-events-${new Date().toISOString().split('T')[0]}.csv`,
@@ -76,13 +246,12 @@ const EventsModule: React.FC = () => {
       });
 
       if (filePath) {
-        // In Electron, write file via IPC
         const electron = (window as any).electron;
         if (electron?.ipc) {
           await electron.ipc.invoke('fs:writeFile', filePath, csv);
           alert(`Events exported successfully to:\n${filePath}`);
         } else {
-          // Fallback to browser download
+          // Browser fallback
           const blob = new Blob([csv], { type: 'text/csv' });
           const url = window.URL.createObjectURL(blob);
           const a = document.createElement('a');
@@ -98,9 +267,9 @@ const EventsModule: React.FC = () => {
       console.error('Failed to export CSV:', error);
       alert(`Failed to export CSV: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-  };
+  }, [events, event]);
 
-  // Handle backup AppLocker events from selected systems
+  // Backup events handler
   const handleBackupEvents = useCallback(async () => {
     if (selectedBackupSystems.size === 0) {
       alert('Please select at least one system to backup');
@@ -128,11 +297,9 @@ const EventsModule: React.FC = () => {
           status: `Backing up ${systemName}...`
         });
 
-        // Generate unique filename for each system: systemname-YYYY-MM-DD-HHMMSS.evtx
-        // Using current time for each system to ensure unique filenames even if run multiple times
         const backupTime = new Date();
-        const dateStr = backupTime.toISOString().split('T')[0]; // YYYY-MM-DD
-        const timeStr = backupTime.toTimeString().split(' ')[0].replace(/:/g, ''); // HHMMSS
+        const dateStr = backupTime.toISOString().split('T')[0];
+        const timeStr = backupTime.toTimeString().split(' ')[0].replace(/:/g, '');
         const filename = `${systemName}-${dateStr}-${timeStr}.evtx`;
         const outputPath = `${backupPath}\\${monthFolder}\\${filename}`;
 
@@ -143,8 +310,8 @@ const EventsModule: React.FC = () => {
             createFolderIfMissing: true
           });
 
-          if (!result.success) {
-            console.warn(`Failed to backup ${systemName}:`, result.error);
+          if (!result?.success) {
+            console.warn(`Failed to backup ${systemName}:`, result?.error);
           }
         } catch (err) {
           console.warn(`Error backing up ${systemName}:`, err);
@@ -162,7 +329,7 @@ const EventsModule: React.FC = () => {
     }
   }, [selectedBackupSystems, backupPath]);
 
-  // Toggle system selection for backup
+  // Toggle backup system selection
   const toggleBackupSystem = useCallback((hostname: string) => {
     setSelectedBackupSystems(prev => {
       const newSet = new Set(prev);
@@ -177,11 +344,23 @@ const EventsModule: React.FC = () => {
 
   // Select all machines for backup
   const selectAllForBackup = useCallback(() => {
-    if (machines) {
-      setSelectedBackupSystems(new Set(machines.map(m => m.hostname)));
+    if (machines && Array.isArray(machines)) {
+      const hostnames = machines
+        .filter(m => m?.hostname)
+        .map(m => m.hostname);
+      setSelectedBackupSystems(new Set(hostnames));
     }
   }, [machines]);
 
+  // Clear component error after displaying
+  useEffect(() => {
+    if (componentError) {
+      const timer = setTimeout(() => setComponentError(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [componentError]);
+
+  // Loading state
   if (eventsLoading || statsLoading) {
     return (
       <div className="flex items-center justify-center h-64" role="status" aria-live="polite">
@@ -194,6 +373,7 @@ const EventsModule: React.FC = () => {
     );
   }
 
+  // Error state
   if (eventsError) {
     return (
       <div role="alert" className="bg-red-50 border-l-4 border-red-500 p-6 rounded-xl">
@@ -201,8 +381,8 @@ const EventsModule: React.FC = () => {
           <ShieldAlert className="text-red-500 mr-3 mt-0.5 shrink-0" size={20} aria-hidden="true" />
           <div className="flex-1">
             <h3 className="font-bold text-red-800">Unable to load events</h3>
-            <p className="text-red-700 text-sm mt-1">{eventsError.message}</p>
-            <button 
+            <p className="text-red-700 text-sm mt-1">{eventsError?.message || 'Unknown error occurred'}</p>
+            <button
               onClick={() => refetchEvents()}
               className="mt-3 text-sm font-bold text-red-800 hover:text-red-900 underline flex items-center space-x-1 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 rounded px-2 py-1"
               aria-label="Retry loading events"
@@ -218,6 +398,18 @@ const EventsModule: React.FC = () => {
 
   return (
     <div className="space-y-6 animate-in slide-in-from-right-4 duration-500">
+      {/* Component-level error toast */}
+      {componentError && (
+        <div className="fixed top-4 right-4 z-50 bg-red-600 text-white px-4 py-3 rounded-lg shadow-lg flex items-center space-x-2 animate-in slide-in-from-right">
+          <AlertCircle size={18} />
+          <span className="text-sm font-medium">{componentError}</span>
+          <button onClick={() => setComponentError(null)} className="p-1 hover:bg-red-700 rounded">
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold text-slate-900">Event Monitor</h2>
@@ -267,8 +459,9 @@ const EventsModule: React.FC = () => {
               <button
                 onClick={() => { setShowBackupModal(false); setSelectedBackupSystems(new Set()); }}
                 className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-400"
+                aria-label="Close backup modal"
               >
-                <Trash2 size={20} />
+                <X size={20} />
               </button>
             </div>
 
@@ -312,11 +505,11 @@ const EventsModule: React.FC = () => {
                 </div>
 
                 <div className="border border-slate-200 rounded-lg max-h-[300px] overflow-y-auto">
-                  {machines && machines.length > 0 ? (
+                  {machines && Array.isArray(machines) && machines.length > 0 ? (
                     <div className="divide-y divide-slate-100">
-                      {machines.map((m) => (
+                      {machines.filter(m => m?.hostname).map((m) => (
                         <label
-                          key={m.id}
+                          key={m.id || m.hostname}
                           className={`flex items-center p-3 cursor-pointer hover:bg-slate-50 transition-colors ${
                             selectedBackupSystems.has(m.hostname) ? 'bg-emerald-50' : ''
                           }`}
@@ -334,7 +527,7 @@ const EventsModule: React.FC = () => {
                               <span className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase ${
                                 m.status === 'Online' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'
                               }`}>
-                                {m.status}
+                                {m.status || 'Unknown'}
                               </span>
                             </div>
                             <p className="text-[10px] text-slate-400 mt-0.5 truncate">{m.ou || 'No OU'}</p>
@@ -401,53 +594,55 @@ const EventsModule: React.FC = () => {
         </div>
       )}
 
+      {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <EventStatCard 
-          label="Total Blocked (8004)" 
-          value={eventStats?.totalBlocked.toString() || '0'} 
+        <EventStatCard
+          label="Total Blocked (8004)"
+          value={safeStats.totalBlocked.toString()}
           color="text-red-600"
           onClick={() => setEventTypeFilter('blocked')}
           active={eventTypeFilter === 'blocked'}
         />
-        <EventStatCard 
-          label="Total Audit (8003)" 
-          value={eventStats?.totalAudit.toString() || '0'} 
+        <EventStatCard
+          label="Total Audit (8003)"
+          value={safeStats.totalAudit.toString()}
           color="text-blue-600"
           onClick={() => setEventTypeFilter('audit')}
           active={eventTypeFilter === 'audit'}
         />
-        <EventStatCard 
-          label="Total Allowed (8001/8002)" 
-          value={eventStats?.totalAllowed?.toString() || '0'} 
+        <EventStatCard
+          label="Total Allowed (8001/8002)"
+          value={safeStats.totalAllowed.toString()}
           color="text-green-600"
           onClick={() => setEventTypeFilter('allowed')}
           active={eventTypeFilter === 'allowed'}
         />
-        <EventStatCard 
-          label="Unique Paths" 
-          value={eventStats?.uniquePaths.toString() || '0'} 
+        <EventStatCard
+          label="Unique Paths"
+          value={safeStats.uniquePaths.toString()}
           color="text-slate-600"
           onClick={() => setEventTypeFilter('all')}
           active={eventTypeFilter === 'all'}
         />
       </div>
 
+      {/* Events Table */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center space-x-4">
           <div className="flex-1 relative">
             <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-            <input 
-              type="text" 
+            <input
+              type="text"
               id="events-search"
-              placeholder="Filter events..." 
+              placeholder="Filter by machine, path, or publisher..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-2.5 min-h-[44px] bg-white border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2" 
+              className="w-full pl-9 pr-4 py-2.5 min-h-[44px] bg-white border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
               aria-label="Search and filter events"
             />
           </div>
           {searchQuery && (
-            <button 
+            <button
               onClick={() => setSearchQuery('')}
               className="p-3 min-w-[44px] min-h-[44px] text-slate-400 hover:text-red-500 transition-colors rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
               aria-label="Clear search"
@@ -455,6 +650,13 @@ const EventsModule: React.FC = () => {
               <Trash2 size={20} aria-hidden="true" />
             </button>
           )}
+          <button
+            onClick={() => refetchEvents()}
+            className="p-3 min-w-[44px] min-h-[44px] text-slate-400 hover:text-blue-600 transition-colors rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            aria-label="Refresh events"
+          >
+            <RefreshCw size={20} aria-hidden="true" />
+          </button>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
@@ -470,47 +672,17 @@ const EventsModule: React.FC = () => {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filteredEvents.length > 0 ? (
-                filteredEvents.map((event) => (
-                  <tr key={event.id} className="hover:bg-slate-50 group">
-                    <td className="px-6 py-4">
-                      <span className={`flex items-center space-x-1.5 font-bold ${
-                        event.eventId === 8004 ? 'text-red-600' : 
-                        event.eventId === 8003 ? 'text-blue-600' : 
-                        'text-green-600'
-                      }`}>
-                        <Activity size={14} />
-                        <span>{event.eventId}</span>
-                        <span className={`text-[9px] px-1.5 py-0.5 rounded uppercase font-black ${
-                          event.eventId === 8004 ? 'bg-red-100 text-red-700' : 
-                          event.eventId === 8003 ? 'bg-blue-100 text-blue-700' : 
-                          'bg-green-100 text-green-700'
-                        }`}>
-                          {event.eventId === 8004 ? 'Blocked' : event.eventId === 8003 ? 'Audit' : 'Allowed'}
-                        </span>
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-slate-500">{event.timestamp}</td>
-                    <td className="px-6 py-4 font-semibold text-slate-800">{event.machine}</td>
-                    <td className="px-6 py-4 font-mono text-xs text-slate-600">
-                      <div className="max-w-[300px] truncate" title={event.path}>{event.path}</div>
-                    </td>
-                    <td className="px-6 py-4 text-slate-500 italic">{event.publisher}</td>
-                    <td className="px-6 py-4 text-right">
-                      <button 
-                        className="opacity-0 group-hover:opacity-100 text-blue-600 p-3 min-w-[44px] min-h-[44px] hover:bg-blue-50 rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                        aria-label="View event details"
-                      >
-                        <ExternalLink size={16} aria-hidden="true" />
-                      </button>
-                    </td>
-                  </tr>
+                filteredEvents.map((evt, index) => (
+                  <EventRow key={evt?.id || `event-${index}`} event={evt} />
                 ))
               ) : (
                 <tr>
                   <td colSpan={6} className="px-6 py-8">
                     <div className="text-center" role="status">
                       <Activity className="mx-auto text-slate-300 mb-2" size={32} aria-hidden="true" />
-                      <p className="text-slate-500 text-sm font-medium">{searchQuery ? 'No events match your search' : 'No events found'}</p>
+                      <p className="text-slate-500 text-sm font-medium">
+                        {searchQuery ? 'No events match your search' : 'No events found'}
+                      </p>
                       {searchQuery && (
                         <button
                           onClick={() => setSearchQuery('')}
@@ -527,8 +699,11 @@ const EventsModule: React.FC = () => {
             </tbody>
           </table>
         </div>
-        <div className="p-4 bg-slate-50 border-t border-slate-100 text-center">
-          <button 
+        <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
+          <span className="text-xs text-slate-500">
+            Showing {filteredEvents.length} of {events.length} events
+          </span>
+          <button
             className="text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors uppercase tracking-widest min-h-[44px] px-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 rounded"
             aria-label="Load older events"
           >
@@ -539,26 +714,5 @@ const EventsModule: React.FC = () => {
     </div>
   );
 };
-
-const EventStatCard: React.FC<{ 
-  label: string, 
-  value: string, 
-  color: string,
-  onClick?: () => void,
-  active?: boolean 
-}> = ({ label, value, color, onClick, active }) => (
-  <button 
-    onClick={onClick}
-    className={`bg-white p-4 rounded-xl shadow-sm border text-left transition-all w-full min-h-[44px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-      active 
-        ? 'border-blue-500 ring-2 ring-blue-500/20 shadow-md' 
-        : 'border-slate-200 hover:border-slate-300 hover:shadow-md'
-    }`}
-    aria-pressed={active}
-  >
-    <p className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mb-1">{label}</p>
-    <p className={`text-2xl font-black ${color}`}>{value}</p>
-  </button>
-);
 
 export default EventsModule;

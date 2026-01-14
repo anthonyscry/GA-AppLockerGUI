@@ -268,6 +268,18 @@ const ScanModule: React.FC = () => {
         </div>
         <div className="flex space-x-3">
           <button
+            onClick={() => setShowCredentials(!showCredentials)}
+            className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all font-bold text-sm min-h-[44px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+              showCredentials
+                ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20'
+                : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+            }`}
+            aria-label="Configure scan credentials"
+          >
+            <Key size={18} aria-hidden="true" />
+            <span>Credentials</span>
+          </button>
+          <button
             onClick={refetchMachines}
             disabled={!domainInfo.isDC}
             className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all font-bold text-sm min-h-[44px] focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2 ${
@@ -280,18 +292,6 @@ const ScanModule: React.FC = () => {
           >
             <RefreshCw size={18} aria-hidden="true" />
             <span>{domainInfo.isDC ? 'Detect Systems' : 'Requires DC'}</span>
-          </button>
-          <button
-            onClick={() => setShowCredentials(!showCredentials)}
-            className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all font-bold text-sm min-h-[44px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-              showCredentials
-                ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20'
-                : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-            }`}
-            aria-label="Configure scan credentials"
-          >
-            <Key size={18} aria-hidden="true" />
-            <span>Credentials</span>
           </button>
         </div>
       </div>
