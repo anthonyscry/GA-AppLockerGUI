@@ -2118,6 +2118,12 @@ function setupIpcHandlers() {
         scanEnv[passwordEnvVar] = credentials.password;
         args.push('-PasswordEnvVar', passwordEnvVar);
       }
+      const onlineOnly = options.onlineOnly !== undefined ? Boolean(options.onlineOnly) : true;
+      args.push('-OnlineOnly', onlineOnly ? '$true' : '$false');
+
+      if (options.outputDirectory && typeof options.outputDirectory === 'string') {
+        args.push('-OutputDirectory', escapePowerShellString(options.outputDirectory));
+      }
       if (options.targetOUs && Array.isArray(options.targetOUs) && options.targetOUs.length > 0) {
         // SECURITY FIX: Escape each OU path to prevent command injection
         const escapedOUs = options.targetOUs
@@ -2478,12 +2484,25 @@ function setupIpcHandlers() {
       }
 
       const safeOutputPath = escapePowerShellString(outputPath);
-      const safeSystemName = escapePowerShellString(systemName || '');
+      const targetSystems = Array.isArray(options.systems)
+        ? options.systems
+        : (typeof systemName === 'string' && systemName.length > 0 ? systemName.split(',') : []);
+      const sanitizedSystems = targetSystems
+        .filter(system => typeof system === 'string' && system.length > 0 && system.length <= 255)
+        .map(system => escapePowerShellString(system.trim()));
+      const systemsLiteral = sanitizedSystems.length > 0
+        ? `@("${sanitizedSystems.join('","')}")`
+        : '@()';
 
       // Export AppLocker events using PowerShell Get-WinEvent (no UAC prompts)
       // wevtutil requires elevation, so we use Get-WinEvent export instead
       const command = `
         try {
+          $targetSystems = ${systemsLiteral}
+          if (-not $targetSystems -or $targetSystems.Count -eq 0) {
+            $targetSystems = @($env:COMPUTERNAME)
+          }
+
           # Create output directory if needed
           $outputDir = Split-Path -Parent "${safeOutputPath}"
           if (${createFolderIfMissing ? '$true' : '$false'} -and -not (Test-Path $outputDir)) {
@@ -2499,14 +2518,16 @@ function setupIpcHandlers() {
           )
 
           $allEvents = @()
-          foreach ($logName in $logNames) {
-            try {
-              $events = Get-WinEvent -LogName $logName -MaxEvents 5000 -ErrorAction SilentlyContinue
-              if ($events) {
-                $allEvents += $events
+          foreach ($system in $targetSystems) {
+            foreach ($logName in $logNames) {
+              try {
+                $events = Get-WinEvent -ComputerName $system -LogName $logName -MaxEvents 5000 -ErrorAction SilentlyContinue
+                if ($events) {
+                  $allEvents += $events
+                }
+              } catch {
+                # Log might be empty or not accessible
               }
-            } catch {
-              # Log might be empty or not accessible
             }
           }
 
@@ -2516,16 +2537,16 @@ function setupIpcHandlers() {
             $allEvents | Select-Object TimeCreated, Id, LevelDisplayName, Message, MachineName, ProviderName |
               Export-Clixml -Path $xmlPath -Force
 
-            # Also try wevtutil silently (may fail without elevation but try anyway)
-            $primaryLog = 'Microsoft-Windows-AppLocker/EXE and DLL'
-            Start-Process -FilePath "wevtutil.exe" -ArgumentList "epl \`"$primaryLog\`" \`"${safeOutputPath}\`" /ow:true" -WindowStyle Hidden -Wait -ErrorAction SilentlyContinue 2>$null
+            # Also try wevtutil silently (local machine only - remote export requires elevation/credentials)
+            if ($targetSystems.Count -eq 1 -and $targetSystems[0] -eq $env:COMPUTERNAME) {
+              $primaryLog = 'Microsoft-Windows-AppLocker/EXE and DLL'
+              Start-Process -FilePath "wevtutil.exe" -ArgumentList "epl \`"$primaryLog\`" \`"${safeOutputPath}\`" /ow:true" -WindowStyle Hidden -Wait -ErrorAction SilentlyContinue 2>$null
+            }
 
-            # Store system name in variable to avoid PowerShell parsing issues with commas
-            $sysName = '${safeSystemName.replace(/'/g, "''")}'
             $result = @{
               success = $true
               outputPath = if (Test-Path "${safeOutputPath}") { "${safeOutputPath}" } else { $xmlPath }
-              systemName = $sysName
+              systems = $targetSystems
               eventCount = $allEvents.Count
               timestamp = (Get-Date).ToString('o')
             }

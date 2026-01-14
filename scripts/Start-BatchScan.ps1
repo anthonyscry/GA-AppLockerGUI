@@ -74,13 +74,16 @@ param(
     [switch]$UseCurrentUser = $true,
     
     [Parameter(Mandatory = $false)]
-    [string]$OutputDirectory = "C:\Scans",
+    [string]$OutputDirectory = "C:\AppLocker\scans",
     
     [Parameter(Mandatory = $false)]
     [switch]$IncludeEventLogs,
     
     [Parameter(Mandatory = $false)]
-    [switch]$IncludeWritablePaths
+    [switch]$IncludeWritablePaths,
+
+    [Parameter(Mandatory = $false)]
+    [bool]$OnlineOnly = $true
 )
 
 $ErrorActionPreference = "Stop"
@@ -176,6 +179,40 @@ $Results = @{
 # Scan each machine
 foreach ($ComputerName in $ComputerNames) {
     Write-Log "Scanning $ComputerName..." "INFO"
+
+    if ($OnlineOnly) {
+        # Online-only: verify reachability and WinRM availability before invoking remote scan.
+        $pingOk = $false
+        try {
+            $pingOk = Test-Connection -ComputerName $ComputerName -Count 1 -Quiet -ErrorAction Stop
+        } catch {
+            $pingOk = $false
+        }
+
+        if (-not $pingOk) {
+            $Results.Failed++
+            $Results.Results += @{
+                ComputerName = $ComputerName
+                Status = "Failed"
+                Error = "Host offline or unreachable (ping failed)"
+            }
+            Write-Log "Skipping $ComputerName (offline/unreachable)" "WARNING"
+            continue
+        }
+
+        try {
+            Test-WSMan -ComputerName $ComputerName -ErrorAction Stop | Out-Null
+        } catch {
+            $Results.Failed++
+            $Results.Results += @{
+                ComputerName = $ComputerName
+                Status = "Failed"
+                Error = "WinRM not available"
+            }
+            Write-Log "Skipping $ComputerName (WinRM not available)" "WARNING"
+            continue
+        }
+    }
     
     $OutputPath = Join-Path $OutputDirectory "artifacts-$ComputerName-$(Get-Date -Format 'yyyyMMdd-HHmmss').json"
     
