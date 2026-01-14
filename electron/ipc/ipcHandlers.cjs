@@ -2484,6 +2484,7 @@ function setupIpcHandlers() {
       const sanitizedSystems = targetSystems
         .filter(system => typeof system === 'string')
         .map(system => system.trim())
+        .map(system => (/^(local|localhost|\.)$/i.test(system) ? '.' : system))
         .filter(system => system.length > 0 && system.length <= 255)
         .map(system => escapePowerShellString(system));
       const systemsLiteral = sanitizedSystems.length > 0
