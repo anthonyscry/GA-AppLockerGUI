@@ -54,6 +54,7 @@ function isPathAllowed(filePath, allowedRoots = null) {
     require('os').homedir(),
     path.join(require('os').homedir(), 'Documents'),
     path.join(require('os').homedir(), 'AppData'),
+    'C:\\AppLocker',
     'C:\\AppLockerBackups',
     'C:\\AppLocker'
   ];
@@ -1362,6 +1363,29 @@ function setupIpcHandlers() {
         success: false,
         error: sanitizeErrorMessage(error)
       };
+    }
+  });
+
+  // Ensure directory exists
+  ipcMain.handle('file:ensureDirectory', async (event, dirPath) => {
+    try {
+      if (!dirPath || typeof dirPath !== 'string') {
+        return { success: false, error: 'Invalid directory path' };
+      }
+
+      // Validate directory path is in allowed location
+      if (!isPathAllowed(dirPath)) {
+        console.warn('[IPC] Blocked directory creation in disallowed path:', dirPath);
+        return { success: false, error: 'Directory path is not in an allowed location' };
+      }
+
+      if (!fs.existsSync(dirPath)) {
+        fs.mkdirSync(dirPath, { recursive: true });
+      }
+      return { success: true, path: dirPath };
+    } catch (error) {
+      console.error('[IPC] Ensure directory error:', error);
+      return { success: false, error: sanitizeErrorMessage(error) };
     }
   });
 
