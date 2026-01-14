@@ -91,6 +91,7 @@ export interface InventoryItem {
   name: string;
   publisher: string;
   path: string;
+  hash?: string;
   version: string;
   type: 'EXE' | 'MSI' | 'Script' | 'DLL';
 }

@@ -733,7 +733,7 @@ function setupIpcHandlers() {
   });
 
   // Import artifacts handler (for rule generator)
-  ipcMain.handle('policy:importArtifacts', async (event, artifactsPath) => {
+  ipcMain.handle('policy:importArtifacts', async (event, artifactsPath, options = {}) => {
     try {
       // SECURITY: Validate artifacts path
       if (!isPathAllowed(artifactsPath)) {
@@ -745,6 +745,18 @@ function setupIpcHandlers() {
 
       // Convert artifacts to inventory format
       const inventory = [];
+      const existingInventory = Array.isArray(options.existingInventory) ? options.existingInventory : [];
+      const importMode = options.mode === 'replace' ? 'replace' : 'append';
+
+      const getDedupeKey = (item) => {
+        const pathKey = (item.path || '').trim().toLowerCase();
+        const publisherKey = (item.publisher || '').trim().toLowerCase();
+        const hashKey = (item.hash || '').trim().toLowerCase();
+        if (!pathKey && !publisherKey && !hashKey) {
+          return null;
+        }
+        return `${pathKey}|${publisherKey}|${hashKey}`;
+      };
 
       if (artifacts.Executables) {
         artifacts.Executables.forEach((exe, index) => {
@@ -753,6 +765,7 @@ function setupIpcHandlers() {
             name: exe.Name || exe.name || 'Unknown',
             publisher: exe.Publisher || exe.publisher || 'Unknown',
             path: exe.Path || exe.path || '',
+            hash: exe.Hash || exe.hash || '',
             version: exe.Version || exe.version || '',
             type: (exe.Type || exe.type || 'EXE')
           });
@@ -766,21 +779,47 @@ function setupIpcHandlers() {
             name: exe.Name || exe.name || 'Unknown',
             publisher: 'Unknown',
             path: exe.Path || exe.path || '',
+            hash: exe.Hash || exe.hash || '',
             version: '',
             type: 'EXE'
           });
         });
       }
 
-      // Remove duplicates by path
-      const uniqueInventory = inventory.filter((item, index, self) =>
-        index === self.findIndex(t => t.path === item.path && t.path !== '')
+      // Remove duplicates by stable key: path + publisher + hash
+      const baseInventory = importMode === 'append' ? existingInventory : [];
+      const seenKeys = new Set(
+        baseInventory
+          .map(item => getDedupeKey(item))
+          .filter(Boolean)
       );
+      let removedDuplicates = 0;
+      let skippedCount = 0;
+
+      const uniqueInventory = [];
+      inventory.forEach((item) => {
+        const key = getDedupeKey(item);
+        if (!key) {
+          skippedCount += 1;
+          return;
+        }
+        if (seenKeys.has(key)) {
+          removedDuplicates += 1;
+          return;
+        }
+        seenKeys.add(key);
+        uniqueInventory.push(item);
+      });
 
       return {
         success: true,
         inventory: uniqueInventory,
-        count: uniqueInventory.length
+        count: uniqueInventory.length,
+        summary: {
+          added: uniqueInventory.length,
+          removedDuplicates,
+          skipped: skippedCount
+        }
       };
     } catch (error) {
       console.error('[IPC] Import artifacts error:', error);
@@ -1268,7 +1307,7 @@ function setupIpcHandlers() {
       const window = BrowserWindow.fromWebContents(event.sender);
       const result = await dialog.showOpenDialog(window || undefined, {
         title: options.title || 'Select File',
-        defaultPath: options.defaultPath,
+        defaultPath: options.defaultPath || 'C:\\AppLocker',
         filters: options.filters || [{ name: 'All Files', extensions: ['*'] }],
         properties: options.properties || ['openFile'],
         ...options
@@ -1296,7 +1335,7 @@ function setupIpcHandlers() {
       const window = BrowserWindow.fromWebContents(event.sender);
       const result = await dialog.showSaveDialog(window || undefined, {
         title: options.title || 'Save File',
-        defaultPath: options.defaultPath,
+        defaultPath: options.defaultPath || 'C:\\AppLocker',
         filters: options.filters || [{ name: 'All Files', extensions: ['*'] }],
         ...options
       });
@@ -1321,7 +1360,7 @@ function setupIpcHandlers() {
       const window = BrowserWindow.fromWebContents(event.sender);
       const result = await dialog.showOpenDialog(window || undefined, {
         title: options.title || 'Select Directory',
-        defaultPath: options.defaultPath,
+        defaultPath: options.defaultPath || 'C:\\AppLocker',
         properties: ['openDirectory', 'createDirectory'],
         ...options
       });
