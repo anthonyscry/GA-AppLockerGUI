@@ -47,6 +47,11 @@ const crypto = require('crypto');
 const ALLOWED_ENFORCEMENT_MODES = ['AuditOnly', 'Enabled', 'NotConfigured'];
 
 /**
+ * Default directory for rule outputs
+ */
+const DEFAULT_RULES_DIR = 'C:\\AppLocker\\rules';
+
+/**
  * Allowed rule actions (whitelist)
  */
 const ALLOWED_RULE_ACTIONS = ['Allow', 'Deny'];
@@ -110,6 +115,45 @@ function validateEnum(value, allowedValues, fieldName) {
 function generateSecureTempFilename(prefix = 'temp', extension = '.json') {
   const randomBytes = crypto.randomBytes(16).toString('hex');
   return `${prefix}-${randomBytes}${extension}`;
+}
+
+/**
+ * Resolve default output path for rules
+ */
+function resolveRulesOutputPath(outputPath, fallbackName = 'AppLocker-Rules.xml') {
+  if (typeof outputPath === 'string' && outputPath.trim().length > 0) {
+    return outputPath.trim();
+  }
+  return path.join(DEFAULT_RULES_DIR, fallbackName);
+}
+
+/**
+ * Ensure the output directory exists
+ */
+function ensureOutputDirectory(filePath) {
+  const dir = path.dirname(filePath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+}
+
+/**
+ * Deduplicate inventory items by path
+ */
+function dedupeInventoryItems(items = []) {
+  const seen = new Set();
+  return items.filter(item => {
+    const itemPath = (item?.path || item?.Path || '').toString().trim();
+    if (!itemPath) {
+      return true;
+    }
+    const key = itemPath.toLowerCase();
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
 }
 
 /**
@@ -795,8 +839,12 @@ function setupIpcHandlers() {
   // Comprehensive artifact collection handler
   ipcMain.handle('policy:generateFromArtifacts', async (event, computerName, outputPath, options = {}) => {
     try {
+      const safeOutputPath = typeof outputPath === 'string' ? outputPath.trim() : '';
+      if (!safeOutputPath) {
+        return { success: false, error: 'Output path is required' };
+      }
       // SECURITY: Validate output path
-      if (!isPathAllowed(outputPath)) {
+      if (!isPathAllowed(safeOutputPath)) {
         return { success: false, error: 'Output path not allowed' };
       }
 
@@ -830,9 +878,10 @@ function setupIpcHandlers() {
       }
 
       const artifactScriptPath = path.join(scriptsDir, 'Get-ComprehensiveScanArtifacts.ps1');
+      ensureOutputDirectory(safeOutputPath);
       const artifactArgs = [
         '-ComputerName', escapePowerShellString(safeComputerName),
-        '-OutputPath', escapePowerShellString(outputPath)
+        '-OutputPath', escapePowerShellString(safeOutputPath)
       ];
 
       if (options.includeEventLogs) {
@@ -878,9 +927,14 @@ function setupIpcHandlers() {
 
       // Then generate rules from artifacts using smart priority script
       const ruleScriptPath = path.join(scriptsDir, 'Generate-RulesFromArtifacts.ps1');
-      const ruleOutputPath = options.ruleOutputPath || outputPath.replace('.json', '_rules.xml');
+      const defaultRulesName = `${path.parse(safeOutputPath).name}_rules.xml`;
+      const ruleOutputPath = resolveRulesOutputPath(
+        options.ruleOutputPath,
+        defaultRulesName
+      );
+      ensureOutputDirectory(ruleOutputPath);
       const ruleArgs = [
-        '-ArtifactsPath', escapePowerShellString(outputPath),
+        '-ArtifactsPath', escapePowerShellString(safeOutputPath),
         '-OutputPath', escapePowerShellString(ruleOutputPath)
       ];
 
@@ -903,7 +957,7 @@ function setupIpcHandlers() {
 
       return {
         success: true,
-        artifactsPath: outputPath,
+        artifactsPath: safeOutputPath,
         rulesPath: ruleOutputPath,
         artifactsOutput: artifactResult.stdout,
         rulesOutput: ruleResult.stdout
@@ -921,8 +975,12 @@ function setupIpcHandlers() {
   ipcMain.handle('policy:batchGenerateRules', async (event, inventoryItems, outputPath, options = {}) => {
     let tempJsonPath = null;
     try {
+      const safeOutputPath = resolveRulesOutputPath(
+        outputPath,
+        `Batch-Generated-${Date.now()}.xml`
+      );
       // Validate output path
-      if (!isPathAllowed(outputPath)) {
+      if (!isPathAllowed(safeOutputPath)) {
         throw new Error('Output path is not in an allowed directory');
       }
 
@@ -946,14 +1004,17 @@ function setupIpcHandlers() {
         safeOptions.targetGroup = options.targetGroup;
       }
 
+      const uniqueInventory = dedupeInventoryItems(inventoryItems);
+      ensureOutputDirectory(safeOutputPath);
+
       // Write inventory to temp JSON
-      fs.writeFileSync(tempJsonPath, JSON.stringify(inventoryItems), 'utf8');
+      fs.writeFileSync(tempJsonPath, JSON.stringify(uniqueInventory), 'utf8');
 
       // Build safe argument array (not string concatenation)
       const args = [
         '-File', scriptPath,
         '-InventoryPath', tempJsonPath,
-        '-OutputPath', outputPath
+        '-OutputPath', safeOutputPath
       ];
 
       if (safeOptions.ruleAction) {
@@ -977,7 +1038,7 @@ function setupIpcHandlers() {
       return {
         success: true,
         output: result.stdout,
-        outputPath: outputPath
+        outputPath: safeOutputPath
       };
     } catch (error) {
       console.error('[IPC] Batch generation error:', error);
@@ -2799,9 +2860,14 @@ function setupIpcHandlers() {
   // Create publisher rule
   ipcMain.handle('policy:createPublisherRule', async (event, options, outputPath) => {
     try {
-      if (!isPathAllowed(outputPath)) {
+      const safeOutputPath = resolveRulesOutputPath(
+        outputPath,
+        `Publisher-Rule-${Date.now()}.xml`
+      );
+      if (!isPathAllowed(safeOutputPath)) {
         return { success: false, error: 'Output path not allowed' };
       }
+      ensureOutputDirectory(safeOutputPath);
 
       const publisher = escapePowerShellString(options.publisher);
       const action = options.action || 'Allow';
@@ -2822,8 +2888,8 @@ function setupIpcHandlers() {
   </RuleCollection>
 </AppLockerPolicy>
 "@
-          $rule | Out-File -FilePath "${escapePowerShellString(outputPath)}" -Encoding UTF8
-          @{ success = $true; outputPath = "${escapePowerShellString(outputPath)}" } | ConvertTo-Json -Compress
+          $rule | Out-File -FilePath "${escapePowerShellString(safeOutputPath)}" -Encoding UTF8
+          @{ success = $true; outputPath = "${escapePowerShellString(safeOutputPath)}" } | ConvertTo-Json -Compress
         } catch {
           @{ success = $false; error = $_.Exception.Message } | ConvertTo-Json -Compress
         }
@@ -2840,12 +2906,17 @@ function setupIpcHandlers() {
   // Batch create publisher rules
   ipcMain.handle('policy:batchCreatePublisherRules', async (event, publishers, outputPath, options = {}) => {
     try {
-      if (!isPathAllowed(outputPath)) {
+      const safeOutputPath = resolveRulesOutputPath(
+        outputPath,
+        `Publishers-${Date.now()}.xml`
+      );
+      if (!isPathAllowed(safeOutputPath)) {
         return { success: false, error: 'Output path not allowed' };
       }
 
       const action = options.action || 'Allow';
-      const rules = publishers.map(pub => {
+      const uniquePublishers = Array.from(new Set(publishers.map(pub => pub?.toString().trim()).filter(Boolean)));
+      const rules = uniquePublishers.map(pub => {
         const safePub = escapePowerShellString(pub);
         return `    <FilePublisherRule Id="${crypto.randomUUID()}" Name="${safePub}" Action="${action}" UserOrGroupSid="S-1-1-0">
       <Conditions>
@@ -2863,8 +2934,9 @@ ${rules}
   </RuleCollection>
 </AppLockerPolicy>`;
 
-      fs.writeFileSync(outputPath, xml, 'utf8');
-      return { success: true, outputPath, ruleCount: publishers.length };
+      ensureOutputDirectory(safeOutputPath);
+      fs.writeFileSync(safeOutputPath, xml, 'utf8');
+      return { success: true, outputPath: safeOutputPath, ruleCount: uniquePublishers.length };
     } catch (error) {
       console.error('[IPC] Batch create publisher rules error:', error);
       return { success: false, error: sanitizeErrorMessage(error) };

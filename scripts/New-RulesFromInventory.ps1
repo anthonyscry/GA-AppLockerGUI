@@ -129,11 +129,29 @@ try {
         Hash = 0
         Skipped = 0
         Errors = 0
+        Duplicates = 0
     }
+
+    # Remove duplicates by path before processing
+    $uniqueInventory = @()
+    $seenPaths = @{}
+    foreach ($item in $inventory) {
+        $pathValue = $item.Path
+        if ($pathValue) {
+            $key = $pathValue.ToLower()
+            if ($seenPaths.ContainsKey($key)) {
+                $stats.Duplicates++
+                continue
+            }
+            $seenPaths[$key] = $true
+        }
+        $uniqueInventory += $item
+    }
+    Write-Log "After deduplication: $($uniqueInventory.Count) unique items" "INFO"
     
     Write-Log "Generating rules..." "INFO"
     
-    foreach ($item in $inventory) {
+    foreach ($item in $uniqueInventory) {
         try {
             $filePath = $item.Path
             $name = $item.Name
@@ -296,6 +314,7 @@ try {
     # Display statistics
     Write-Log "`n=== GENERATION STATISTICS ===" "INFO"
     Write-Log "Total inventory items: $($inventory.Count)" "INFO"
+    Write-Log "Duplicates removed: $($stats.Duplicates)" "INFO"
     Write-Log "Publisher rules: $($stats.Publisher)" "INFO"
     Write-Log "Path rules: $($stats.Path)" "INFO"
     Write-Log "Hash rules: $($stats.Hash)" "INFO"
