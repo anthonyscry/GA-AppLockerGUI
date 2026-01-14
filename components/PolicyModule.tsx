@@ -36,6 +36,15 @@ import { LoadingState } from './ui/LoadingState';
 import { ErrorState } from './ui/ErrorState';
 
 type PolicyTab = 'overview' | 'generator' | 'tools';
+type MergePolicySet = 'Combined' | 'Workstation' | 'Server' | 'DomainController' | 'All';
+type MergeMachineType = Exclude<MachineType, 'Unknown'>;
+type MergePolicyFile = {
+  name: string;
+  path: string;
+  machineType: MergeMachineType;
+};
+
+const MACHINE_TYPE_OPTIONS: MergeMachineType[] = ['Workstation', 'Server', 'DomainController'];
 
 const PolicyModule: React.FC = () => {
   const { policy, machine } = useAppServices();
@@ -76,8 +85,14 @@ const PolicyModule: React.FC = () => {
   const [ruleType, setRuleType] = useState<'Publisher' | 'Path' | 'Hash'>('Publisher');
   
   // Policy Merger State
-  const [policyFiles, setPolicyFiles] = useState<string[]>([]);
+  const [policyFiles, setPolicyFiles] = useState<MergePolicyFile[]>([]);
+  const [mergePolicySet, setMergePolicySet] = useState<MergePolicySet>('Combined');
   const [mergeOutputPath, setMergeOutputPath] = useState('');
+  const [mergeOutputPaths, setMergeOutputPaths] = useState<Record<MergeMachineType, string>>({
+    Workstation: '',
+    Server: '',
+    DomainController: ''
+  });
   const [mergeConflictResolution, setMergeConflictResolution] = useState<'First' | 'Last' | 'Strict'>('Strict');
   
   // Comprehensive Generation State
@@ -379,7 +394,25 @@ const PolicyModule: React.FC = () => {
                   {policyFiles.map((file, index) => (
                     <div key={index} className="flex items-center space-x-2 p-3 bg-slate-50 rounded-xl">
                       <FileText size={16} className="text-slate-400" />
-                      <span className="flex-1 text-sm font-bold text-slate-700">{file}</span>
+                      <div className="flex-1">
+                        <span className="block text-sm font-bold text-slate-700">{file.name}</span>
+                        <span className="block text-[10px] font-mono text-slate-400">{file.path}</span>
+                      </div>
+                      {mergePolicySet === 'All' && (
+                        <select
+                          value={file.machineType}
+                          onChange={(e) => {
+                            const next = [...policyFiles];
+                            next[index] = { ...file, machineType: e.target.value as MergeMachineType };
+                            setPolicyFiles(next);
+                          }}
+                          className="px-2 py-1 bg-white border border-slate-200 rounded-lg text-[10px] font-bold text-slate-600"
+                        >
+                          {MACHINE_TYPE_OPTIONS.map((type) => (
+                            <option key={type} value={type}>{type}</option>
+                          ))}
+                        </select>
+                      )}
                       <button onClick={() => setPolicyFiles(policyFiles.filter((_, i) => i !== index))} className="p-1 hover:bg-slate-200 rounded text-slate-400">
                         <X size={16} />
                       </button>
@@ -392,7 +425,14 @@ const PolicyModule: React.FC = () => {
                       multiple
                       onChange={(e) => {
                         const files = Array.from(e.target.files || []);
-                        setPolicyFiles([...policyFiles, ...files.map(f => f.name)]);
+                        const newFiles = files.map((file) => ({
+                          name: file.name,
+                          path: (file as { path?: string }).path || file.name,
+                          machineType: mergePolicySet !== 'Combined' && mergePolicySet !== 'All'
+                            ? (mergePolicySet as MergeMachineType)
+                            : 'Workstation'
+                        }));
+                        setPolicyFiles([...policyFiles, ...newFiles]);
                       }}
                       className="hidden"
                     />
@@ -404,15 +444,66 @@ const PolicyModule: React.FC = () => {
                 </div>
               </div>
               <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Output Path</label>
-                <input
-                  type="text"
-                  value={mergeOutputPath}
-                  onChange={(e) => setMergeOutputPath(e.target.value)}
-                  placeholder="C:\Policies\Merged.xml"
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-purple-500/20"
-                />
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Policy Set to Generate</label>
+                <select
+                  value={mergePolicySet}
+                  onChange={(e) => setMergePolicySet(e.target.value as MergePolicySet)}
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none"
+                >
+                  <option value="Combined">Combined (Single merged policy)</option>
+                  <option value="Workstation">Workstations</option>
+                  <option value="Server">Servers</option>
+                  <option value="DomainController">Domain Controllers</option>
+                  <option value="All">All Sets (Separate outputs)</option>
+                </select>
               </div>
+              {mergePolicySet === 'Combined' && (
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Output Path</label>
+                  <input
+                    type="text"
+                    value={mergeOutputPath}
+                    onChange={(e) => setMergeOutputPath(e.target.value)}
+                    placeholder="C:\Policies\Merged.xml"
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-purple-500/20"
+                  />
+                </div>
+              )}
+              {mergePolicySet !== 'Combined' && mergePolicySet !== 'All' && (
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">
+                    {mergePolicySet} Output Path
+                  </label>
+                  <input
+                    type="text"
+                    value={mergeOutputPaths[mergePolicySet as MergeMachineType]}
+                    onChange={(e) => setMergeOutputPaths({ ...mergeOutputPaths, [mergePolicySet]: e.target.value } as Record<MergeMachineType, string>)}
+                    placeholder={`C:\\Policies\\${mergePolicySet}-Merged.xml`}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-purple-500/20"
+                  />
+                </div>
+              )}
+              {mergePolicySet === 'All' && (
+                <div className="space-y-4">
+                  {MACHINE_TYPE_OPTIONS.map((type) => (
+                    <div key={type}>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">
+                        {type} Output Path
+                      </label>
+                      <input
+                        type="text"
+                        value={mergeOutputPaths[type]}
+                        onChange={(e) => setMergeOutputPaths({ ...mergeOutputPaths, [type]: e.target.value })}
+                        placeholder={`C:\\Policies\\${type}-Merged.xml`}
+                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-purple-500/20"
+                      />
+                    </div>
+                  ))}
+                  <p className="text-[10px] text-slate-500 font-bold">
+                    Assign each policy file to a machine type to generate separate merged outputs.
+                  </p>
+                </div>
+              )}
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Conflict Resolution</label>
                 <select
@@ -427,16 +518,89 @@ const PolicyModule: React.FC = () => {
               </div>
               <button
                 onClick={async () => {
-                  if (policyFiles.length < 2) {
-                    alert('Please select at least 2 policy files to merge');
+                  if (policyFiles.length === 0) {
+                    alert('Please select policy files to merge');
                     return;
                   }
-                  if (!mergeOutputPath) {
+
+                  const electron = (window as any).electron;
+                  if (!electron?.ipc) {
+                    alert('Policy merge is unavailable in this environment.');
+                    return;
+                  }
+
+                  if (mergePolicySet === 'All') {
+                    const groupedPaths = MACHINE_TYPE_OPTIONS.reduce((acc, type) => {
+                      acc[type] = policyFiles
+                        .filter((file) => file.machineType === type)
+                        .map((file) => file.path);
+                      return acc;
+                    }, {} as Record<MergeMachineType, string[]>);
+
+                    const activeGroups = Object.entries(groupedPaths).filter(([, paths]) => paths.length > 0);
+                    if (activeGroups.length === 0) {
+                      alert('Assign at least one policy file to a machine type.');
+                      return;
+                    }
+
+                    const missingOutputs = activeGroups
+                      .filter(([type]) => !mergeOutputPaths[type as MergeMachineType])
+                      .map(([type]) => type);
+
+                    if (missingOutputs.length > 0) {
+                      alert(`Please specify output paths for: ${missingOutputs.join(', ')}`);
+                      return;
+                    }
+
+                    alert(`Merging policies for ${activeGroups.length} policy sets...`);
+                    const payload = {
+                      machineTypeGroups: activeGroups.reduce((acc, [type, paths]) => {
+                        acc[type] = {
+                          policyPaths: paths,
+                          outputPath: mergeOutputPaths[type as MergeMachineType]
+                        };
+                        return acc;
+                      }, {} as Record<string, { policyPaths: string[]; outputPath: string }>),
+                      options: { conflictResolution: mergeConflictResolution }
+                    };
+
+                    const result = await electron.ipc.invoke('policy:mergePolicies', payload);
+                    if (result?.success) {
+                      const summaries = Object.entries(result.groupedResults || {})
+                        .map(([type, info]: [string, any]) => info.success
+                          ? `${type}: ${info.outputPath}`
+                          : `${type}: ${info.error || 'Unknown error'}`)
+                        .join('\n');
+                      alert(`Policy merge complete:\n${summaries}`);
+                    } else {
+                      alert(`Policy merge failed: ${result?.error || 'Unknown error'}`);
+                    }
+                    setShowMerger(false);
+                    return;
+                  }
+
+                  const outputPath = mergePolicySet === 'Combined'
+                    ? mergeOutputPath
+                    : mergeOutputPaths[mergePolicySet as MergeMachineType];
+
+                  if (!outputPath) {
                     alert('Please specify an output path');
                     return;
                   }
+
                   alert(`Merging ${policyFiles.length} policies...`);
-                  setShowMerger(false);
+                  const result = await electron.ipc.invoke('policy:mergePolicies', {
+                    policyPaths: policyFiles.map((file) => file.path),
+                    outputPath,
+                    options: { conflictResolution: mergeConflictResolution }
+                  });
+
+                  if (result?.success) {
+                    alert(`Policy merge complete:\n${result.outputPath}`);
+                    setShowMerger(false);
+                  } else {
+                    alert(`Policy merge failed: ${result?.error || 'Unknown error'}`);
+                  }
                 }}
                 className="w-full bg-purple-600 text-white px-6 py-3 rounded-xl font-bold text-sm hover:bg-purple-700 shadow-lg transition-all"
               >
