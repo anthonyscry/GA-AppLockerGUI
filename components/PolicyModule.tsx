@@ -117,6 +117,14 @@ const PolicyModule: React.FC = () => {
   // Imported Artifacts State
   const [importedArtifacts, setImportedArtifacts] = useState<InventoryItem[]>([]);
   const [importedFrom, setImportedFrom] = useState<string>('');
+  const [importMode, setImportMode] = useState<'append' | 'replace'>('append');
+  const [importSummary, setImportSummary] = useState<{
+    added: number;
+    removedDuplicates: number;
+    skipped: number;
+    source: string;
+    mode: 'append' | 'replace';
+  } | null>(null);
   
   // Advanced Features State
   const [showPublisherGrouping, setShowPublisherGrouping] = useState(false);
@@ -163,6 +171,16 @@ const PolicyModule: React.FC = () => {
   // Filtering for generator
   const [genSearchQuery, setGenSearchQuery] = useState('');
   const [genCategoryFilter, setGenCategoryFilter] = useState('All');
+
+  const buildArtifactKey = (item: InventoryItem): string | null => {
+    const pathKey = (item.path || '').trim().toLowerCase();
+    const publisherKey = (item.publisher || '').trim().toLowerCase();
+    const hashKey = (item.hash || '').trim().toLowerCase();
+    if (!pathKey && !publisherKey && !hashKey) {
+      return null;
+    }
+    return `${pathKey}|${publisherKey}|${hashKey}`;
+  };
 
   // Combined inventory: scanned + imported artifacts (MUST be defined before useEffect that uses it)
   const combinedInventory = useMemo(() => {
@@ -1704,120 +1722,177 @@ const PolicyModule: React.FC = () => {
                    * - CSV: Parses header row to map columns (name, publisher, path, version, type)
                    * Automatically deduplicates items by file path to prevent redundant rules.
                    */}
-                  <label className="block">
-                    <input
-                      type="file"
-                      id="import-artifacts-main"
-                      accept=".csv,.json"
-                      multiple
-                      aria-label="Import scan artifacts from CSV or JSON files"
-                      onChange={(e) => {
-                        const files = Array.from(e.target.files || []);
-                        if (files.length === 0) return;
-
-                        let allItems: InventoryItem[] = [];
-                        let processedCount = 0;
-                        const fileNames: string[] = [];
-
-                        /**
-                         * Parse a single file's content into InventoryItem array
-                         * @param text - Raw file content as string
-                         * @param fileName - Name of the file (used to determine format)
-                         * @returns Array of InventoryItem objects
-                         */
-                        const parseFile = (text: string, fileName: string): InventoryItem[] => {
-                          let items: InventoryItem[] = [];
-                          // Generate unique base ID using timestamp + offset to prevent collisions
-                          const baseId = Date.now() + processedCount * 10000;
-
-                          if (fileName.endsWith('.json')) {
-                            const data = JSON.parse(text);
-                            // Handle comprehensive scan artifacts format (from Get-ComprehensiveScanArtifacts.ps1)
-                            if (data.Executables) {
-                              items = data.Executables.map((exe: any, index: number) => ({
-                                id: `imported-${baseId}-${index}`,
-                                name: exe.Name || exe.name || 'Unknown',
-                                publisher: exe.Publisher || exe.publisher || 'Unknown',
-                                path: exe.Path || exe.path || '',
-                                version: exe.Version || exe.version || '',
-                                type: (exe.Type || exe.type || 'EXE') as InventoryItem['type']
-                              }));
-                            // Handle flat JSON array format
-                            } else if (Array.isArray(data)) {
-                              items = data.map((item: any, index: number) => ({
-                                id: `imported-${baseId}-${index}`,
-                                name: item.Name || item.name || 'Unknown',
-                                publisher: item.Publisher || item.publisher || 'Unknown',
-                                path: item.Path || item.path || '',
-                                version: item.Version || item.version || '',
-                                type: (item.Type || item.type || 'EXE') as InventoryItem['type']
-                              }));
-                            }
-                          } else {
-                            // CSV format: Parse header row for column mapping
-                            const lines = text.split('\n').filter(l => l.trim());
-                            const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-                            items = lines.slice(1).map((line, index) => {
-                              const values = line.split(',').map(v => v.trim());
-                              return {
-                                id: `imported-${baseId}-${index}`,
-                                // Map by header name, fallback to positional index
-                                name: values[headers.indexOf('name')] || values[0] || 'Unknown',
-                                publisher: values[headers.indexOf('publisher')] || values[1] || 'Unknown',
-                                path: values[headers.indexOf('path')] || values[2] || '',
-                                version: values[headers.indexOf('version')] || values[3] || '',
-                                type: (values[headers.indexOf('type')] || values[4] || 'EXE') as InventoryItem['type']
-                              };
-                            });
-                          }
-                          return items;
-                        };
-
-                        /**
-                         * Process all selected files asynchronously
-                         * Reads each file, parses content, and accumulates results
-                         */
-                        const processFiles = async () => {
-                          for (const file of files) {
-                            try {
-                              const text = await file.text();
-                              if (text) {
-                                const items = parseFile(text, file.name);
-                                allItems = [...allItems, ...items];
-                                fileNames.push(file.name);
-                              }
-                            } catch (error: any) {
-                              console.error(`Error parsing ${file.name}:`, error);
-                            }
-                            processedCount++;
-                          }
-
-                          // Deduplicate by file path to prevent redundant AppLocker rules
-                          const uniqueItems = allItems.filter((item, index, self) =>
-                            index === self.findIndex(t => t.path === item.path && t.path !== '')
-                          );
-
-                          if (uniqueItems.length > 0) {
-                            // Append to existing imported artifacts (allows cumulative imports)
-                            setImportedArtifacts(prev => [...prev, ...uniqueItems]);
-                            setImportedFrom(fileNames.length > 1 ? `${fileNames.length} files` : fileNames[0]);
-                            setGeneratorTab('scanned');
-                            alert(`Successfully imported ${uniqueItems.length} items from ${fileNames.length} file(s)`);
-                          } else {
-                            alert('No valid items found in the selected files.');
-                          }
-                        };
-
-                        processFiles();
-                      }}
-                      className="hidden"
-                    />
-                    <div className="border-2 border-dashed border-blue-300 rounded-xl p-3 text-center cursor-pointer hover:border-blue-500 transition-colors bg-blue-50/50 min-h-[80px] flex flex-col items-center justify-center focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2">
-                      <Import size={16} className="mx-auto mb-1 text-blue-600" aria-hidden="true" />
-                      <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest">Import Scan Artifacts</p>
-                      <p className="text-[9px] text-blue-500 mt-0.5">CSV, JSON (select multiple)</p>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between rounded-lg bg-slate-100 p-1 text-[9px] font-black uppercase tracking-widest text-slate-600">
+                      <span className="px-2">Import Mode</span>
+                      <div className="flex rounded-md bg-white shadow-sm">
+                        <button
+                          onClick={() => setImportMode('append')}
+                          className={`px-2.5 py-1 rounded-md transition-all ${importMode === 'append' ? 'bg-blue-600 text-white' : 'text-slate-500'}`}
+                          type="button"
+                        >
+                          Append/Merge
+                        </button>
+                        <button
+                          onClick={() => setImportMode('replace')}
+                          className={`px-2.5 py-1 rounded-md transition-all ${importMode === 'replace' ? 'bg-blue-600 text-white' : 'text-slate-500'}`}
+                          type="button"
+                        >
+                          Replace
+                        </button>
+                      </div>
                     </div>
-                  </label>
+                    <label className="block">
+                      <input
+                        type="file"
+                        id="import-artifacts-main"
+                        accept=".csv,.json"
+                        multiple
+                        aria-label="Import scan artifacts from CSV or JSON files"
+                        onChange={(e) => {
+                          const files = Array.from(e.target.files || []);
+                          if (files.length === 0) return;
+
+                          let allItems: InventoryItem[] = [];
+                          let processedCount = 0;
+                          const fileNames: string[] = [];
+
+                          /**
+                           * Parse a single file's content into InventoryItem array
+                           * @param text - Raw file content as string
+                           * @param fileName - Name of the file (used to determine format)
+                           * @returns Array of InventoryItem objects
+                           */
+                          const parseFile = (text: string, fileName: string): InventoryItem[] => {
+                            let items: InventoryItem[] = [];
+                            // Generate unique base ID using timestamp + offset to prevent collisions
+                            const baseId = Date.now() + processedCount * 10000;
+
+                            if (fileName.endsWith('.json')) {
+                              const data = JSON.parse(text);
+                              // Handle comprehensive scan artifacts format (from Get-ComprehensiveScanArtifacts.ps1)
+                              if (data.Executables) {
+                                items = data.Executables.map((exe: any, index: number) => ({
+                                  id: `imported-${baseId}-${index}`,
+                                  name: exe.Name || exe.name || 'Unknown',
+                                  publisher: exe.Publisher || exe.publisher || 'Unknown',
+                                  path: exe.Path || exe.path || '',
+                                  hash: exe.Hash || exe.hash || exe.SHA256 || exe.sha256 || '',
+                                  version: exe.Version || exe.version || '',
+                                  type: (exe.Type || exe.type || 'EXE') as InventoryItem['type']
+                                }));
+                              // Handle flat JSON array format
+                              } else if (Array.isArray(data)) {
+                                items = data.map((item: any, index: number) => ({
+                                  id: `imported-${baseId}-${index}`,
+                                  name: item.Name || item.name || 'Unknown',
+                                  publisher: item.Publisher || item.publisher || 'Unknown',
+                                  path: item.Path || item.path || '',
+                                  hash: item.Hash || item.hash || item.SHA256 || item.sha256 || '',
+                                  version: item.Version || item.version || '',
+                                  type: (item.Type || item.type || 'EXE') as InventoryItem['type']
+                                }));
+                              }
+                            } else {
+                              // CSV format: Parse header row for column mapping
+                              const lines = text.split('\n').filter(l => l.trim());
+                              const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+                              items = lines.slice(1).map((line, index) => {
+                                const values = line.split(',').map(v => v.trim());
+                                const getField = (name: string, fallbackIdx: number): string => {
+                                  const idx = headers.indexOf(name);
+                                  return (idx >= 0 ? values[idx] : values[fallbackIdx]) || '';
+                                };
+                                return {
+                                  id: `imported-${baseId}-${index}`,
+                                  // Map by header name, fallback to positional index
+                                  name: getField('name', 0) || 'Unknown',
+                                  publisher: getField('publisher', 1) || 'Unknown',
+                                  path: getField('path', 2) || '',
+                                  hash: getField('hash', -1) || getField('sha256', -1),
+                                  version: getField('version', 3) || '',
+                                  type: (getField('type', 4) || 'EXE') as InventoryItem['type']
+                                };
+                              });
+                            }
+                            return items;
+                          };
+
+                          /**
+                           * Process all selected files asynchronously
+                           * Reads each file, parses content, and accumulates results
+                           */
+                          const processFiles = async () => {
+                            for (const file of files) {
+                              try {
+                                const text = await file.text();
+                                if (text) {
+                                  const items = parseFile(text, file.name);
+                                  allItems = [...allItems, ...items];
+                                  fileNames.push(file.name);
+                                }
+                              } catch (error: any) {
+                                console.error(`Error parsing ${file.name}:`, error);
+                              }
+                              processedCount++;
+                            }
+
+                            const existingItems = importMode === 'append'
+                              ? [...(inventory || []), ...importedArtifacts]
+                              : (inventory || []);
+                            const seenKeys = new Set(
+                              existingItems
+                                .map(item => buildArtifactKey(item))
+                                .filter((key): key is string => Boolean(key))
+                            );
+                            let removedDuplicates = 0;
+                            let skippedCount = 0;
+                            const addedItems: InventoryItem[] = [];
+
+                            allItems.forEach((item) => {
+                              const key = buildArtifactKey(item);
+                              if (!key) {
+                                skippedCount += 1;
+                                return;
+                              }
+                              if (seenKeys.has(key)) {
+                                removedDuplicates += 1;
+                                return;
+                              }
+                              seenKeys.add(key);
+                              addedItems.push(item);
+                            });
+
+                            if (addedItems.length > 0) {
+                              if (importMode === 'append') {
+                                setImportedArtifacts(prev => [...prev, ...addedItems]);
+                              } else {
+                                setImportedArtifacts(addedItems);
+                              }
+                              setImportedFrom(fileNames.length > 1 ? `${fileNames.length} files` : fileNames[0]);
+                              setGeneratorTab('scanned');
+                            }
+
+                            setImportSummary({
+                              added: addedItems.length,
+                              removedDuplicates,
+                              skipped: skippedCount,
+                              source: fileNames.length > 1 ? `${fileNames.length} files` : fileNames[0],
+                              mode: importMode
+                            });
+                          };
+
+                          processFiles();
+                        }}
+                        className="hidden"
+                      />
+                      <div className="border-2 border-dashed border-blue-300 rounded-xl p-3 text-center cursor-pointer hover:border-blue-500 transition-colors bg-blue-50/50 min-h-[80px] flex flex-col items-center justify-center focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2">
+                        <Import size={16} className="mx-auto mb-1 text-blue-600" aria-hidden="true" />
+                        <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest">Import Scan Artifacts</p>
+                        <p className="text-[9px] text-blue-500 mt-0.5">CSV, JSON (select multiple)</p>
+                      </div>
+                    </label>
+                  </div>
                   
                   {importedArtifacts.length > 0 && (
                     <div className="bg-blue-50 border border-blue-200 rounded-xl p-2">
@@ -1830,6 +1905,28 @@ const PolicyModule: React.FC = () => {
                       >
                         Clear imported
                       </button>
+                    </div>
+                  )}
+
+                  {importSummary && (
+                    <div className="bg-white border border-slate-200 rounded-xl p-3">
+                      <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">
+                        Import Summary ({importSummary.mode === 'append' ? 'Append/Merge' : 'Replace'})
+                      </p>
+                      <div className="grid grid-cols-3 gap-2 text-center">
+                        <div className="rounded-lg bg-emerald-50 p-2">
+                          <p className="text-[9px] uppercase text-emerald-600 font-bold">Added</p>
+                          <p className="text-sm font-black text-emerald-700">{importSummary.added}</p>
+                        </div>
+                        <div className="rounded-lg bg-amber-50 p-2">
+                          <p className="text-[9px] uppercase text-amber-600 font-bold">Removed</p>
+                          <p className="text-sm font-black text-amber-700">{importSummary.removedDuplicates}</p>
+                        </div>
+                        <div className="rounded-lg bg-slate-50 p-2">
+                          <p className="text-[9px] uppercase text-slate-500 font-bold">Skipped</p>
+                          <p className="text-sm font-black text-slate-700">{importSummary.skipped}</p>
+                        </div>
+                      </div>
                     </div>
                   )}
 
