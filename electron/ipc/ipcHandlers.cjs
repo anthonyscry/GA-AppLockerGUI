@@ -2490,22 +2490,56 @@ function setupIpcHandlers() {
             ForEach-Object {
               $msg = $_.Message
 
-              # Parse file path from event message
+              # Parse file path from event message or XML payload
               $path = ''
               $publisher = ''
               $action = ''
+              $eventXml = $null
+              $eventData = @{}
 
-              # Try to extract path - simpler regex to avoid escaping issues
-              # Look for .exe paths
-              if ($msg -match '([A-Za-z]:[^*?"<>|]+\.exe)') {
+              try {
+                $eventXml = [xml]$_.ToXml()
+                if ($eventXml.Event.EventData -and $eventXml.Event.EventData.Data) {
+                  foreach ($data in $eventXml.Event.EventData.Data) {
+                    if ($data.Name) {
+                      $eventData[$data.Name] = $data.'#text'
+                    }
+                  }
+                }
+              } catch {
+                # ignore XML parse errors, fallback to message parsing
+              }
+
+              # Try to extract path - prefer structured EventData fields
+              $pathCandidates = @('FilePath', 'FileName', 'FullPath', 'Path', 'ProcessName', 'Executable', 'ImagePath')
+              foreach ($key in $pathCandidates) {
+                if (-not $path -and $eventData.ContainsKey($key)) {
+                  $path = $eventData[$key]
+                }
+              }
+
+              # Try to parse a labeled file path line from the message
+              if (-not $path -and $msg -match '(?im)^\s*(File Name|FilePath|File Path|Image Path|Path|Executable)\s*:\s*(.+)$') {
+                $path = ($matches[2] -split '\r?\n')[0].Trim()
+              }
+
+              if (-not $path -and $msg -match '([A-Za-z]:\\\\[^\\\\r\\\\n"]+\\.(exe|dll|msi|ps1|bat|cmd))') {
                 $path = $matches[1]
               }
 
               # Try to extract publisher information
-              if ($msg -match 'Publisher:\s*(.+)') {
-                $publisher = ($matches[1] -split "`r")[0].Trim()
+              if ($eventData.ContainsKey('Publisher')) {
+                $publisher = $eventData['Publisher']
+              } elseif ($eventData.ContainsKey('PublisherName')) {
+                $publisher = $eventData['PublisherName']
+              } elseif ($eventData.ContainsKey('Fqbn')) {
+                $publisher = $eventData['Fqbn']
+              } elseif ($eventData.ContainsKey('PackageFamilyName')) {
+                $publisher = $eventData['PackageFamilyName']
+              } elseif ($msg -match 'Publisher:\s*(.+)') {
+                $publisher = ($matches[1] -split '\r?\n')[0].Trim()
               } elseif ($msg -match 'signed by\s+(.+)') {
-                $publisher = ($matches[1] -split "`r")[0].Trim()
+                $publisher = ($matches[1] -split '\r?\n')[0].Trim()
               }
 
               # Map event ID to action type
@@ -2516,7 +2550,7 @@ function setupIpcHandlers() {
                 id = [guid]::NewGuid().ToString()
                 eventId = $_.Id
                 timestamp = $_.TimeCreated.ToString('o')
-                machine = $env:COMPUTERNAME
+                machine = if ($eventXml -and $eventXml.Event.System.Computer) { $eventXml.Event.System.Computer } else { $env:COMPUTERNAME }
                 path = $path
                 publisher = $publisher
                 action = $action
