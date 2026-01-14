@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { PolicyPhase, InventoryItem, TrustedPublisher, MachineScan, MachineType, getMachineTypeFromOU, groupMachinesByOU, MachinesByType } from '../src/shared/types';
+import { PolicyPhase, InventoryItem, TrustedPublisher, MachineScan, MachineType, getMachineTypeFromOU, groupMachinesByOU, MachinesByType, PolicyRule } from '../src/shared/types';
 import {
   Archive,
   Search,
@@ -17,12 +17,30 @@ import {
   ChevronDown,
   Wand2,
   Info,
-  AlertCircle
+  AlertCircle,
+  FileText,
+  Download,
+  Trash2,
+  List
 } from 'lucide-react';
 import { APPLOCKER_GROUPS, COMMON_PUBLISHERS } from '../constants';
 import { useAppServices } from '../src/presentation/contexts/AppContext';
 import { useAsync } from '../src/presentation/hooks/useAsync';
 import { LoadingState } from './ui/LoadingState';
+import { showSaveDialog } from '../src/infrastructure/ipc/fileDialog';
+
+// Generated rule type for local storage
+interface GeneratedRule {
+  id: string;
+  name: string;
+  type: 'Publisher' | 'Path' | 'Hash';
+  action: 'Allow' | 'Deny';
+  targetGroup: string;
+  publisher?: string;
+  path?: string;
+  xml?: string;
+  createdAt: string;
+}
 
 const RuleGeneratorModule: React.FC = () => {
   const { policy, machine } = useAppServices();
@@ -38,6 +56,10 @@ const RuleGeneratorModule: React.FC = () => {
   const [genCategoryFilter, setGenCategoryFilter] = useState('All');
   const [importedArtifacts, setImportedArtifacts] = useState<InventoryItem[]>([]);
   const [importedFrom, setImportedFrom] = useState<string>('');
+
+  // Generated rules storage
+  const [generatedRules, setGeneratedRules] = useState<GeneratedRule[]>([]);
+  const [showRulesPanel, setShowRulesPanel] = useState(false);
 
   // Toast notification state
   const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error' | 'warning'; message: string } | null>(null);
@@ -140,13 +162,120 @@ const RuleGeneratorModule: React.FC = () => {
         subject: selectedApp || selectedPublisher!  // Pass the full object as 'subject'
       };
 
-      await policy.createRule(ruleConfig);
-      setToastMessage({ type: 'success', message: `Rule created successfully for ${selectedApp?.name || selectedPublisher?.name}` });
+      const result = await policy.createRule(ruleConfig);
+
+      // Store the generated rule locally
+      const newRule: GeneratedRule = {
+        id: result?.id || `rule-${Date.now()}`,
+        name: selectedApp?.name || selectedPublisher?.name || 'Unknown',
+        type: ruleType,
+        action: ruleAction,
+        targetGroup,
+        publisher: selectedApp?.publisher || selectedPublisher?.publisherName,
+        path: selectedApp?.path,
+        xml: result?.xml,
+        createdAt: new Date().toISOString()
+      };
+
+      setGeneratedRules(prev => [...prev, newRule]);
+      setShowRulesPanel(true);
+      setToastMessage({ type: 'success', message: `Rule created for ${selectedApp?.name || selectedPublisher?.name}` });
       resetGenerator();
     } catch (error) {
       console.error('Failed to create rule:', error);
       setToastMessage({ type: 'error', message: `Failed to create rule: ${error instanceof Error ? error.message : 'Unknown error'}` });
     }
+  };
+
+  // Export rules to file
+  const handleExportRules = async () => {
+    if (generatedRules.length === 0) {
+      setToastMessage({ type: 'warning', message: 'No rules to export' });
+      return;
+    }
+
+    try {
+      const filePath = await showSaveDialog({
+        title: 'Export AppLocker Rules',
+        defaultPath: `C:\\AppLocker\\rules-${new Date().toISOString().split('T')[0]}.xml`,
+        filters: [
+          { name: 'XML Files', extensions: ['xml'] },
+          { name: 'JSON Files', extensions: ['json'] },
+          { name: 'All Files', extensions: ['*'] }
+        ]
+      });
+
+      if (filePath) {
+        const electron = (window as any).electron;
+        if (electron?.ipc) {
+          let content: string;
+          if (filePath.endsWith('.json')) {
+            content = JSON.stringify(generatedRules, null, 2);
+          } else {
+            // Generate AppLocker XML
+            const rulesXml = generatedRules.map(r => r.xml || '').filter(x => x).join('\n    ');
+            content = `<?xml version="1.0" encoding="utf-8"?>
+<AppLockerPolicy Version="1">
+  <RuleCollection Type="Exe" EnforcementMode="AuditOnly">
+    ${rulesXml}
+  </RuleCollection>
+</AppLockerPolicy>`;
+          }
+          await electron.ipc.invoke('fs:writeFile', filePath, content);
+          setToastMessage({ type: 'success', message: `Exported ${generatedRules.length} rules to ${filePath}` });
+        }
+      }
+    } catch (error) {
+      console.error('Failed to export rules:', error);
+      setToastMessage({ type: 'error', message: 'Failed to export rules' });
+    }
+  };
+
+  // Import rules from file
+  const handleImportRules = async (file: File) => {
+    try {
+      const text = await file.text();
+      let importedRules: GeneratedRule[] = [];
+
+      if (file.name.endsWith('.json')) {
+        const data = JSON.parse(text);
+        if (Array.isArray(data)) {
+          importedRules = data.map((r: any, i: number) => ({
+            id: r.id || `imported-rule-${Date.now()}-${i}`,
+            name: r.name || 'Unknown',
+            type: r.type || 'Publisher',
+            action: r.action || 'Allow',
+            targetGroup: r.targetGroup || APPLOCKER_GROUPS[0],
+            publisher: r.publisher,
+            path: r.path,
+            xml: r.xml,
+            createdAt: r.createdAt || new Date().toISOString()
+          }));
+        }
+      }
+
+      if (importedRules.length > 0) {
+        setGeneratedRules(prev => [...prev, ...importedRules]);
+        setShowRulesPanel(true);
+        setToastMessage({ type: 'success', message: `Imported ${importedRules.length} rules` });
+      } else {
+        setToastMessage({ type: 'warning', message: 'No valid rules found in file' });
+      }
+    } catch (error) {
+      console.error('Failed to import rules:', error);
+      setToastMessage({ type: 'error', message: 'Failed to import rules file' });
+    }
+  };
+
+  // Remove a rule
+  const handleRemoveRule = (ruleId: string) => {
+    setGeneratedRules(prev => prev.filter(r => r.id !== ruleId));
+  };
+
+  // Clear all rules
+  const handleClearRules = () => {
+    setGeneratedRules([]);
+    setShowRulesPanel(false);
   };
 
   if (inventoryLoading && publishersLoading) {
@@ -180,6 +309,37 @@ const RuleGeneratorModule: React.FC = () => {
             <span>Rule Generator</span>
           </h2>
           <p className="text-slate-500 text-xs font-medium">Create AppLocker rules from scan data or trusted vendors</p>
+        </div>
+        <div className="flex items-center space-x-2">
+          {/* Import Rules Button */}
+          <label className="cursor-pointer">
+            <input
+              type="file"
+              accept=".json"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleImportRules(file);
+                e.target.value = '';
+              }}
+              className="hidden"
+            />
+            <div className="bg-slate-100 text-slate-700 px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center space-x-2 min-h-[36px]">
+              <Import size={14} />
+              <span>Import Rules</span>
+            </div>
+          </label>
+          {/* View Rules Button */}
+          <button
+            onClick={() => setShowRulesPanel(!showRulesPanel)}
+            className={`px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all flex items-center space-x-2 min-h-[36px] ${
+              generatedRules.length > 0
+                ? 'bg-blue-600 text-white hover:bg-blue-700'
+                : 'bg-slate-100 text-slate-500'
+            }`}
+          >
+            <List size={14} />
+            <span>Rules ({generatedRules.length})</span>
+          </button>
         </div>
       </div>
 
@@ -564,6 +724,94 @@ const RuleGeneratorModule: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Generated Rules Panel */}
+      {showRulesPanel && (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden animate-in slide-in-from-bottom-4 duration-300">
+          <div className="p-4 bg-slate-900 text-white flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <div className="p-2 bg-blue-600 rounded-xl">
+                <FileText size={20} />
+              </div>
+              <div>
+                <h3 className="font-bold text-sm uppercase tracking-tight">Generated Rules</h3>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{generatedRules.length} rules ready to export</p>
+              </div>
+            </div>
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={handleExportRules}
+                disabled={generatedRules.length === 0}
+                className="bg-green-600 text-white px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-green-700 transition-all flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Download size={14} />
+                <span>Export</span>
+              </button>
+              <button
+                onClick={handleClearRules}
+                className="bg-red-600 text-white px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-red-700 transition-all flex items-center space-x-2"
+              >
+                <Trash2 size={14} />
+                <span>Clear All</span>
+              </button>
+              <button
+                onClick={() => setShowRulesPanel(false)}
+                className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
+              >
+                <X size={16} />
+              </button>
+            </div>
+          </div>
+
+          <div className="max-h-[300px] overflow-y-auto custom-scrollbar">
+            {generatedRules.length > 0 ? (
+              <div className="divide-y divide-slate-100">
+                {generatedRules.map((rule) => (
+                  <div key={rule.id} className="p-4 hover:bg-slate-50 transition-colors flex items-center justify-between group">
+                    <div className="flex items-center space-x-4">
+                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                        rule.action === 'Allow' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'
+                      }`}>
+                        {rule.action === 'Allow' ? <Check size={20} /> : <X size={20} />}
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-slate-900">{rule.name}</p>
+                        <div className="flex items-center space-x-2 text-[10px] text-slate-500 font-medium">
+                          <span className={`px-1.5 py-0.5 rounded ${
+                            rule.type === 'Publisher' ? 'bg-blue-100 text-blue-700' :
+                            rule.type === 'Path' ? 'bg-purple-100 text-purple-700' :
+                            'bg-orange-100 text-orange-700'
+                          }`}>{rule.type}</span>
+                          <span>•</span>
+                          <span>{rule.targetGroup}</span>
+                          {rule.publisher && (
+                            <>
+                              <span>•</span>
+                              <span className="truncate max-w-[200px]">{rule.publisher}</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleRemoveRule(rule.id)}
+                      className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="p-8 text-center text-slate-400">
+                <FileText size={32} className="mx-auto mb-2 opacity-30" />
+                <p className="text-sm font-medium">No rules generated yet</p>
+                <p className="text-xs">Select an application or vendor and generate rules</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
