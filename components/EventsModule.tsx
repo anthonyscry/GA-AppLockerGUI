@@ -137,7 +137,10 @@ const EventsModule: React.FC = () => {
   const [showBackupModal, setShowBackupModal] = useState(false);
   const [backupProgress, setBackupProgress] = useState<{current: number; total: number; status: string} | null>(null);
   const [selectedBackupSystems, setSelectedBackupSystems] = useState<Set<string>>(new Set());
-  const [backupPath, setBackupPath] = useState('.\\backups\\events');
+  const [backupPath, setBackupPath] = useState('C:\\AppLocker\\backups\\events');
+
+  // Online/Offline filter for machine list
+  const [onlineFilter, setOnlineFilter] = useState<'all' | 'online' | 'offline'>('all');
 
   // Error state for component-level error handling
   const [componentError, setComponentError] = useState<string | null>(null);
@@ -504,10 +507,47 @@ const EventsModule: React.FC = () => {
                   </div>
                 </div>
 
+                {/* Online/Offline Filter Toggle */}
+                <div className="flex items-center space-x-2 mb-2 p-2 bg-slate-50 rounded-lg">
+                  <span className="text-xs font-bold text-slate-500">Filter:</span>
+                  <button
+                    onClick={() => setOnlineFilter('all')}
+                    className={`px-2 py-1 rounded text-[10px] font-bold transition-colors ${
+                      onlineFilter === 'all' ? 'bg-slate-700 text-white' : 'bg-white text-slate-500 hover:bg-slate-100'
+                    }`}
+                  >
+                    All
+                  </button>
+                  <button
+                    onClick={() => setOnlineFilter('online')}
+                    className={`px-2 py-1 rounded text-[10px] font-bold transition-colors flex items-center space-x-1 ${
+                      onlineFilter === 'online' ? 'bg-green-600 text-white' : 'bg-white text-slate-500 hover:bg-green-50'
+                    }`}
+                  >
+                    <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                    <span>Online</span>
+                  </button>
+                  <button
+                    onClick={() => setOnlineFilter('offline')}
+                    className={`px-2 py-1 rounded text-[10px] font-bold transition-colors flex items-center space-x-1 ${
+                      onlineFilter === 'offline' ? 'bg-slate-600 text-white' : 'bg-white text-slate-500 hover:bg-slate-100'
+                    }`}
+                  >
+                    <span className="w-2 h-2 rounded-full bg-slate-400"></span>
+                    <span>Offline</span>
+                  </button>
+                </div>
+
                 <div className="border border-slate-200 rounded-lg max-h-[300px] overflow-y-auto">
                   {machines && Array.isArray(machines) && machines.length > 0 ? (
                     <div className="divide-y divide-slate-100">
-                      {machines.filter(m => m?.hostname).map((m) => (
+                      {machines.filter(m => {
+                        if (!m?.hostname) return false;
+                        if (onlineFilter === 'all') return true;
+                        if (onlineFilter === 'online') return m.status === 'Online';
+                        if (onlineFilter === 'offline') return m.status !== 'Online';
+                        return true;
+                      }).map((m) => (
                         <label
                           key={m.id || m.hostname}
                           className={`flex items-center p-3 cursor-pointer hover:bg-slate-50 transition-colors ${

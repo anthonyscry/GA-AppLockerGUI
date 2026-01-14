@@ -85,10 +85,25 @@ try {
     # Enable GPO (ensure it's not disabled)
     $gpo.GpoStatus = "AllSettingsEnabled"
 
-    # Link to target OU if specified
-    if ($TargetOU) {
-        Write-Host "Linking GPO to OU: $TargetOU" -ForegroundColor Cyan
-        New-GPLink -Name $GPOName -Target $TargetOU -ErrorAction SilentlyContinue
+    # Get the domain root DN if no target specified
+    if (-not $TargetOU) {
+        $TargetOU = (Get-ADDomain).DistinguishedName
+        Write-Host "No target OU specified, linking to domain root: $TargetOU" -ForegroundColor Yellow
+    }
+
+    # Link GPO to target (root domain or specified OU)
+    Write-Host "Linking GPO to: $TargetOU" -ForegroundColor Cyan
+
+    # Check if link already exists
+    $existingLink = Get-GPInheritance -Target $TargetOU -ErrorAction SilentlyContinue |
+        Select-Object -ExpandProperty GpoLinks |
+        Where-Object { $_.DisplayName -eq $GPOName }
+
+    if (-not $existingLink) {
+        New-GPLink -Name $GPOName -Target $TargetOU -LinkEnabled Yes -ErrorAction Stop
+        Write-Host "GPO linked successfully to $TargetOU" -ForegroundColor Green
+    } else {
+        Write-Host "GPO link already exists at $TargetOU" -ForegroundColor Yellow
     }
 
     Write-Host "`nWinRM GPO enabled successfully!" -ForegroundColor Green

@@ -305,6 +305,61 @@ const App: React.FC = () => {
                 </div>
               </div>
 
+              {/* File Locations */}
+              <div className="space-y-4">
+                <h5 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center space-x-2">
+                  <FileText size={14} aria-hidden="true" />
+                  <span>File Locations (C:\AppLocker)</span>
+                </h5>
+                <div className="space-y-2 text-xs">
+                  <div className="p-2 bg-slate-50 rounded-lg font-mono text-slate-600">
+                    <span className="font-bold text-slate-800">C:\AppLocker\</span> - Root folder for all artifacts
+                  </div>
+                  <div className="p-2 bg-slate-50 rounded-lg font-mono text-slate-600">
+                    <span className="font-bold text-slate-800">├── backups\events\</span> - Event log backups (.evtx)
+                  </div>
+                  <div className="p-2 bg-slate-50 rounded-lg font-mono text-slate-600">
+                    <span className="font-bold text-slate-800">├── compliance\</span> - Evidence packages & reports
+                  </div>
+                  <div className="p-2 bg-slate-50 rounded-lg font-mono text-slate-600">
+                    <span className="font-bold text-slate-800">├── policies\</span> - Generated AppLocker XML rules
+                  </div>
+                  <div className="p-2 bg-slate-50 rounded-lg font-mono text-slate-600">
+                    <span className="font-bold text-slate-800">└── scans\</span> - Software inventory artifacts
+                  </div>
+                </div>
+              </div>
+
+              {/* Module Reference */}
+              <div className="space-y-4">
+                <h5 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center space-x-2">
+                  <Monitor size={14} aria-hidden="true" />
+                  <span>Module Reference</span>
+                </h5>
+                <div className="space-y-2 text-xs">
+                  <div className="p-3 bg-blue-50 rounded-lg border border-blue-100">
+                    <span className="font-black text-blue-700">Remote Scan:</span>
+                    <span className="text-blue-600 ml-2">Uses WinRM to query AD computers. Click "Detect Systems" to populate the list. Requires Domain Controller access for full functionality.</span>
+                  </div>
+                  <div className="p-3 bg-purple-50 rounded-lg border border-purple-100">
+                    <span className="font-black text-purple-700">Policy Lab:</span>
+                    <span className="text-purple-600 ml-2">Create publisher, path, or hash rules. Use Trusted Publishers tab for batch rule generation from known vendors.</span>
+                  </div>
+                  <div className="p-3 bg-green-50 rounded-lg border border-green-100">
+                    <span className="font-black text-green-700">Event Monitor:</span>
+                    <span className="text-green-600 ml-2">Filter events by type (Blocked/Audit/Allowed). Use online/offline filter to target specific systems for backup.</span>
+                  </div>
+                  <div className="p-3 bg-amber-50 rounded-lg border border-amber-100">
+                    <span className="font-black text-amber-700">AD Manager:</span>
+                    <span className="text-amber-600 ml-2">Drag users to AppLocker security groups. Select an OU to filter users. Supports wildcard (*) search patterns.</span>
+                  </div>
+                  <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                    <span className="font-black text-slate-700">Compliance:</span>
+                    <span className="text-slate-600 ml-2">Generate NIST 800-53 evidence packages. Collects policies, events, and system snapshots into timestamped folders.</span>
+                  </div>
+                </div>
+              </div>
+
               {/* Troubleshooting */}
               <div className="space-y-4">
                 <h5 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center space-x-2">
@@ -323,6 +378,48 @@ const App: React.FC = () => {
                   <div className="p-3 bg-slate-50 rounded-lg">
                     <span className="font-bold">AppIdentity Service:</span>
                     <span className="text-slate-600 ml-2">Service must be running for AppLocker enforcement</span>
+                  </div>
+                  <div className="p-3 bg-slate-50 rounded-lg">
+                    <span className="font-bold">No Systems Detected:</span>
+                    <span className="text-slate-600 ml-2">Click "Detect Systems" button. Requires AD connectivity and proper permissions.</span>
+                  </div>
+                  <div className="p-3 bg-slate-50 rounded-lg">
+                    <span className="font-bold">AD Manager Empty:</span>
+                    <span className="text-slate-600 ml-2">Click "Refresh AD Inventory" to load users. Uses Get-ADUser cmdlet.</span>
+                  </div>
+                  <div className="p-3 bg-slate-50 rounded-lg">
+                    <span className="font-bold">GPO Not Created:</span>
+                    <span className="text-slate-600 ml-2">Requires GroupPolicy module and Domain Admin privileges on a DC.</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Best Practices */}
+              <div className="space-y-4">
+                <h5 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center space-x-2">
+                  <Activity size={14} aria-hidden="true" />
+                  <span>Best Practices</span>
+                </h5>
+                <div className="space-y-2 text-xs">
+                  <div className="p-3 bg-green-50 rounded-lg border border-green-100">
+                    <span className="font-black text-green-700">✓</span>
+                    <span className="text-green-600 ml-2">Always start in Audit Mode (8003 events) before enabling enforcement</span>
+                  </div>
+                  <div className="p-3 bg-green-50 rounded-lg border border-green-100">
+                    <span className="font-black text-green-700">✓</span>
+                    <span className="text-green-600 ml-2">Use Publisher rules where possible - more resilient to software updates</span>
+                  </div>
+                  <div className="p-3 bg-green-50 rounded-lg border border-green-100">
+                    <span className="font-black text-green-700">✓</span>
+                    <span className="text-green-600 ml-2">Backup event logs regularly to C:\AppLocker\backups\events</span>
+                  </div>
+                  <div className="p-3 bg-green-50 rounded-lg border border-green-100">
+                    <span className="font-black text-green-700">✓</span>
+                    <span className="text-green-600 ml-2">Test policy changes on pilot group before domain-wide deployment</span>
+                  </div>
+                  <div className="p-3 bg-red-50 rounded-lg border border-red-100">
+                    <span className="font-black text-red-700">✗</span>
+                    <span className="text-red-600 ml-2">Never enable DLL rules without extensive testing - can cause boot failures</span>
                   </div>
                 </div>
               </div>

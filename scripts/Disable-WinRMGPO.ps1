@@ -3,8 +3,8 @@
     Disables WinRM GPO domain-wide.
 
 .DESCRIPTION
-    Disables the WinRM Group Policy Object to stop remote management
-    capabilities across the domain.
+    Creates a GPO to disable Windows Remote Management (WinRM)
+    across the domain, or disables/removes an existing Enable-WinRM GPO.
 
 .NOTES
     Requires: GroupPolicy PowerShell module, Domain Admin privileges
@@ -14,10 +14,16 @@
 [CmdletBinding()]
 param(
     [Parameter()]
-    [string]$GPOName = "Enable-WinRM",
+    [string]$GPOName = "Disable-WinRM",
 
     [Parameter()]
-    [switch]$RemoveGPO = $false
+    [string]$EnableGPOName = "Enable-WinRM",
+
+    [Parameter()]
+    [switch]$RemoveEnableGPO = $false,
+
+    [Parameter()]
+    [string]$Comment = "Disables WinRM for security lockdown"
 )
 
 $ErrorActionPreference = "Stop"
@@ -25,62 +31,92 @@ $ErrorActionPreference = "Stop"
 try {
     # Import GroupPolicy module
     Import-Module GroupPolicy -ErrorAction Stop
+    Import-Module ActiveDirectory -ErrorAction Stop
 
-    Write-Host "Looking for GPO: $GPOName" -ForegroundColor Cyan
+    $domainDN = (Get-ADDomain).DistinguishedName
 
-    # Check if GPO exists
+    # First, handle any existing Enable-WinRM GPO
+    $enableGpo = Get-GPO -Name $EnableGPOName -ErrorAction SilentlyContinue
+    if ($enableGpo) {
+        Write-Host "Found existing Enable-WinRM GPO, disabling it..." -ForegroundColor Yellow
+
+        # Disable the enable GPO
+        $enableGpo.GpoStatus = "AllSettingsDisabled"
+
+        # Remove all links
+        $links = Get-GPInheritance -Target $domainDN -ErrorAction SilentlyContinue |
+            Select-Object -ExpandProperty GpoLinks |
+            Where-Object { $_.DisplayName -eq $EnableGPOName }
+
+        foreach ($link in $links) {
+            Remove-GPLink -Name $EnableGPOName -Target $link.Target -ErrorAction SilentlyContinue
+            Write-Host "Removed GPO link from: $($link.Target)" -ForegroundColor Yellow
+        }
+
+        if ($RemoveEnableGPO) {
+            Remove-GPO -Name $EnableGPOName -Confirm:$false -ErrorAction SilentlyContinue
+            Write-Host "Removed Enable-WinRM GPO completely" -ForegroundColor Red
+        }
+    }
+
+    # Now create or update the Disable-WinRM GPO
+    Write-Host "Checking for Disable-WinRM GPO: $GPOName" -ForegroundColor Cyan
     $gpo = Get-GPO -Name $GPOName -ErrorAction SilentlyContinue
 
     if (-not $gpo) {
-        Write-Host "GPO not found: $GPOName" -ForegroundColor Yellow
-        @{
-            success = $true
-            status = "NotFound"
-            message = "GPO does not exist"
-        } | ConvertTo-Json -Compress
-        exit 0
-    }
-
-    if ($RemoveGPO) {
-        # Completely remove the GPO
-        Write-Host "Removing GPO: $GPOName" -ForegroundColor Red
-
-        # Remove all links first
-        $links = Get-GPInheritance -Target (Get-ADDomain).DistinguishedName |
-            Select-Object -ExpandProperty GpoLinks |
-            Where-Object { $_.DisplayName -eq $GPOName }
-
-        foreach ($link in $links) {
-            Remove-GPLink -Name $GPOName -Target $link.Target -ErrorAction SilentlyContinue
-        }
-
-        # Remove the GPO
-        Remove-GPO -Name $GPOName -Confirm:$false
-
-        Write-Host "GPO removed successfully" -ForegroundColor Green
-
-        @{
-            success = $true
-            status = "Removed"
-            gpoName = $GPOName
-        } | ConvertTo-Json -Compress
-
+        Write-Host "Creating new GPO: $GPOName" -ForegroundColor Yellow
+        $gpo = New-GPO -Name $GPOName -Comment $Comment
+        Write-Host "GPO created successfully" -ForegroundColor Green
     } else {
-        # Just disable the GPO (safer option)
-        Write-Host "Disabling GPO: $GPOName" -ForegroundColor Yellow
-
-        $gpo.GpoStatus = "AllSettingsDisabled"
-
-        Write-Host "GPO disabled successfully" -ForegroundColor Green
-        Write-Host "`nNote: Run 'gpupdate /force' on target machines or wait for Group Policy refresh." -ForegroundColor Yellow
-
-        @{
-            success = $true
-            status = "Disabled"
-            gpoName = $GPOName
-            gpoId = $gpo.Id.ToString()
-        } | ConvertTo-Json -Compress
+        Write-Host "GPO already exists, updating settings..." -ForegroundColor Yellow
     }
+
+    # Configure WinRM Service to be disabled
+    Write-Host "Configuring WinRM service settings to DISABLE..." -ForegroundColor Cyan
+
+    # Disable WinRM auto-config
+    Set-GPRegistryValue -Name $GPOName `
+        -Key "HKLM\SOFTWARE\Policies\Microsoft\Windows\WinRM\Service" `
+        -ValueName "AllowAutoConfig" `
+        -Type DWord `
+        -Value 0
+
+    # Disable remote shell access
+    Set-GPRegistryValue -Name $GPOName `
+        -Key "HKLM\SOFTWARE\Policies\Microsoft\Windows\WinRM\Service" `
+        -ValueName "AllowRemoteShellAccess" `
+        -Type DWord `
+        -Value 0
+
+    # Enable GPO (ensure it's not disabled)
+    $gpo.GpoStatus = "AllSettingsEnabled"
+
+    # Link to domain root
+    Write-Host "Linking GPO to domain root: $domainDN" -ForegroundColor Cyan
+
+    # Check if link already exists
+    $existingLink = Get-GPInheritance -Target $domainDN -ErrorAction SilentlyContinue |
+        Select-Object -ExpandProperty GpoLinks |
+        Where-Object { $_.DisplayName -eq $GPOName }
+
+    if (-not $existingLink) {
+        New-GPLink -Name $GPOName -Target $domainDN -LinkEnabled Yes -ErrorAction Stop
+        Write-Host "GPO linked successfully to domain root" -ForegroundColor Green
+    } else {
+        Write-Host "GPO link already exists at domain root" -ForegroundColor Yellow
+    }
+
+    Write-Host "`nWinRM GPO disabled successfully!" -ForegroundColor Green
+    Write-Host "GPO Name: $GPOName" -ForegroundColor White
+    Write-Host "Status: Enabled (disables WinRM)" -ForegroundColor White
+    Write-Host "`nNote: Run 'gpupdate /force' on target machines or wait for Group Policy refresh." -ForegroundColor Yellow
+
+    @{
+        success = $true
+        status = "Disabled"
+        gpoName = $GPOName
+        gpoId = $gpo.Id.ToString()
+    } | ConvertTo-Json -Compress
 
 } catch {
     Write-Error "Failed to disable WinRM GPO: $_"

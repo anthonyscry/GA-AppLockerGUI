@@ -12,6 +12,7 @@ const fs = require('fs');
  * @param {string} scriptPath - Path to PowerShell script
  * @param {string[]} args - Arguments to pass to the script
  * @param {Object} options - Execution options
+ * @param {boolean} options.hidden - Run with hidden window (default: true)
  * @returns {Promise<Object>} Result with stdout, stderr, and exit code
  */
 function executePowerShellScript(scriptPath, args = [], options = {}) {
@@ -20,12 +21,13 @@ function executePowerShellScript(scriptPath, args = [], options = {}) {
       timeout = 300000, // 5 minutes default timeout
       workingDirectory = process.cwd(),
       encoding = 'utf8',
-      env = process.env // Support custom environment variables
+      env = process.env, // Support custom environment variables
+      hidden = true // Default to hidden window
     } = options;
 
     // Resolve script path
-    const fullScriptPath = path.isAbsolute(scriptPath) 
-      ? scriptPath 
+    const fullScriptPath = path.isAbsolute(scriptPath)
+      ? scriptPath
       : path.resolve(workingDirectory, scriptPath);
 
     // Verify script exists
@@ -35,14 +37,16 @@ function executePowerShellScript(scriptPath, args = [], options = {}) {
     }
 
     // Determine PowerShell executable
-    const powershellExe = process.platform === 'win32' 
-      ? 'powershell.exe' 
+    const powershellExe = process.platform === 'win32'
+      ? 'powershell.exe'
       : 'pwsh';
 
     // Build command arguments
     const psArgs = [
       '-NoProfile',
+      '-NonInteractive',
       '-ExecutionPolicy', 'Bypass',
+      ...(hidden && process.platform === 'win32' ? ['-WindowStyle', 'Hidden'] : []),
       '-File', fullScriptPath,
       ...args
     ];
@@ -53,7 +57,8 @@ function executePowerShellScript(scriptPath, args = [], options = {}) {
       encoding: encoding,
       shell: false,
       windowsVerbatimArguments: true,
-      env: env // Pass custom environment variables
+      env: env, // Pass custom environment variables
+      windowsHide: hidden // Hide the console window on Windows
     });
 
     let stdout = '';
@@ -112,6 +117,7 @@ function executePowerShellScript(scriptPath, args = [], options = {}) {
  * Execute PowerShell command (inline script)
  * @param {string} command - PowerShell command/script block
  * @param {Object} options - Execution options
+ * @param {boolean} options.hidden - Run with hidden window (default: true)
  * @returns {Promise<Object>} Result with stdout, stderr, and exit code
  */
 function executePowerShellCommand(command, options = {}) {
@@ -119,16 +125,19 @@ function executePowerShellCommand(command, options = {}) {
     const {
       timeout = 60000, // 1 minute default for commands
       workingDirectory = process.cwd(),
-      encoding = 'utf8'
+      encoding = 'utf8',
+      hidden = true // Default to hidden window
     } = options;
 
-    const powershellExe = process.platform === 'win32' 
-      ? 'powershell.exe' 
+    const powershellExe = process.platform === 'win32'
+      ? 'powershell.exe'
       : 'pwsh';
 
     const psArgs = [
       '-NoProfile',
+      '-NonInteractive',
       '-ExecutionPolicy', 'Bypass',
+      ...(hidden && process.platform === 'win32' ? ['-WindowStyle', 'Hidden'] : []),
       '-Command', command
     ];
 
@@ -136,7 +145,8 @@ function executePowerShellCommand(command, options = {}) {
       cwd: workingDirectory,
       encoding: encoding,
       shell: false,
-      windowsVerbatimArguments: true
+      windowsVerbatimArguments: true,
+      windowsHide: hidden // Hide the console window on Windows
     });
 
     let stdout = '';
