@@ -10,6 +10,14 @@
  * - 8003: Application would have been blocked (audit mode warning)
  * - 8004: Application blocked (enforcement mode)
  *
+ * LESSON LEARNED: IPC handlers may return error objects instead of data arrays.
+ * Common errors include:
+ * - "AppLocker event log not found" - AppLocker not configured on system
+ * - "Access denied" - Insufficient permissions to read event logs
+ * Always check for error responses before treating result as valid data.
+ *
+ * See docs/LESSONS_LEARNED.md for full documentation.
+ *
  * @module EventRepository
  */
 

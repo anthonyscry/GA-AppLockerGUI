@@ -1,6 +1,32 @@
 /**
  * IPC Handlers for GA-AppLocker Dashboard
  * Handles communication between renderer and main process
+ *
+ * ============================================================================
+ * LESSONS LEARNED - CRITICAL PATTERNS FOR POWERSHELL IPC
+ * ============================================================================
+ *
+ * 1. ALWAYS IMPORT MODULES EXPLICITLY
+ *    PowerShell via Node.js child_process does NOT auto-load modules.
+ *    Every command using AD or GPO cmdlets MUST start with:
+ *      Import-Module ActiveDirectory -ErrorAction Stop
+ *      Import-Module GroupPolicy -ErrorAction Stop
+ *
+ * 2. NEVER SILENTLY RETURN EMPTY ARRAYS ON ERRORS
+ *    BAD:  catch (e) { return []; }  // Hides errors from user
+ *    GOOD: catch (e) { return { error: e.message }; }  // UI can display
+ *
+ * 3. USE STRUCTURED ERROR RESPONSES
+ *    PowerShell should return JSON like:
+ *      Success: { "success": true, "data": [...] }
+ *      Failure: { "success": false, "error": "message", "errorType": "Type" }
+ *
+ * 4. GPO CREATION REQUIRES LINKING
+ *    New-GPO alone does NOTHING. Must also call:
+ *      New-GPLink -Name $gpoName -Target $domainDN -LinkEnabled Yes
+ *
+ * See docs/LESSONS_LEARNED.md for full documentation.
+ * ============================================================================
  */
 
 const { ipcMain, dialog } = require('electron');
@@ -1390,8 +1416,16 @@ function setupIpcHandlers() {
   });
 
   // ============================================
+  // ============================================
   // AD HANDLERS (Active Directory Operations)
   // ============================================
+  //
+  // LESSON LEARNED: All AD cmdlets (Get-ADUser, Get-ADGroup, Add-ADGroupMember, etc.)
+  // require: Import-Module ActiveDirectory -ErrorAction Stop
+  // Without explicit import, commands fail silently in Node.js child_process.
+  //
+  // LESSON LEARNED: Never return [] on error - return { error: "message" } instead
+  // so the UI layer can display meaningful errors to the user.
 
   // Get all AD users (query from Active Directory)
   // Returns users with properly mapped fields matching TypeScript ADUser interface
@@ -1677,6 +1711,9 @@ function setupIpcHandlers() {
   });
 
   // Toggle WinRM GPO
+  // LESSON LEARNED: New-GPO alone does NOTHING - GPO must be LINKED to domain/OU
+  // After creating GPO, must call: New-GPLink -Name $gpoName -Target $domainDN -LinkEnabled Yes
+  // Without linking, GPO exists but never applies to any machines.
   ipcMain.handle('ad:toggleWinRMGPO', async (event, enable) => {
     try {
       const scriptsDir = getScriptsDirectory();
@@ -1952,6 +1989,10 @@ function setupIpcHandlers() {
   // ============================================
   // MACHINE HANDLERS (Remote Scanning)
   // ============================================
+  //
+  // LESSON LEARNED: Get-ADComputer requires Import-Module ActiveDirectory
+  // Without explicit import, command fails silently and returns nothing.
+  // Always use structured error responses so UI can show meaningful errors.
 
   // Get all machines from AD
   ipcMain.handle('machine:getAll', async () => {

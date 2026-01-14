@@ -1,5 +1,15 @@
 /**
  * AD Repository Implementation
+ *
+ * LESSON LEARNED: IPC handlers may return error objects instead of data arrays.
+ * Always check: if (result && typeof result === 'object' && 'error' in result)
+ * before treating the result as valid data. This ensures users see actual error
+ * messages like "ActiveDirectory module not found" instead of empty results.
+ *
+ * LESSON LEARNED: Re-throw ExternalServiceError as-is to preserve error context.
+ * Only wrap in new ExternalServiceError if it's an unexpected error type.
+ *
+ * See docs/LESSONS_LEARNED.md for full documentation.
  */
 
 import { IADRepository, UserFilter, GPOSettings } from '../../domain/interfaces/IADRepository';

@@ -1,6 +1,13 @@
 /**
  * Machine Repository Implementation
  * Handles machine data access via IPC
+ *
+ * LESSON LEARNED: IPC handlers may return error objects instead of data arrays.
+ * Always check: if (result && typeof result === 'object' && 'error' in result)
+ * before treating the result as valid data. Otherwise, { error: "..." } gets
+ * treated as an empty array and users see "no results" instead of the actual error.
+ *
+ * See docs/LESSONS_LEARNED.md for full documentation.
  */
 
 import { IMachineRepository, MachineFilter, ScanOptions } from '../../domain/interfaces/IMachineRepository';
