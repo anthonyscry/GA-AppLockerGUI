@@ -2293,13 +2293,16 @@ function setupIpcHandlers() {
             $primaryLog = 'Microsoft-Windows-AppLocker/EXE and DLL'
             Start-Process -FilePath "wevtutil.exe" -ArgumentList "epl \`"$primaryLog\`" \`"${safeOutputPath}\`" /ow:true" -WindowStyle Hidden -Wait -ErrorAction SilentlyContinue 2>$null
 
-            @{
+            # Store system name in variable to avoid PowerShell parsing issues with commas
+            $sysName = '${safeSystemName.replace(/'/g, "''")}'
+            $result = @{
               success = $true
               outputPath = if (Test-Path "${safeOutputPath}") { "${safeOutputPath}" } else { $xmlPath }
-              systemName = "${safeSystemName}"
+              systemName = $sysName
               eventCount = $allEvents.Count
               timestamp = (Get-Date).ToString('o')
-            } | ConvertTo-Json -Compress
+            }
+            $result | ConvertTo-Json -Compress
           } else {
             @{
               success = $false

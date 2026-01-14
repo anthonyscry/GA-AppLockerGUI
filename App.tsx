@@ -343,9 +343,13 @@ const App: React.FC = () => {
                     <span className="font-black text-blue-700">Remote Scan:</span>
                     <span className="text-blue-600 ml-2">Uses WinRM to query AD computers. Click "Detect Systems" to populate the list. Requires Domain Controller access for full functionality.</span>
                   </div>
+                  <div className="p-3 bg-indigo-50 rounded-lg border border-indigo-100">
+                    <span className="font-black text-indigo-700">Rule Generator:</span>
+                    <span className="text-indigo-600 ml-2">Create AppLocker rules from scanned artifacts or trusted publishers. Supports publisher, path, and hash rules for EXE, Script, MSI, and DLL.</span>
+                  </div>
                   <div className="p-3 bg-purple-50 rounded-lg border border-purple-100">
                     <span className="font-black text-purple-700">Policy Lab:</span>
-                    <span className="text-purple-600 ml-2">Create publisher, path, or hash rules. Use Trusted Publishers tab for batch rule generation from known vendors.</span>
+                    <span className="text-purple-600 ml-2">Manage policy deployment, health checks, and advanced tools. Deploy policies to GPOs, merge policies, and run validation checks.</span>
                   </div>
                   <div className="p-3 bg-green-50 rounded-lg border border-green-100">
                     <span className="font-black text-green-700">Event Monitor:</span>
