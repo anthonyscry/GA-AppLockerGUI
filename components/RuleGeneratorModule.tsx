@@ -45,6 +45,7 @@ interface GeneratedRule {
 
 const RuleGeneratorModule: React.FC = () => {
   const { policy } = useAppServices();
+  const storageKey = 'applocker.generatedRules';
 
   // Generator State
   const [generatorTab, setGeneratorTab] = useState<'scanned' | 'trusted'>('trusted');
@@ -80,6 +81,28 @@ const RuleGeneratorModule: React.FC = () => {
       return () => clearTimeout(timer);
     }
   }, [toastMessage]);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(storageKey);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          setGeneratedRules(parsed);
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to load generated rules from storage:', error);
+    }
+  }, [storageKey]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(generatedRules));
+    } catch (error) {
+      console.warn('Failed to persist generated rules:', error);
+    }
+  }, [generatedRules, storageKey]);
 
   // Fetch inventory
   const { data: inventory, loading: inventoryLoading } = useAsync(

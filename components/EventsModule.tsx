@@ -248,8 +248,12 @@ const EventsModule: React.FC = () => {
       if (filePath) {
         const electron = (window as any).electron;
         if (electron?.ipc) {
-          await electron.ipc.invoke('fs:writeFile', filePath, csv);
-          alert(`Events exported successfully to:\n${filePath}`);
+          const writeResult = await electron.ipc.invoke('fs:writeFile', filePath, csv);
+          if (writeResult?.success) {
+            alert(`Events exported successfully to:\n${writeResult.filePath || filePath}`);
+          } else {
+            alert(`Failed to export CSV:\n${writeResult?.error || 'Unknown error'}`);
+          }
         } else {
           // Browser fallback
           const blob = new Blob([csv], { type: 'text/csv' });
@@ -269,16 +273,6 @@ const EventsModule: React.FC = () => {
     }
   }, [events, event]);
 
-  const normalizeWindowsPath = useCallback((value: string) => {
-    return value.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase();
-  }, []);
-
-  const isUnderDefaultBackupRoot = useCallback((value: string) => {
-    const normalizedValue = normalizeWindowsPath(value.trim());
-    const normalizedRoot = normalizeWindowsPath(defaultBackupRoot);
-    return normalizedValue === normalizedRoot || normalizedValue.startsWith(`${normalizedRoot}\\`);
-  }, [defaultBackupRoot, normalizeWindowsPath]);
-
   // Backup events handler - creates a single combined log file
   const handleBackupEvents = useCallback(async () => {
     const electron = (window as any).electron;
@@ -294,23 +288,7 @@ const EventsModule: React.FC = () => {
         return;
       }
 
-      let effectiveBasePath = trimmedBackupPath;
-
-      if (!isUnderDefaultBackupRoot(trimmedBackupPath)) {
-        const useDefault = window.confirm(
-          `Backups must be stored under:\n${defaultBackupRoot}\n\n` +
-          'Your selected location is outside the default backup folder. ' +
-          'Click OK to use the default location, or Cancel to review the path.'
-        );
-
-        if (!useDefault) {
-          return;
-        }
-
-        setBackupPath(defaultBackupRoot);
-        effectiveBasePath = defaultBackupRoot;
-      }
-
+      const effectiveBasePath = trimmedBackupPath;
       const now = new Date();
       const monthFolder = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
       const dateStr = now.toISOString().split('T')[0];
@@ -366,7 +344,7 @@ const EventsModule: React.FC = () => {
       console.error('Backup failed:', error);
       alert(`Backup failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-  }, [backupPath, backupTargets, defaultBackupRoot, isUnderDefaultBackupRoot]);
+  }, [backupPath, backupTargets]);
 
   // Clear component error after displaying
   useEffect(() => {
@@ -375,6 +353,15 @@ const EventsModule: React.FC = () => {
       return () => clearTimeout(timer);
     }
   }, [componentError]);
+
+  useEffect(() => {
+    if (!selectedEvent) return undefined;
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, [selectedEvent]);
 
   // Loading state
   if (eventsLoading || statsLoading) {
@@ -487,13 +474,35 @@ const EventsModule: React.FC = () => {
                 <label className="block text-xs font-bold text-slate-600 uppercase tracking-widest mb-2">
                   Backup Location
                 </label>
-                <input
-                  type="text"
-                  value={backupPath}
-                  onChange={(e) => setBackupPath(e.target.value)}
-                  placeholder="C:\AppLocker-Backups"
-                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
-                />
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={backupPath}
+                    onChange={(e) => setBackupPath(e.target.value)}
+                    placeholder="C:\\AppLocker\\backups\\events"
+                    className="flex-1 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const electron = (window as any).electron;
+                      if (!electron?.ipc) {
+                        alert('Folder selection requires the Electron app');
+                        return;
+                      }
+                      const result = await electron.ipc.invoke('dialog:showOpenDirectoryDialog', {
+                        title: 'Select Backup Folder',
+                        defaultPath: backupPath || defaultBackupRoot
+                      });
+                      if (!result?.canceled && result?.filePath) {
+                        setBackupPath(result.filePath);
+                      }
+                    }}
+                    className="px-3 py-2.5 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-700"
+                  >
+                    Browse
+                  </button>
+                </div>
                 <p className="text-[10px] text-slate-400 mt-1">Files saved as: [path]\[YYYY-MM]\[system]-[date]-[time].evtx</p>
               </div>
 

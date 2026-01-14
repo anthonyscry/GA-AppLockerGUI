@@ -85,35 +85,36 @@ const ScanModule: React.FC = () => {
     detectDomain();
   }, []);
 
-  // Fetch available OUs on mount
-  React.useEffect(() => {
-    const fetchOUs = async () => {
-      setOusLoading(true);
-      setOuError(null);
-      try {
-        const electron = (window as any).electron;
-        if (electron?.ipc) {
-          const result = await electron.ipc.invoke('ad:getOUsWithComputers');
-          if (result.success && Array.isArray(result.ous)) {
-            setAvailableOUs(result.ous);
-            return;
-          }
-          setAvailableOUs([]);
-          setOuError(result?.error || 'Failed to load OUs from Active Directory.');
+  const fetchOUs = useCallback(async () => {
+    setOusLoading(true);
+    setOuError(null);
+    try {
+      const electron = (window as any).electron;
+      if (electron?.ipc) {
+        const result = await electron.ipc.invoke('ad:getOUsWithComputers');
+        if (result.success && Array.isArray(result.ous)) {
+          setAvailableOUs(result.ous);
           return;
         }
         setAvailableOUs([]);
-        setOuError('Active Directory integration is unavailable in browser mode.');
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Unknown error';
-        setOuError(message);
-        console.warn('Could not fetch OUs:', error);
-      } finally {
-        setOusLoading(false);
+        setOuError(result?.error || 'Failed to load OUs from Active Directory.');
+        return;
       }
-    };
-    fetchOUs();
+      setAvailableOUs([]);
+      setOuError('Active Directory integration is unavailable in browser mode.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      setOuError(message);
+      console.warn('Could not fetch OUs:', error);
+    } finally {
+      setOusLoading(false);
+    }
   }, []);
+
+  // Fetch available OUs on mount
+  React.useEffect(() => {
+    fetchOUs();
+  }, [fetchOUs]);
 
   // Fetch machines
   const { data: machines, loading: machinesLoading, error: machinesError, refetch: refetchMachines } = useAsync(
@@ -311,7 +312,10 @@ const ScanModule: React.FC = () => {
             <span>Credentials</span>
           </button>
           <button
-            onClick={refetchMachines}
+            onClick={async () => {
+              await refetchMachines();
+              await fetchOUs();
+            }}
             className="flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all font-bold text-sm min-h-[44px] focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2 bg-slate-600 hover:bg-slate-700 text-white"
             aria-label="Detect systems from Active Directory"
           >
@@ -485,6 +489,20 @@ const ScanModule: React.FC = () => {
           <Globe size={240} />
         </div>
       </div>
+
+      {ouError && (
+        <div role="alert" className="bg-amber-50 border-l-4 border-amber-500 p-3 rounded-xl text-xs text-amber-800">
+          <div className="flex items-center justify-between">
+            <span>OU filter unavailable: {ouError}</span>
+            <button
+              onClick={fetchOUs}
+              className="text-[10px] font-bold uppercase tracking-widest text-amber-700 hover:text-amber-900"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Filter Bar - Compact */}
       <div className="bg-white p-2 rounded-lg shadow-sm border border-slate-200 flex flex-wrap items-center gap-2">

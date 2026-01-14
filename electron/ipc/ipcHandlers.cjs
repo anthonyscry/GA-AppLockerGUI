@@ -41,7 +41,6 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 
-const DEFAULT_EVENTS_BACKUP_ROOT = 'C:\\AppLocker\\backups\\events';
 
 /**
  * Allowed enforcement modes for policy generation (whitelist)
@@ -1775,7 +1774,7 @@ function setupIpcHandlers() {
           # If no OU specified, use Users container
           if (-not $targetOU) {
             $domain = Get-ADDomain
-            $targetOU = "CN=Users," + $domain.DistinguishedName
+            $targetOU = 'CN=Users,' + $domain.DistinguishedName
           }
 
           foreach ($group in $groups) {
@@ -2110,7 +2109,7 @@ function setupIpcHandlers() {
             }
 
             $ous += @{
-              path = $ouName
+              path = $ou
               name = $ouName
               userCount = $ouCounts[$ou]
             }
@@ -2707,18 +2706,6 @@ function setupIpcHandlers() {
         return { success: false, error: 'Output path not allowed' };
       }
 
-      const normalizedOutputPath = path.resolve(outputPath).toLowerCase();
-      const normalizedDefaultRoot = path.resolve(DEFAULT_EVENTS_BACKUP_ROOT).toLowerCase();
-      if (
-        normalizedOutputPath !== normalizedDefaultRoot &&
-        !normalizedOutputPath.startsWith(`${normalizedDefaultRoot}${path.sep}`)
-      ) {
-        return {
-          success: false,
-          error: `Output path must be under ${DEFAULT_EVENTS_BACKUP_ROOT}`
-        };
-      }
-
       const safeOutputPath = escapePowerShellString(outputPath);
       const targetSystems = Array.isArray(options.systems)
         ? options.systems
@@ -2773,20 +2760,21 @@ function setupIpcHandlers() {
           }
 
           if ($allEvents.Count -gt 0) {
+            $outputPath = "${safeOutputPath}"
             # Export events to XML format (more portable than EVTX without elevation)
-            $xmlPath = "${safeOutputPath}".Replace('.evtx', '.xml')
+            $xmlPath = $outputPath.Replace('.evtx', '.xml')
             $allEvents | Select-Object TimeCreated, Id, LevelDisplayName, Message, MachineName, ProviderName |
               Export-Clixml -Path $xmlPath -Force
 
             # Also try wevtutil silently (local machine only - remote export requires elevation/credentials)
             if ($targetSystems.Count -eq 1 -and $targetSystems[0] -eq $env:COMPUTERNAME) {
               $primaryLog = 'Microsoft-Windows-AppLocker/EXE and DLL'
-              Start-Process -FilePath "wevtutil.exe" -ArgumentList "epl \`"$primaryLog\`" \`"${safeOutputPath}\`" /ow:true" -WindowStyle Hidden -Wait -ErrorAction SilentlyContinue 2>$null
+              Start-Process -FilePath "wevtutil.exe" -ArgumentList "epl \`"$primaryLog\`" \`"$outputPath\`" /ow:true" -WindowStyle Hidden -Wait -ErrorAction SilentlyContinue 2>$null
             }
 
             $result = @{
               success = $true
-              outputPath = if (Test-Path "${safeOutputPath}") { "${safeOutputPath}" } else { $xmlPath }
+              outputPath = if (Test-Path $outputPath) { $outputPath } else { $xmlPath }
               systems = $targetSystems
               eventCount = $allEvents.Count
               timestamp = (Get-Date).ToString('o')

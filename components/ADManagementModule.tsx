@@ -36,6 +36,8 @@ const wildcardToRegex = (pattern: string): RegExp => {
 
 const safeString = (value: unknown): string => (typeof value === 'string' ? value : '');
 
+const normalizeGroupName = (value: string): string => value.trim().toLowerCase();
+
 // Check if a string matches a wildcard pattern
 const matchesWildcard = (value: string | undefined | null, pattern: string): boolean => {
   if (!value) return false;
@@ -190,7 +192,8 @@ const ADManagementModule: React.FC = () => {
   // Check if user is in a specific AppLocker group
   const isUserInAppLockerGroup = useCallback((user: ADUser, group: string): boolean => {
     if (!user.groups || !Array.isArray(user.groups)) return false;
-    return user.groups.some(g => typeof g === 'string' && g.toLowerCase().includes(group.toLowerCase()));
+    const normalizedGroup = normalizeGroupName(group);
+    return user.groups.some(g => typeof g === 'string' && normalizeGroupName(g) === normalizedGroup);
   }, []);
 
   // Filter users with comprehensive error handling
@@ -286,12 +289,21 @@ const ADManagementModule: React.FC = () => {
     if (!selectedUser) return;
 
     const userId = selectedUser.id || selectedUser.samAccountName;
-    setUpdatingGroups(prev => new Set(prev).add(group));
+    const currentAppLockerGroups = APPLOCKER_GROUPS.filter((appGroup) =>
+      isUserInAppLockerGroup(selectedUser, appGroup)
+    );
+    const groupsToUpdate = new Set([group, ...currentAppLockerGroups]);
+    setUpdatingGroups(prev => new Set([...prev, ...groupsToUpdate]));
 
     try {
       if (isCurrentlyMember) {
         await ad.removeUserFromGroup(userId, group);
       } else {
+        for (const existingGroup of currentAppLockerGroups) {
+          if (existingGroup !== group) {
+            await ad.removeUserFromGroup(userId, existingGroup);
+          }
+        }
         await ad.addUserToGroup(userId, group);
       }
 
@@ -314,11 +326,11 @@ const ADManagementModule: React.FC = () => {
     } finally {
       setUpdatingGroups(prev => {
         const newSet = new Set(prev);
-        newSet.delete(group);
+        groupsToUpdate.forEach(item => newSet.delete(item));
         return newSet;
       });
     }
-  }, [selectedUser, ad, refetchUsers, handleUserSelect]);
+  }, [selectedUser, ad, refetchUsers, handleUserSelect, isUserInAppLockerGroup]);
 
   // Clear error after timeout
   useEffect(() => {
@@ -343,6 +355,10 @@ const ADManagementModule: React.FC = () => {
       />
     );
   }
+
+  const activeAppLockerGroup = selectedUser
+    ? APPLOCKER_GROUPS.find((group) => isUserInAppLockerGroup(selectedUser, group)) || null
+    : null;
 
   return (
     <div className="space-y-3 animate-in slide-in-from-left-4 duration-500 pb-8">
@@ -382,10 +398,10 @@ const ADManagementModule: React.FC = () => {
               }
             }}
             className="bg-green-600 text-white px-4 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-green-700 shadow-lg shadow-green-900/20 transition-all flex items-center space-x-2 min-h-[36px] focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
-            aria-label="Create AppLocker security groups in AD"
+            aria-label="Import AppLocker security groups in AD"
           >
             <UserPlus size={14} aria-hidden="true" />
-            <span>Create Groups</span>
+            <span>Import AppLocker Groups</span>
           </button>
           <button
             onClick={handleScanAD}
@@ -571,13 +587,14 @@ const ADManagementModule: React.FC = () => {
                     <ShieldCheck size={14} className="text-blue-600" />
                     <span>AppLocker Groups</span>
                   </h4>
-                  <span className="text-[8px] font-bold text-slate-400">Click to toggle</span>
+                  <span className="text-[8px] font-bold text-slate-400">Select one</span>
                 </div>
 
                 <div className="space-y-2">
                   {APPLOCKER_GROUPS.map((group) => {
                     const isMember = isUserInAppLockerGroup(selectedUser, group);
                     const isUpdating = updatingGroups.has(group);
+                    const isOtherActive = Boolean(activeAppLockerGroup && activeAppLockerGroup !== group);
 
                     return (
                       <button
@@ -588,7 +605,7 @@ const ADManagementModule: React.FC = () => {
                           isMember
                             ? 'bg-green-50 border-green-300 hover:border-green-400'
                             : 'bg-slate-50 border-slate-200 hover:border-blue-300 hover:bg-blue-50'
-                        } ${isUpdating ? 'opacity-50 cursor-wait' : 'cursor-pointer'}`}
+                        } ${isUpdating ? 'opacity-50 cursor-wait' : 'cursor-pointer'} ${isOtherActive ? 'opacity-70' : ''}`}
                       >
                         <div className="flex items-center space-x-3">
                           <div className={`w-5 h-5 rounded flex items-center justify-center transition-colors ${
@@ -611,7 +628,7 @@ const ADManagementModule: React.FC = () => {
                         <span className={`text-[8px] font-bold uppercase tracking-widest ${
                           isMember ? 'text-green-600' : 'text-slate-400'
                         }`}>
-                          {isUpdating ? 'Updating...' : isMember ? 'Member' : 'Not Member'}
+                          {isUpdating ? 'Updating...' : isMember ? 'Selected' : 'Not Selected'}
                         </span>
                       </button>
                     );

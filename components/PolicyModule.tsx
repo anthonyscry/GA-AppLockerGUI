@@ -4,7 +4,6 @@ import { PolicyPhase, InventoryItem, TrustedPublisher, MachineScan, MachineType,
 import {
   FileCode,
   FileText,
-  Settings,
   Plus,
   ShieldAlert,
   ShieldCheck,
@@ -33,8 +32,9 @@ import { useAppServices } from '../src/presentation/contexts/AppContext';
 import { useAsync } from '../src/presentation/hooks/useAsync';
 import { LoadingState } from './ui/LoadingState';
 import { ErrorState } from './ui/ErrorState';
+import { showOpenDialog } from '../src/infrastructure/ipc/fileDialog';
 
-type PolicyTab = 'overview' | 'generator' | 'tools';
+type PolicyTab = 'overview' | 'generator';
 type MergePolicySet = 'Combined' | 'Workstation' | 'Server' | 'DomainController' | 'All';
 type MergeMachineType = Exclude<MachineType, 'Unknown'>;
 type MergePolicyFile = {
@@ -444,15 +444,15 @@ const PolicyModule: React.FC = () => {
             Overview
           </button>
           <button
-            onClick={() => setActiveTab('tools')}
+            onClick={() => setActiveTab('generator')}
             className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 ${
-              activeTab === 'tools'
+              activeTab === 'generator'
                 ? 'bg-white text-blue-600 shadow-sm'
                 : 'text-slate-500 hover:text-slate-700'
             }`}
           >
-            <Settings size={14} />
-            <span>Tools</span>
+            <Archive size={14} />
+            <span>Generator</span>
           </button>
         </div>
       </div>
@@ -1258,13 +1258,31 @@ const PolicyModule: React.FC = () => {
               {/* Policy Path */}
               <div>
                 <label className="block text-xs font-black text-slate-700 uppercase tracking-widest mb-2">Policy XML Path</label>
-                <input
-                  type="text"
-                  value={deployPolicyPath}
-                  onChange={(e) => setDeployPolicyPath(e.target.value)}
-                  placeholder="C:\Policies\AppLocker-Policy.xml"
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
-                />
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={deployPolicyPath}
+                    onChange={(e) => setDeployPolicyPath(e.target.value)}
+                    placeholder="C:\\Policies\\AppLocker-Policy.xml"
+                    className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const filePath = await showOpenDialog({
+                        title: 'Select AppLocker Policy XML',
+                        defaultPath: deployPolicyPath || DEFAULT_RULES_DIR,
+                        filters: [{ name: 'XML Files', extensions: ['xml'] }]
+                      });
+                      if (filePath) {
+                        setDeployPolicyPath(filePath);
+                      }
+                    }}
+                    className="px-4 py-3 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-700"
+                  >
+                    Browse
+                  </button>
+                </div>
               </div>
               
               {/* OU Paths */}
@@ -2274,8 +2292,8 @@ const PolicyModule: React.FC = () => {
           </div>
       )}
 
-      {/* Tools Tab Content */}
-      {activeTab === 'tools' && (
+      {/* Tools Content (moved into Overview) */}
+      {activeTab === 'overview' && (
         <div className="space-y-3">
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
             <button
