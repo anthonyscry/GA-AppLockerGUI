@@ -72,7 +72,7 @@ const EventStatCard: React.FC<{
  * Single event row component for the events table
  * Handles null/undefined properties safely
  */
-const EventRow: React.FC<{ event: AppEvent }> = ({ event }) => {
+const EventRow: React.FC<{ event: AppEvent; onView: (event: AppEvent) => void }> = ({ event, onView }) => {
   const eventId = event?.eventId ?? 0;
   const timestamp = safeString(event?.timestamp);
   const machine = safeString(event?.machine);
@@ -111,6 +111,7 @@ const EventRow: React.FC<{ event: AppEvent }> = ({ event }) => {
       <td className="px-6 py-4 text-slate-500 italic">{publisher || 'Unknown'}</td>
       <td className="px-6 py-4 text-right">
         <button
+          onClick={() => onView(event)}
           className="opacity-0 group-hover:opacity-100 text-blue-600 p-3 min-w-[44px] min-h-[44px] hover:bg-blue-50 rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
           aria-label="View event details"
         >
@@ -138,6 +139,8 @@ const EventsModule: React.FC = () => {
   const [backupProgress, setBackupProgress] = useState<{current: number; total: number; status: string} | null>(null);
   const [backupPath, setBackupPath] = useState(defaultBackupRoot);
   const [lastBackupPath, setLastBackupPath] = useState<string | null>(null);
+  const [backupTargets, setBackupTargets] = useState('');
+  const [selectedEvent, setSelectedEvent] = useState<AppEvent | null>(null);
 
   // Error state for component-level error handling
   const [componentError, setComponentError] = useState<string | null>(null);
@@ -313,8 +316,18 @@ const EventsModule: React.FC = () => {
       const dateStr = now.toISOString().split('T')[0];
       const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '');
 
-      // Create a single log file for the local system
-      const filename = `local-${dateStr}-${timeStr}.evtx`;
+      const systems = backupTargets
+        .split(/[,;]+/)
+        .map(value => value.trim())
+        .filter(Boolean);
+      const label = systems.length === 1
+        ? systems[0].replace(/[^\w.-]+/g, '-')
+        : systems.length > 1
+          ? 'multi'
+          : 'local';
+
+      // Create a single log file for the selected systems
+      const filename = `${label}-${dateStr}-${timeStr}.evtx`;
       const outputPath = `${effectiveBasePath}\\${monthFolder}\\${filename}`;
 
       setBackupProgress({ current: 0, total: 1, status: 'Backing up AppLocker events...' });
@@ -323,7 +336,7 @@ const EventsModule: React.FC = () => {
       try {
         // Backup as a single combined file
         const result = await electron.ipc.invoke('events:backup', {
-          systemName: 'local',
+          systems,
           outputPath,
           createFolderIfMissing: true
         });
@@ -337,7 +350,9 @@ const EventsModule: React.FC = () => {
           const finalOutputPath = result?.outputPath || outputPath;
           setLastBackupPath(finalOutputPath);
           alert(
-            `Backup complete!\n\nSaved AppLocker events to:\n${finalOutputPath}\n\nBackup scope: Local system only.`
+            `Backup complete!\n\nSaved AppLocker events to:\n${finalOutputPath}\n\nBackup scope: ${
+              systems.length > 0 ? systems.join(', ') : 'Local system'
+            }.`
           );
         }
       } catch (err) {
@@ -351,7 +366,7 @@ const EventsModule: React.FC = () => {
       console.error('Backup failed:', error);
       alert(`Backup failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-  }, [backupPath]);
+  }, [backupPath, backupTargets, defaultBackupRoot, isUnderDefaultBackupRoot]);
 
   // Clear component error after displaying
   useEffect(() => {
@@ -427,10 +442,10 @@ const EventsModule: React.FC = () => {
           <button
             onClick={() => setShowBackupModal(true)}
             className="flex items-center space-x-2 bg-emerald-600 text-white px-4 py-2.5 rounded-lg hover:bg-emerald-700 min-h-[44px] focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2"
-            aria-label="Backup AppLocker events from the local system"
+            aria-label="Backup AppLocker events"
           >
             <FolderArchive size={18} aria-hidden="true" />
-            <span>Backup Events (Local)</span>
+            <span>Backup Events</span>
           </button>
           <button
             onClick={handleExportCSV}
@@ -454,7 +469,7 @@ const EventsModule: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="font-bold text-slate-900 text-lg">Backup AppLocker Events</h3>
-                  <p className="text-xs text-slate-500">Local-only backup for the current machine</p>
+                  <p className="text-xs text-slate-500">Backup AppLocker logs from local or remote systems</p>
                 </div>
               </div>
               <button
@@ -479,16 +494,21 @@ const EventsModule: React.FC = () => {
                   placeholder="C:\AppLocker-Backups"
                   className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
                 />
-                <p className="text-[10px] text-slate-400 mt-1">Files saved as: [path]\[YYYY-MM]\local-[date]-[time].evtx</p>
+                <p className="text-[10px] text-slate-400 mt-1">Files saved as: [path]\[YYYY-MM]\[system]-[date]-[time].evtx</p>
               </div>
 
               <div>
-                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-                  <p className="font-semibold">Local-only backup</p>
-                  <p className="text-xs text-amber-700 mt-1">
-                    Remote system backups are not supported. This export captures AppLocker events from the current machine only.
-                  </p>
-                </div>
+                <label className="block text-xs font-bold text-slate-600 uppercase tracking-widest mb-2">
+                  Target Systems (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={backupTargets}
+                  onChange={(e) => setBackupTargets(e.target.value)}
+                  placeholder="DC01, DC02, WKST-01"
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+                />
+                <p className="text-[10px] text-slate-400 mt-1">Leave blank to back up the local system only. Separate multiple systems with commas.</p>
               </div>
 
               {/* Progress */}
@@ -505,7 +525,7 @@ const EventsModule: React.FC = () => {
                     />
                   </div>
                   <p className="text-xs text-emerald-600 mt-1">
-                    Local system ({backupProgress.current} of {backupProgress.total})
+                    {backupTargets.trim() ? 'Remote systems' : 'Local system'} ({backupProgress.current} of {backupProgress.total})
                   </p>
                 </div>
               )}
@@ -546,6 +566,59 @@ const EventsModule: React.FC = () => {
                   </>
                 )}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Event Details Modal */}
+      {selectedEvent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white rounded-2xl w-[640px] max-h-[80vh] shadow-2xl overflow-hidden flex flex-col">
+            <div className="p-5 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+              <div>
+                <h3 className="font-bold text-slate-900 text-lg">Event Details</h3>
+                <p className="text-xs text-slate-500">AppLocker event metadata</p>
+              </div>
+              <button
+                onClick={() => setSelectedEvent(null)}
+                className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-400"
+                aria-label="Close event details"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4 overflow-y-auto">
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Event ID</p>
+                  <p className="font-semibold text-slate-800">{selectedEvent.eventId}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Action</p>
+                  <p className="font-semibold text-slate-800">{selectedEvent.action}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Timestamp</p>
+                  <p className="font-semibold text-slate-800">{selectedEvent.timestamp || 'N/A'}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Machine</p>
+                  <p className="font-semibold text-slate-800">{selectedEvent.machine || 'Unknown'}</p>
+                </div>
+              </div>
+              <div>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Executable Path</p>
+                <p className="mt-1 font-mono text-xs text-slate-700 break-all">
+                  {selectedEvent.path || 'N/A'}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Publisher</p>
+                <p className="mt-1 text-sm text-slate-700">
+                  {selectedEvent.publisher || 'Unknown'}
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -630,7 +703,11 @@ const EventsModule: React.FC = () => {
             <tbody className="divide-y divide-slate-100">
               {filteredEvents.length > 0 ? (
                 filteredEvents.map((evt, index) => (
-                  <EventRow key={evt?.id || `event-${index}`} event={evt} />
+                  <EventRow
+                    key={evt?.id || `event-${index}`}
+                    event={evt}
+                    onView={(selected) => setSelectedEvent(selected)}
+                  />
                 ))
               ) : (
                 <tr>

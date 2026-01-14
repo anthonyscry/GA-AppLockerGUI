@@ -2490,22 +2490,48 @@ function setupIpcHandlers() {
             ForEach-Object {
               $msg = $_.Message
 
-              # Parse file path from event message
+              # Parse file path from event message or XML payload
               $path = ''
               $publisher = ''
               $action = ''
+              $eventXml = $null
+              $eventData = @{}
+
+              try {
+                $eventXml = [xml]$_.ToXml()
+                if ($eventXml.Event.EventData -and $eventXml.Event.EventData.Data) {
+                  foreach ($data in $eventXml.Event.EventData.Data) {
+                    if ($data.Name) {
+                      $eventData[$data.Name] = $data.'#text'
+                    }
+                  }
+                }
+              } catch {
+                # ignore XML parse errors, fallback to message parsing
+              }
 
               # Try to extract path - simpler regex to avoid escaping issues
               # Look for .exe paths
-              if ($msg -match '([A-Za-z]:[^*?"<>|]+\.exe)') {
+              $pathCandidates = @('FilePath', 'FileName', 'Path', 'ProcessName', 'Executable', 'ImagePath')
+              foreach ($key in $pathCandidates) {
+                if (-not $path -and $eventData.ContainsKey($key)) {
+                  $path = $eventData[$key]
+                }
+              }
+
+              if (-not $path -and $msg -match '([A-Za-z]:[^*?"<>|]+\.exe)') {
                 $path = $matches[1]
               }
 
               # Try to extract publisher information
-              if ($msg -match 'Publisher:\s*(.+)') {
-                $publisher = $matches[1].Split([char]13)[0].Trim()
+              if ($eventData.ContainsKey('Publisher')) {
+                $publisher = $eventData['Publisher']
+              } elseif ($eventData.ContainsKey('PublisherName')) {
+                $publisher = $eventData['PublisherName']
+              } elseif ($msg -match 'Publisher:\s*(.+)') {
+                $publisher = ($matches[1] -split '\r?\n')[0].Trim()
               } elseif ($msg -match 'signed by\s+(.+)') {
-                $publisher = $matches[1].Split([char]13)[0].Trim()
+                $publisher = ($matches[1] -split '\r?\n')[0].Trim()
               }
 
               # Map event ID to action type
@@ -2516,7 +2542,7 @@ function setupIpcHandlers() {
                 id = [guid]::NewGuid().ToString()
                 eventId = $_.Id
                 timestamp = $_.TimeCreated.ToString('o')
-                machine = $env:COMPUTERNAME
+                machine = if ($eventXml -and $eventXml.Event.System.Computer) { $eventXml.Event.System.Computer } else { $env:COMPUTERNAME }
                 path = $path
                 publisher = $publisher
                 action = $action
