@@ -93,17 +93,21 @@ export class MachineRepository implements IMachineRepository {
       const hostname = machine?.hostname || '';
       const status = machine?.status || '';
       const riskLevel = machine?.riskLevel || '';
+      const ou = machine?.ou || '';
+      const os = machine?.os || '';
       const searchQuery = filter?.searchQuery?.toLowerCase() || '';
       const ouPath = filter?.ouPath?.toLowerCase() || '';
 
       const matchesSearch = !searchQuery ||
-        hostname.toLowerCase().includes(searchQuery);
+        hostname.toLowerCase().includes(searchQuery) ||
+        ou.toLowerCase().includes(searchQuery) ||
+        os.toLowerCase().includes(searchQuery);
       const matchesStatus = !filter.status || filter.status === 'All' ||
-        status === filter.status;
+        status.toLowerCase() === filter.status.toLowerCase();
       const matchesRisk = !filter.riskLevel || filter.riskLevel === 'All' ||
-        riskLevel === filter.riskLevel;
+        riskLevel.toLowerCase() === filter.riskLevel.toLowerCase();
       const matchesOU = !ouPath ||
-        hostname.toLowerCase().includes(ouPath);
+        ou.toLowerCase().includes(ouPath);
       return matchesSearch && matchesStatus && matchesRisk && matchesOU;
     });
   }
