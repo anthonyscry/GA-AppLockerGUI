@@ -281,17 +281,11 @@ const ScanModule: React.FC = () => {
           </button>
           <button
             onClick={refetchMachines}
-            disabled={!domainInfo.isDC}
-            className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all font-bold text-sm min-h-[44px] focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2 ${
-              domainInfo.isDC
-                ? 'bg-slate-600 hover:bg-slate-700 text-white'
-                : 'bg-slate-300 text-slate-500 cursor-not-allowed'
-            }`}
-            aria-label={domainInfo.isDC ? "Detect systems from Active Directory" : "Requires Domain Controller"}
-            title={!domainInfo.isDC ? 'Run this app on a Domain Controller to detect AD systems' : ''}
+            className="flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all font-bold text-sm min-h-[44px] focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2 bg-slate-600 hover:bg-slate-700 text-white"
+            aria-label="Detect systems from Active Directory"
           >
             <RefreshCw size={18} aria-hidden="true" />
-            <span>{domainInfo.isDC ? 'Detect Systems' : 'Requires DC'}</span>
+            <span>Detect Systems</span>
           </button>
         </div>
       </div>
@@ -706,17 +700,47 @@ const ScanModule: React.FC = () => {
                     <div className="p-4 bg-slate-50 rounded-full">
                       <Search size={32} className="text-slate-200" aria-hidden="true" />
                     </div>
-                    <div className="space-y-1">
-                      <p className="text-sm font-bold text-slate-900 uppercase tracking-tight">No machines matched filters</p>
-                      <p className="text-xs text-slate-500 font-medium">Try adjusting your search query or OU path scoping.</p>
-                    </div>
-                    <button 
-                      onClick={clearFilters} 
-                      className="text-blue-600 text-xs font-black uppercase tracking-widest hover:underline pt-2 min-h-[44px] px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 rounded"
-                      aria-label="Reset all filters"
-                    >
-                      Reset All Filters
-                    </button>
+                    {machines && machines.length > 0 ? (
+                      // Have machines but filters are hiding them
+                      <div className="space-y-1 text-center">
+                        <p className="text-sm font-bold text-slate-900 uppercase tracking-tight">No machines matched filters</p>
+                        <p className="text-xs text-slate-500 font-medium">Try adjusting your search query or OU path scoping.</p>
+                        <button
+                          onClick={clearFilters}
+                          className="text-blue-600 text-xs font-black uppercase tracking-widest hover:underline pt-2 min-h-[44px] px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 rounded"
+                          aria-label="Reset all filters"
+                        >
+                          Reset All Filters
+                        </button>
+                      </div>
+                    ) : (
+                      // No machines loaded at all
+                      <div className="space-y-3 text-center">
+                        <p className="text-sm font-bold text-slate-900 uppercase tracking-tight">No systems detected</p>
+                        <p className="text-xs text-slate-500 font-medium max-w-md">
+                          {domainInfo.isDC
+                            ? 'Click "Detect Systems" to query Active Directory for domain-joined computers.'
+                            : 'This feature requires the app to run on a Domain Controller with Active Directory access.'}
+                        </p>
+                        <div className="flex items-center justify-center space-x-3 pt-2">
+                          <button
+                            onClick={() => refetchMachines()}
+                            className="bg-blue-600 text-white px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest hover:bg-blue-700 min-h-[44px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                            aria-label="Detect systems from Active Directory"
+                          >
+                            <div className="flex items-center space-x-2">
+                              <RefreshCw size={14} />
+                              <span>Detect Systems</span>
+                            </div>
+                          </button>
+                        </div>
+                        {!domainInfo.isDC && (
+                          <p className="text-[10px] text-amber-600 font-bold">
+                            Note: Running on non-DC - AD queries may fail or return limited results.
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </td>
               </tr>

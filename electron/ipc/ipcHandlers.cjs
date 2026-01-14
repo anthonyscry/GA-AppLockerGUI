@@ -1761,6 +1761,89 @@ function setupIpcHandlers() {
     }
   });
 
+  /**
+   * Get all OUs that contain user objects.
+   * Returns a list of unique OUs with user counts for dropdown population.
+   *
+   * @channel ad:getOUsWithUsers
+   * @returns {Object} Result with OUs array
+   * @returns {boolean} returns.success - Whether the query succeeded
+   * @returns {Array} returns.ous - Array of OU objects with path and userCount
+   * @returns {string} [returns.error] - Error message if failed
+   *
+   * @since v1.2.10
+   */
+  ipcMain.handle('ad:getOUsWithUsers', async () => {
+    try {
+      const command = `
+        try {
+          # Get all users and extract unique OUs
+          $users = Get-ADUser -Filter * -Properties DistinguishedName -ErrorAction SilentlyContinue
+
+          if (-not $users) {
+            @{ success = $true; ous = @() } | ConvertTo-Json -Compress -Depth 5
+            return
+          }
+
+          # Extract OU from each user's DN and count
+          $ouCounts = @{}
+          foreach ($user in $users) {
+            # Extract the OU part from the DN (everything after the first comma)
+            $dn = $user.DistinguishedName
+            $ouPath = ($dn -split ',', 2)[1]
+
+            if ($ouPath) {
+              if ($ouCounts.ContainsKey($ouPath)) {
+                $ouCounts[$ouPath]++
+              } else {
+                $ouCounts[$ouPath] = 1
+              }
+            }
+          }
+
+          # Convert to array of objects with friendly names
+          $ous = @()
+          foreach ($ou in $ouCounts.Keys) {
+            # Extract the most specific OU name for display
+            $ouName = "Root"
+            if ($ou -match 'OU=([^,]+)') {
+              $ouName = $matches[1]
+            } elseif ($ou -match 'CN=([^,]+)') {
+              $ouName = $matches[1]
+            }
+
+            $ous += @{
+              path = $ouName
+              name = $ouName
+              userCount = $ouCounts[$ou]
+            }
+          }
+
+          # Sort by user count descending
+          $ous = $ous | Sort-Object { -$_.userCount }
+
+          @{ success = $true; ous = $ous } | ConvertTo-Json -Compress -Depth 5
+        } catch {
+          @{ success = $false; error = $_.Exception.Message; ous = @() } | ConvertTo-Json -Compress -Depth 5
+        }
+      `;
+      const result = await executePowerShellCommand(command, { timeout: 60000 });
+
+      if (result.stdout) {
+        const parsed = JSON.parse(result.stdout);
+        return {
+          success: parsed.success !== false,
+          ous: Array.isArray(parsed.ous) ? parsed.ous : [],
+          error: parsed.error
+        };
+      }
+      return { success: true, ous: [] };
+    } catch (error) {
+      console.error('[IPC] Get OUs with users error:', error);
+      return { success: false, ous: [], error: sanitizeErrorMessage(error) };
+    }
+  });
+
   // ============================================
   // MACHINE HANDLERS (Remote Scanning)
   // ============================================
@@ -2195,7 +2278,10 @@ function setupIpcHandlers() {
   // Get evidence status
   ipcMain.handle('compliance:getEvidenceStatus', async () => {
     try {
-      const evidenceDir = path.join(process.cwd(), 'compliance');
+      // Check both C:\AppLocker and local paths for evidence
+      const primaryDir = 'C:\\AppLocker\\compliance';
+      const fallbackDir = path.join(process.cwd(), 'compliance');
+      const evidenceDir = fs.existsSync(primaryDir) ? primaryDir : fallbackDir;
 
       const hasPolicyDefs = fs.existsSync(path.join(evidenceDir, 'policies'));
       const hasAuditLogs = fs.existsSync(path.join(evidenceDir, 'audit-logs'));
@@ -2237,7 +2323,8 @@ function setupIpcHandlers() {
       const scriptsDir = getScriptsDirectory();
       const scriptPath = path.join(scriptsDir, 'Export-ComplianceEvidence.ps1');
 
-      const outputDir = options.outputDirectory || path.join(process.cwd(), 'compliance');
+      // Default to C:\AppLocker\compliance
+      const outputDir = options.outputDirectory || 'C:\\AppLocker\\compliance';
       const args = ['-OutputDirectory', `"${outputDir}"`];
 
       let evidencePath = outputDir;

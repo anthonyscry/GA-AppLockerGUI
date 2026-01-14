@@ -201,8 +201,8 @@ const ComplianceModule: React.FC = () => {
               <div className="flex items-center justify-between">
                 <span className="text-sm text-slate-300">System Inventory Snapshots</span>
                 <span className={`text-xs font-bold px-2 py-0.5 rounded ${
-                  evidenceStatus?.systemSnapshots === 'SYNCED' 
-                    ? 'text-green-400 bg-green-400/10' 
+                  evidenceStatus?.systemSnapshots === 'COMPLETE' || evidenceStatus?.systemSnapshots === 'SYNCED'
+                    ? 'text-green-400 bg-green-400/10'
                     : 'text-amber-400 bg-amber-400/10'
                 }`}>
                   {evidenceStatus?.systemSnapshots || 'UNKNOWN'}
@@ -251,11 +251,11 @@ const ComplianceModule: React.FC = () => {
           ) : (
             <div className="text-center">
               <p className="text-slate-400 text-sm mb-4">No historical reports found in the current output directory.</p>
-              <button 
+              <button
                 onClick={async () => {
                   const dirPath = await showOpenDirectoryDialog({
                     title: 'Select Compliance Reports Directory',
-                    defaultPath: '.\\compliance'
+                    defaultPath: 'C:\\AppLocker\\compliance'
                   });
                   if (dirPath) {
                     alert(`Selected directory: ${dirPath}\n\nHistorical reports will be loaded from this location.`);

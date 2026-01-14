@@ -44,6 +44,26 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Global UI scaling for compact display */
+#root {
+  transform: scale(0.75);
+  transform-origin: top left;
+  width: 133.33%; /* 100% / 0.75 = 133.33% to fill the viewport */
+  height: 133.33%;
+  overflow: hidden;
+}
+
+/* Ensure body scrolling works correctly with scaling */
+html, body {
+  overflow: auto;
+  height: 100%;
+}
+
+/* Adjust minimum heights for scaled elements */
+.min-h-screen {
+  min-height: 133.33vh;
+}
+
 /* Windows-specific font stack for best appearance */
 @supports (font-family: 'Segoe UI') {
   body {
