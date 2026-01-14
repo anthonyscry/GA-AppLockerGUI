@@ -41,6 +41,8 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 
+const DEFAULT_EVENTS_BACKUP_ROOT = 'C:\\AppLocker\\backups\\events';
+
 /**
  * Allowed enforcement modes for policy generation (whitelist)
  */
@@ -2475,6 +2477,18 @@ function setupIpcHandlers() {
       // Ensure the output path is allowed
       if (!isPathAllowed(outputPath)) {
         return { success: false, error: 'Output path not allowed' };
+      }
+
+      const normalizedOutputPath = path.resolve(outputPath).toLowerCase();
+      const normalizedDefaultRoot = path.resolve(DEFAULT_EVENTS_BACKUP_ROOT).toLowerCase();
+      if (
+        normalizedOutputPath !== normalizedDefaultRoot &&
+        !normalizedOutputPath.startsWith(`${normalizedDefaultRoot}${path.sep}`)
+      ) {
+        return {
+          success: false,
+          error: `Output path must be under ${DEFAULT_EVENTS_BACKUP_ROOT}`
+        };
       }
 
       const safeOutputPath = escapePowerShellString(outputPath);
