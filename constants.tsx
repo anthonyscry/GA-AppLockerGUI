@@ -1,19 +1,21 @@
-import { 
-  LayoutDashboard, 
-  Search, 
-  ShieldCheck, 
-  Activity, 
-  ClipboardCheck, 
+import {
+  LayoutDashboard,
+  Search,
+  ShieldCheck,
+  Activity,
+  ClipboardCheck,
   Users,
   FileCode,
+  Wand2,
 } from 'lucide-react';
 import { ADUser, InventoryItem, TrustedPublisher, MachineScan, AppEvent } from './src/shared/types';
 
 export const NAVIGATION = [
   { id: 'DASHBOARD', label: 'Dashboard', icon: <LayoutDashboard size={20} /> },
   { id: 'SCAN', label: 'Remote Scan', icon: <Search size={20} /> },
-  { id: 'SOFTWARE_COMPARE', label: 'Software Comparison', icon: <FileCode size={20} /> },
+  { id: 'RULE_GENERATOR', label: 'Rule Generator', icon: <Wand2 size={20} /> },
   { id: 'POLICY', label: 'Policy Lab', icon: <ShieldCheck size={20} /> },
+  { id: 'SOFTWARE_COMPARE', label: 'Software Compare', icon: <FileCode size={20} /> },
   { id: 'EVENTS', label: 'Event Monitor', icon: <Activity size={20} /> },
   { id: 'AD_MANAGEMENT', label: 'AD Manager', icon: <Users size={20} /> },
   { id: 'COMPLIANCE', label: 'Compliance', icon: <ClipboardCheck size={20} /> },

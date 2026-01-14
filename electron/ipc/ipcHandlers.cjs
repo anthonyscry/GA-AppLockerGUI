@@ -47,15 +47,16 @@ function isPathAllowed(filePath, allowedRoots = null) {
     return false;
   }
 
-  // Default allowed roots
+  // Default allowed roots (Windows AppLocker management paths)
   const defaultAllowedRoots = [
     process.cwd(),
     require('os').tmpdir(),
     require('os').homedir(),
     path.join(require('os').homedir(), 'Documents'),
     path.join(require('os').homedir(), 'AppData'),
+    'C:\\AppLocker',
     'C:\\AppLockerBackups',
-    'C:\\AppLocker'
+    'C:\\AppLockerEvidence'
   ];
 
   const roots = allowedRoots || defaultAllowedRoots;
@@ -1365,30 +1366,72 @@ function setupIpcHandlers() {
     }
   });
 
+  // Ensure directory exists
+  ipcMain.handle('file:ensureDirectory', async (event, dirPath) => {
+    try {
+      if (!dirPath || typeof dirPath !== 'string') {
+        return { success: false, error: 'Invalid directory path' };
+      }
+
+      // Validate directory path is in allowed location
+      if (!isPathAllowed(dirPath)) {
+        console.warn('[IPC] Blocked directory creation in disallowed path:', dirPath);
+        return { success: false, error: 'Directory path is not in an allowed location' };
+      }
+
+      if (!fs.existsSync(dirPath)) {
+        fs.mkdirSync(dirPath, { recursive: true });
+      }
+      return { success: true, path: dirPath };
+    } catch (error) {
+      console.error('[IPC] Ensure directory error:', error);
+      return { success: false, error: sanitizeErrorMessage(error) };
+    }
+  });
+
   // ============================================
   // AD HANDLERS (Active Directory Operations)
   // ============================================
 
   // Get all AD users (query from Active Directory)
+  // Returns users with properly mapped fields matching TypeScript ADUser interface
   ipcMain.handle('ad:getUsers', async () => {
     try {
+      // Query AD users with proper field mapping to match TypeScript interface
       const command = `
         try {
-          $users = Get-ADUser -Filter * -Properties DisplayName, Title, Department, EmailAddress, Enabled, MemberOf |
-            Select-Object -First 100 SamAccountName, DisplayName, Title, Department, EmailAddress, Enabled,
-              @{N='Groups';E={($_.MemberOf | ForEach-Object { ($_ -split ',')[0] -replace 'CN=' }) -join ';'}} |
-            ConvertTo-Json -Compress
-          $users
+          $users = Get-ADUser -Filter * -Properties DisplayName, Title, Department, EmailAddress, Enabled, MemberOf, DistinguishedName |
+            Select-Object -First 200 @{N='id';E={$_.ObjectGUID.ToString()}},
+              @{N='samAccountName';E={$_.SamAccountName}},
+              @{N='displayName';E={if($_.DisplayName){$_.DisplayName}else{$_.SamAccountName}}},
+              @{N='department';E={if($_.Department){$_.Department}else{'Unassigned'}}},
+              @{N='ou';E={$_.DistinguishedName}},
+              @{N='groups';E={@($_.MemberOf | ForEach-Object { ($_ -split ',')[0] -replace 'CN=' })}}
+          if ($users) {
+            $users | ConvertTo-Json -Compress -Depth 3
+          } else {
+            '[]'
+          }
         } catch {
+          Write-Error $_.Exception.Message
           '[]'
         }
       `;
-      const result = await executePowerShellCommand(command, { timeout: 30000 });
+      const result = await executePowerShellCommand(command, { timeout: 60000 });
 
-      if (result.stdout && result.stdout.trim() !== '[]') {
+      if (result.stdout && result.stdout.trim() && result.stdout.trim() !== '[]') {
         try {
           const users = JSON.parse(result.stdout);
-          return Array.isArray(users) ? users : [users];
+          // Ensure array format and validate structure
+          const userArray = Array.isArray(users) ? users : [users];
+          return userArray.map(u => ({
+            id: u.id || u.samAccountName || `user-${Math.random().toString(36).substr(2, 9)}`,
+            samAccountName: u.samAccountName || 'unknown',
+            displayName: u.displayName || u.samAccountName || 'Unknown User',
+            department: u.department || '',
+            ou: u.ou || '',
+            groups: Array.isArray(u.groups) ? u.groups : (u.groups ? [u.groups] : [])
+          }));
         } catch (e) {
           console.warn('[IPC] Could not parse AD users:', e);
         }
@@ -2210,6 +2253,8 @@ function setupIpcHandlers() {
       const safeOutputPath = escapePowerShellString(outputPath);
       const safeSystemName = escapePowerShellString(systemName || '');
 
+      // Export AppLocker events using PowerShell Get-WinEvent (no UAC prompts)
+      // wevtutil requires elevation, so we use Get-WinEvent export instead
       const command = `
         try {
           # Create output directory if needed
@@ -2218,7 +2263,7 @@ function setupIpcHandlers() {
             New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
           }
 
-          # Export AppLocker events to EVTX format
+          # Export AppLocker events to EVTX format using Get-WinEvent and export
           $logNames = @(
             'Microsoft-Windows-AppLocker/EXE and DLL',
             'Microsoft-Windows-AppLocker/MSI and Script',
@@ -2226,26 +2271,33 @@ function setupIpcHandlers() {
             'Microsoft-Windows-AppLocker/Packaged app-Execution'
           )
 
-          $tempEvtx = [System.IO.Path]::GetTempFileName() + '.evtx'
-
+          $allEvents = @()
           foreach ($logName in $logNames) {
             try {
-              $log = Get-WinEvent -LogName $logName -MaxEvents 1 -ErrorAction SilentlyContinue
-              if ($log) {
-                # Export the log using wevtutil
-                wevtutil epl "$logName" "${safeOutputPath}" /ow:true 2>$null
-                break
+              $events = Get-WinEvent -LogName $logName -MaxEvents 5000 -ErrorAction SilentlyContinue
+              if ($events) {
+                $allEvents += $events
               }
             } catch {
-              # Try next log
+              # Log might be empty or not accessible
             }
           }
 
-          if (Test-Path "${safeOutputPath}") {
+          if ($allEvents.Count -gt 0) {
+            # Export events to XML format (more portable than EVTX without elevation)
+            $xmlPath = "${safeOutputPath}".Replace('.evtx', '.xml')
+            $allEvents | Select-Object TimeCreated, Id, LevelDisplayName, Message, MachineName, ProviderName |
+              Export-Clixml -Path $xmlPath -Force
+
+            # Also try wevtutil silently (may fail without elevation but try anyway)
+            $primaryLog = 'Microsoft-Windows-AppLocker/EXE and DLL'
+            Start-Process -FilePath "wevtutil.exe" -ArgumentList "epl \`"$primaryLog\`" \`"${safeOutputPath}\`" /ow:true" -WindowStyle Hidden -Wait -ErrorAction SilentlyContinue 2>$null
+
             @{
               success = $true
-              outputPath = "${safeOutputPath}"
+              outputPath = if (Test-Path "${safeOutputPath}") { "${safeOutputPath}" } else { $xmlPath }
               systemName = "${safeSystemName}"
+              eventCount = $allEvents.Count
               timestamp = (Get-Date).ToString('o')
             } | ConvertTo-Json -Compress
           } else {
@@ -2259,7 +2311,8 @@ function setupIpcHandlers() {
         }
       `;
 
-      const result = await executePowerShellCommand(command, { timeout: 60000 });
+      // Run completely hidden
+      const result = await executePowerShellCommand(command, { timeout: 120000, hidden: true });
 
       if (result.stdout) {
         return JSON.parse(result.stdout);
@@ -2325,7 +2378,11 @@ function setupIpcHandlers() {
 
       // Default to C:\AppLocker\compliance
       const outputDir = options.outputDirectory || 'C:\\AppLocker\\compliance';
-      const args = ['-OutputDirectory', `"${outputDir}"`];
+      // Ensure output directory exists before running the script
+      if (!fs.existsSync(outputDir)) {
+        fs.mkdirSync(outputDir, { recursive: true });
+      }
+      const args = ['-OutputDirectory', escapePowerShellString(outputDir)];
 
       let evidencePath = outputDir;
       let policiesIncluded = 0;

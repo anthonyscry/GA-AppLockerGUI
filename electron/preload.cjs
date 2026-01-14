@@ -81,6 +81,7 @@ contextBridge.exposeInMainWorld('electron', {
         'dialog:showSaveDialog',
         'dialog:showOpenDirectoryDialog',
         'fs:writeFile',
+        'file:ensureDirectory',
       ];
       
       if (validChannels.includes(channel)) {

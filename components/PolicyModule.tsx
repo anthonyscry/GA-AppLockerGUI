@@ -99,7 +99,7 @@ const PolicyModule: React.FC = () => {
   
   // OU-Based Policy Generation State
   const [showOUPolicyGen, setShowOUPolicyGen] = useState(false);
-  const [ouPolicyOutputDir, setOuPolicyOutputDir] = useState('.\\policies\\ou-based');
+  const [ouPolicyOutputDir, setOuPolicyOutputDir] = useState('C:\\AppLocker\\policies\\ou-based');
   const [selectedMachineTypes, setSelectedMachineTypes] = useState<MachineType[]>(['Workstation', 'Server', 'DomainController']);
   
   // OU Deployment State (for linking GPO to OU)
@@ -911,26 +911,55 @@ const PolicyModule: React.FC = () => {
                     alert('Please select at least one machine type');
                     return;
                   }
+                  if (combinedInventory.length === 0) {
+                    alert('No inventory items available. Please import scan artifacts or run a scan first.');
+                    return;
+                  }
                   try {
                     const results: string[] = [];
+                    const errors: string[] = [];
+
+                    // Ensure output directory exists
+                    const electron = (window as any).electron;
+                    if (electron?.ipc) {
+                      await electron.ipc.invoke('file:ensureDirectory', ouPolicyOutputDir);
+                    }
+
                     for (const type of selectedMachineTypes) {
                       const machines = type === 'Workstation' ? machineGroups.workstations :
                                        type === 'Server' ? machineGroups.servers :
                                        machineGroups.domainControllers;
-                      if (machines.length > 0) {
-                        const fileName = type === 'Workstation' ? 'Workstation-Policy.xml' :
-                                        type === 'Server' ? 'Server-Policy.xml' : 'DC-Policy.xml';
-                        const outputPath = `${ouPolicyOutputDir}\\${fileName}`;
-                        results.push(`${type}: ${machines.length} machines → ${fileName}`);
+
+                      const fileName = type === 'Workstation' ? 'Workstation-Policy.xml' :
+                                      type === 'Server' ? 'Server-Policy.xml' : 'DC-Policy.xml';
+                      const outputPath = `${ouPolicyOutputDir}\\${fileName}`;
+
+                      // Generate policy using the inventory items
+                      const result = await policy.batchGenerateRules(combinedInventory, outputPath, {
+                        ruleAction: 'Allow',
+                        targetGroup: type === 'DomainController' ? 'Domain Admins' :
+                                    type === 'Server' ? 'AppLocker-Installers' : 'AppLocker-Standard-Users',
+                        collectionType: 'Exe'
+                      });
+
+                      if (result.success) {
+                        results.push(`${type}: ${combinedInventory.length} rules → ${fileName}`);
+                      } else {
+                        errors.push(`${type}: ${result.error || 'Unknown error'}`);
                       }
                     }
-                    alert(`OU-Based Policies Generated:\n\n${results.join('\n')}\n\nOutput: ${ouPolicyOutputDir}\nPhase: ${selectedPhase}`);
+
+                    if (results.length > 0) {
+                      alert(`OU-Based Policies Generated:\n\n${results.join('\n')}${errors.length > 0 ? '\n\nErrors:\n' + errors.join('\n') : ''}\n\nOutput: ${ouPolicyOutputDir}\nPhase: ${selectedPhase}`);
+                    } else {
+                      alert(`Policy generation failed:\n\n${errors.join('\n')}`);
+                    }
                     setShowOUPolicyGen(false);
                   } catch (error: any) {
                     alert(`Error: ${error?.message || error}`);
                   }
                 }}
-                disabled={selectedMachineTypes.length === 0}
+                disabled={selectedMachineTypes.length === 0 || combinedInventory.length === 0}
                 className="bg-teal-600 text-white px-6 py-3 rounded-xl font-bold text-sm hover:bg-teal-700 shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
               >
                 <Layers size={18} />
