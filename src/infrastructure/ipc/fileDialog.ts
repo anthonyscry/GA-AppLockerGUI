@@ -42,7 +42,10 @@ export async function showOpenDialog(options: OpenDialogOptions = {}): Promise<s
         }
         input.onchange = (e) => {
           const file = (e.target as HTMLInputElement).files?.[0];
-          resolve(file ? file.path || file.name : null);
+          // Note: file.path is an Electron-specific extension, not available in browser
+          // In browser mode, we return the file name only
+          const filePath = file ? (file as File & { path?: string }).path || file.name : null;
+          resolve(filePath);
         };
         input.oncancel = () => resolve(null);
         input.click();
