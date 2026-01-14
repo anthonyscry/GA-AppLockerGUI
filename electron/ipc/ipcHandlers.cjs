@@ -2690,8 +2690,11 @@ function setupIpcHandlers() {
         ? options.systems
         : (typeof systemName === 'string' && systemName.length > 0 ? systemName.split(',') : []);
       const sanitizedSystems = targetSystems
-        .filter(system => typeof system === 'string' && system.length > 0 && system.length <= 255)
-        .map(system => escapePowerShellString(system.trim()));
+        .filter(system => typeof system === 'string')
+        .map(system => system.trim())
+        .map(system => (/^(local|localhost|\.)$/i.test(system) ? '.' : system))
+        .filter(system => system.length > 0 && system.length <= 255)
+        .map(system => escapePowerShellString(system));
       const systemsLiteral = sanitizedSystems.length > 0
         ? `@("${sanitizedSystems.join('","')}")`
         : '@()';
