@@ -99,7 +99,7 @@ const PolicyModule: React.FC = () => {
   
   // OU-Based Policy Generation State
   const [showOUPolicyGen, setShowOUPolicyGen] = useState(false);
-  const [ouPolicyOutputDir, setOuPolicyOutputDir] = useState('.\\policies\\ou-based');
+  const [ouPolicyOutputDir, setOuPolicyOutputDir] = useState('C:\\AppLocker\\policies\\ou-based');
   const [selectedMachineTypes, setSelectedMachineTypes] = useState<MachineType[]>(['Workstation', 'Server', 'DomainController']);
   
   // OU Deployment State (for linking GPO to OU)

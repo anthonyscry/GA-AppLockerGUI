@@ -9,12 +9,12 @@ const AppConfig = {
   version: '1.2.5',
   author: 'Tony Tran, ISSO, GA-ASI',
   
-  // Window settings
+  // Window settings (75% of original size for compact UI)
   window: {
-    defaultWidth: 1000,
-    defaultHeight: 700,
-    minWidth: 800,
-    minHeight: 550,
+    defaultWidth: 1280,
+    defaultHeight: 800,
+    minWidth: 960,
+    minHeight: 600,
     backgroundColor: '#f1f5f9',
   },
   

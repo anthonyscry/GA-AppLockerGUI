@@ -3,6 +3,7 @@ import { AppView } from './src/shared/types';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
 import ScanModule from './components/ScanModule';
+import RuleGeneratorModule from './components/RuleGeneratorModule';
 import PolicyModule from './components/PolicyModule';
 import EventsModule from './components/EventsModule';
 import ADManagementModule from './components/ADManagementModule';
@@ -30,10 +31,10 @@ const App: React.FC = () => {
         }
       }
       
-      // Ctrl+1-7 for navigation
+      // Ctrl+1-8 for navigation
       if (event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey) {
         const keyNum = parseInt(event.key, 10); // Fix: Added radix parameter
-        if (keyNum >= 1 && keyNum <= 7) {
+        if (keyNum >= 1 && keyNum <= 8) {
           event.preventDefault();
           const viewIndex = keyNum - 1;
           if (viewIndex < NAVIGATION.length) {
@@ -128,6 +129,7 @@ const App: React.FC = () => {
     switch (currentView) {
       case AppView.DASHBOARD: return <Dashboard />;
       case AppView.SCAN: return <ScanModule />;
+      case AppView.RULE_GENERATOR: return <RuleGeneratorModule />;
       case AppView.POLICY: return <PolicyModule />;
       case AppView.EVENTS: return <EventsModule />;
       case AppView.AD_MANAGEMENT: return <ADManagementModule />;

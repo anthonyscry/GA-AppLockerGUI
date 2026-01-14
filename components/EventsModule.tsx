@@ -272,7 +272,7 @@ const EventsModule: React.FC = () => {
     }
   }, [events, event]);
 
-  // Backup events handler
+  // Backup events handler - creates a single combined log file
   const handleBackupEvents = useCallback(async () => {
     if (selectedBackupSystems.size === 0) {
       alert('Please select at least one system to backup');
@@ -289,42 +289,42 @@ const EventsModule: React.FC = () => {
       const systemsArray = Array.from(selectedBackupSystems);
       const now = new Date();
       const monthFolder = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      const dateStr = now.toISOString().split('T')[0];
+      const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '');
 
-      setBackupProgress({ current: 0, total: systemsArray.length, status: 'Starting backup...' });
+      // Create a single combined log file with all selected systems listed
+      const filename = systemsArray.length === 1
+        ? `${systemsArray[0]}-${dateStr}-${timeStr}.evtx`
+        : `combined-${systemsArray.length}systems-${dateStr}-${timeStr}.evtx`;
+      const outputPath = `${backupPath}\\${monthFolder}\\${filename}`;
 
-      for (let i = 0; i < systemsArray.length; i++) {
-        const systemName = systemsArray[i];
-        setBackupProgress({
-          current: i + 1,
-          total: systemsArray.length,
-          status: `Backing up ${systemName}...`
+      setBackupProgress({ current: 0, total: 1, status: 'Backing up AppLocker events...' });
+
+      try {
+        // Backup as a single combined file
+        const result = await electron.ipc.invoke('events:backup', {
+          systemName: systemsArray.join(','), // Pass all systems for logging purposes
+          outputPath,
+          createFolderIfMissing: true,
+          systems: systemsArray // Pass the systems array
         });
 
-        const backupTime = new Date();
-        const dateStr = backupTime.toISOString().split('T')[0];
-        const timeStr = backupTime.toTimeString().split(' ')[0].replace(/:/g, '');
-        const filename = `${systemName}-${dateStr}-${timeStr}.evtx`;
-        const outputPath = `${backupPath}\\${monthFolder}\\${filename}`;
+        setBackupProgress({ current: 1, total: 1, status: 'Complete!' });
 
-        try {
-          const result = await electron.ipc.invoke('events:backup', {
-            systemName,
-            outputPath,
-            createFolderIfMissing: true
-          });
-
-          if (!result?.success) {
-            console.warn(`Failed to backup ${systemName}:`, result?.error);
-          }
-        } catch (err) {
-          console.warn(`Error backing up ${systemName}:`, err);
+        if (!result?.success) {
+          console.warn('Failed to backup:', result?.error);
+          alert(`Backup failed: ${result?.error || 'Unknown error'}`);
+        } else {
+          setShowBackupModal(false);
+          setSelectedBackupSystems(new Set());
+          alert(`Backup complete!\n\nSaved AppLocker events to:\n${outputPath}\n\nSystems included: ${systemsArray.length}`);
         }
+      } catch (err) {
+        console.warn('Error backing up:', err);
+        alert(`Backup error: ${err instanceof Error ? err.message : 'Unknown error'}`);
       }
 
       setBackupProgress(null);
-      setShowBackupModal(false);
-      setSelectedBackupSystems(new Set());
-      alert(`Backup complete!\n\nBacked up ${systemsArray.length} system(s) to:\n${backupPath}\\${monthFolder}`);
     } catch (error) {
       setBackupProgress(null);
       console.error('Backup failed:', error);
@@ -543,10 +543,12 @@ const EventsModule: React.FC = () => {
                     <div className="divide-y divide-slate-100">
                       {machines.filter(m => {
                         if (!m?.hostname) return false;
-                        if (onlineFilter === 'all') return true;
-                        if (onlineFilter === 'online') return m.status === 'Online';
-                        if (onlineFilter === 'offline') return m.status !== 'Online';
-                        return true;
+                        // Also filter for Windows systems only
+                        const isWindows = !m.os || m.os.toLowerCase().includes('windows');
+                        if (onlineFilter === 'all') return isWindows;
+                        if (onlineFilter === 'online') return m.status === 'Online' && isWindows;
+                        if (onlineFilter === 'offline') return m.status !== 'Online' && isWindows;
+                        return isWindows;
                       }).map((m) => (
                         <label
                           key={m.id || m.hostname}
