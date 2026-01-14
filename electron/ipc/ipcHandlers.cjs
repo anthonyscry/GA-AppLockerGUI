@@ -1486,23 +1486,41 @@ function setupIpcHandlers() {
   });
 
   // Get user by ID
+  // LESSON LEARNED: Must import ActiveDirectory module for Get-ADUser to work
   ipcMain.handle('ad:getUserById', async (event, userId) => {
     try {
       const safeUserId = escapePowerShellString(userId);
       const command = `
+        $ErrorActionPreference = 'Stop'
         try {
-          Get-ADUser -Identity "${safeUserId}" -Properties DisplayName, Title, Department, EmailAddress, Enabled, MemberOf |
-            Select-Object SamAccountName, DisplayName, Title, Department, EmailAddress, Enabled,
-              @{N='Groups';E={($_.MemberOf | ForEach-Object { ($_ -split ',')[0] -replace 'CN=' }) -join ';'}} |
-            ConvertTo-Json -Compress
+          Import-Module ActiveDirectory -ErrorAction Stop
+          $user = Get-ADUser -Identity "${safeUserId}" -Properties DisplayName, Title, Department, EmailAddress, Enabled, MemberOf
+          if ($user) {
+            $result = @{
+              id = $user.ObjectGUID.ToString()
+              samAccountName = $user.SamAccountName
+              displayName = if($user.DisplayName) { $user.DisplayName } else { $user.SamAccountName }
+              department = if($user.Department) { $user.Department } else { '' }
+              ou = $user.DistinguishedName
+              groups = @($user.MemberOf | ForEach-Object { ($_ -split ',')[0] -replace 'CN=' })
+            }
+            @{ success = $true; data = $result } | ConvertTo-Json -Compress -Depth 3
+          } else {
+            @{ success = $false; error = 'User not found' } | ConvertTo-Json -Compress
+          }
         } catch {
-          'null'
+          @{ success = $false; error = $_.Exception.Message } | ConvertTo-Json -Compress
         }
       `;
       const result = await executePowerShellCommand(command, { timeout: 15000 });
 
-      if (result.stdout && result.stdout.trim() !== 'null') {
-        return JSON.parse(result.stdout);
+      if (result.stdout) {
+        const parsed = JSON.parse(result.stdout);
+        if (parsed.success === false) {
+          console.error('[IPC] ad:getUserById error:', parsed.error);
+          return null;
+        }
+        return parsed.data;
       }
       return null;
     } catch (error) {
@@ -1518,7 +1536,9 @@ function setupIpcHandlers() {
       const safeGroupName = escapePowerShellString(groupName);
 
       const command = `
+        $ErrorActionPreference = 'Stop'
         try {
+          Import-Module ActiveDirectory -ErrorAction Stop
           Add-ADGroupMember -Identity "${safeGroupName}" -Members "${safeUserId}" -ErrorAction Stop
           @{ success = $true } | ConvertTo-Json -Compress
         } catch {
@@ -1540,7 +1560,9 @@ function setupIpcHandlers() {
       const safeGroupName = escapePowerShellString(groupName);
 
       const command = `
+        $ErrorActionPreference = 'Stop'
         try {
+          Import-Module ActiveDirectory -ErrorAction Stop
           Remove-ADGroupMember -Identity "${safeGroupName}" -Members "${safeUserId}" -Confirm:$false -ErrorAction Stop
           @{ success = $true } | ConvertTo-Json -Compress
         } catch {
@@ -1559,7 +1581,9 @@ function setupIpcHandlers() {
   ipcMain.handle('ad:getGroups', async () => {
     try {
       const command = `
+        $ErrorActionPreference = 'Stop'
         try {
+          Import-Module ActiveDirectory -ErrorAction Stop
           $groups = Get-ADGroup -Filter "Name -like '*AppLocker*' -or Name -like '*Application*'" -Properties Description |
             Select-Object Name, Description, @{N='MemberCount';E={(Get-ADGroupMember -Identity $_.DistinguishedName -ErrorAction SilentlyContinue | Measure-Object).Count}} |
             ConvertTo-Json -Compress
@@ -1918,7 +1942,9 @@ function setupIpcHandlers() {
   ipcMain.handle('ad:getOUsWithUsers', async () => {
     try {
       const command = `
+        $ErrorActionPreference = 'Stop'
         try {
+          Import-Module ActiveDirectory -ErrorAction Stop
           # Get all users and extract unique OUs
           $users = Get-ADUser -Filter * -Properties DistinguishedName -ErrorAction SilentlyContinue
 
@@ -2221,7 +2247,9 @@ function setupIpcHandlers() {
         $ErrorActionPreference = 'Stop'
         try {
           # Check if AppLocker log exists
-          $logExists = Get-WinEvent -ListLog "Microsoft-Windows-AppLocker/EXE and DLL" -ErrorAction SilentlyContinue
+          # LESSON LEARNED: Use single quotes for log names with spaces - double quotes get stripped by -Command
+          $logName = 'Microsoft-Windows-AppLocker/EXE and DLL'
+          $logExists = Get-WinEvent -ListLog $logName -ErrorAction SilentlyContinue
 
           if (-not $logExists) {
             @{
@@ -2233,7 +2261,7 @@ function setupIpcHandlers() {
           }
 
           # Fetch last 100 AppLocker events from EXE and DLL log
-          $events = Get-WinEvent -LogName "Microsoft-Windows-AppLocker/EXE and DLL" -MaxEvents 100 -ErrorAction Stop |
+          $events = Get-WinEvent -LogName $logName -MaxEvents 100 -ErrorAction Stop |
             ForEach-Object {
               $msg = $_.Message
 
@@ -2321,7 +2349,8 @@ function setupIpcHandlers() {
     try {
       const command = `
         try {
-          $events = Get-WinEvent -LogName "Microsoft-Windows-AppLocker/EXE and DLL" -MaxEvents 1000 -ErrorAction SilentlyContinue
+          $logName = 'Microsoft-Windows-AppLocker/EXE and DLL'
+          $events = Get-WinEvent -LogName $logName -MaxEvents 1000 -ErrorAction SilentlyContinue
           $blocked = ($events | Where-Object { $_.Id -eq 8004 }).Count
           $warnings = ($events | Where-Object { $_.Id -eq 8003 }).Count
           $allowed = ($events | Where-Object { $_.Id -eq 8002 }).Count
@@ -2358,7 +2387,8 @@ function setupIpcHandlers() {
       const safeOutputPath = escapePowerShellString(outputPath);
       const command = `
         try {
-          Get-WinEvent -LogName "Microsoft-Windows-AppLocker/EXE and DLL" -MaxEvents 5000 -ErrorAction SilentlyContinue |
+          $logName = 'Microsoft-Windows-AppLocker/EXE and DLL'
+          Get-WinEvent -LogName $logName -MaxEvents 5000 -ErrorAction SilentlyContinue |
             Select-Object Id, TimeCreated, Message |
             Export-Csv -Path "${safeOutputPath}" -NoTypeInformation
           @{ success = $true; path = "${safeOutputPath}" } | ConvertTo-Json -Compress
