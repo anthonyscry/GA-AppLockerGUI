@@ -98,14 +98,22 @@ export class ADRepository implements IADRepository {
 
   private filterUsers(users: ADUser[], filter: UserFilter): ADUser[] {
     return users.filter(user => {
-      const matchesSearch = !filter.searchQuery ||
-        user.samAccountName.toLowerCase().includes(filter.searchQuery.toLowerCase()) ||
-        user.displayName.toLowerCase().includes(filter.searchQuery.toLowerCase());
-      
-      const matchesDepartment = !filter.department || user.department === filter.department;
-      
-      const matchesGroup = !filter.group || user.groups.includes(filter.group);
-      
+      // Null-safe property access to prevent crashes on undefined properties
+      const samAccountName = user?.samAccountName || '';
+      const displayName = user?.displayName || '';
+      const department = user?.department || '';
+      const groups = user?.groups || [];
+
+      const searchQuery = filter?.searchQuery?.toLowerCase() || '';
+
+      const matchesSearch = !searchQuery ||
+        samAccountName.toLowerCase().includes(searchQuery) ||
+        displayName.toLowerCase().includes(searchQuery);
+
+      const matchesDepartment = !filter.department || department === filter.department;
+
+      const matchesGroup = !filter.group || (Array.isArray(groups) && groups.includes(filter.group));
+
       return matchesSearch && matchesDepartment && matchesGroup;
     });
   }

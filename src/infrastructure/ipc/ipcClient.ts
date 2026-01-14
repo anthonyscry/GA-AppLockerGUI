@@ -5,6 +5,17 @@
 
 import { IPCChannel } from './channels';
 
+// Default timeout for IPC calls (2 minutes)
+const DEFAULT_IPC_TIMEOUT = 120000;
+
+// Extended timeout channels (operations that take longer)
+const EXTENDED_TIMEOUT_CHANNELS = [
+  'machine:startScan',
+  'scan:local',
+  'policy:deploy',
+  'compliance:generateEvidence',
+];
+
 declare global {
   interface Window {
     electron?: {
@@ -19,9 +30,23 @@ declare global {
   }
 }
 
+/**
+ * Create a timeout promise that rejects after the specified duration
+ */
+function createTimeoutPromise<T>(ms: number, channel: string): Promise<T> {
+  return new Promise((_, reject) => {
+    setTimeout(() => {
+      reject(new Error(`IPC call to '${channel}' timed out after ${ms}ms`));
+    }, ms);
+  });
+}
+
 export class IPCClient {
   /**
-   * Invoke an IPC method and wait for response
+   * Invoke an IPC method and wait for response with timeout protection
+   * @param channel IPC channel to invoke
+   * @param args Arguments to pass to the channel
+   * @returns Promise resolving to the response
    */
   async invoke<T = unknown>(channel: IPCChannel | string, ...args: unknown[]): Promise<T> {
     if (!window.electron?.ipc) {
@@ -46,10 +71,20 @@ export class IPCClient {
       return undefined as unknown as T;
     }
 
+    // Determine timeout based on channel type
+    const isExtendedTimeout = EXTENDED_TIMEOUT_CHANNELS.some(c => channel.startsWith(c));
+    const timeout = isExtendedTimeout ? 600000 : DEFAULT_IPC_TIMEOUT; // 10 min or 2 min
+
     try {
-      return await window.electron.ipc.invoke<T>(channel, ...args);
+      // Race between the actual IPC call and a timeout
+      const result = await Promise.race([
+        window.electron.ipc.invoke<T>(channel, ...args),
+        createTimeoutPromise<T>(timeout, channel),
+      ]);
+      return result;
     } catch (error) {
-      console.error(`IPC call failed for channel ${channel}:`, error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`IPC call failed for channel ${channel}:`, errorMessage);
       // Return defaults instead of throwing to prevent app crash
       return undefined as unknown as T;
     }
