@@ -25,6 +25,7 @@ export interface ScanOptions {
   credentials?: ScanCredentials;
   computerNames?: string[];
   onlineOnly?: boolean;
+  outputDirectory?: string;
 }
 
 export interface IMachineRepository {

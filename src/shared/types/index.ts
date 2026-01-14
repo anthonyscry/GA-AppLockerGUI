@@ -166,4 +166,9 @@ export interface PolicyRule {
   category: 'EXE' | 'MSI' | 'Script' | 'DLL';
   status: 'Allow' | 'Deny';
   user: string;
+  publisher?: string;
+  path?: string;
+  hash?: string;
+  description?: string;
+  collectionType?: 'Exe' | 'Msi' | 'Script' | 'Dll' | 'Appx';
 }

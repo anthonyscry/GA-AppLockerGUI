@@ -194,6 +194,11 @@ export class PolicyService {
     logger.info('Creating policy rule', { action: options.action, type: options.ruleType });
 
     const ruleName = options.subject.name;
+    const isInventoryItem = 'path' in options.subject;
+    const publisherName = isInventoryItem
+      ? (options.subject as InventoryItem).publisher
+      : (options.subject as TrustedPublisher).publisherName;
+    const itemPath = isInventoryItem ? (options.subject as InventoryItem).path : '';
 
     // Validate inputs
     if (!isValidRuleInput(ruleName)) {
@@ -215,6 +220,17 @@ export class PolicyService {
       throw new Error(`Invalid rule type: must be one of ${validRuleTypes.join(', ')}`);
     }
 
+    if (options.ruleType === 'Publisher' && !publisherName) {
+      throw new Error('Publisher rules require a publisher name.');
+    }
+    if (options.ruleType === 'Path' && !itemPath) {
+      throw new Error('Path rules require a file path.');
+    }
+    if (options.ruleType === 'Hash') {
+      // Hash rules require a computed file hash; block until hashing support is wired in.
+      throw new Error('Hash rules require a file hash. Please select Publisher or Path for now.');
+    }
+
     const rule: PolicyRule = {
       id: generateSecureId(),
       name: ruleName,
@@ -222,6 +238,8 @@ export class PolicyService {
       category: 'path' in options.subject ? (options.subject as InventoryItem).type : 'EXE',
       status: options.action,
       user: options.targetGroup,
+      publisher: options.ruleType === 'Publisher' ? publisherName : undefined,
+      path: options.ruleType === 'Path' ? itemPath : undefined,
     };
 
     return this.repository.createRule(rule);

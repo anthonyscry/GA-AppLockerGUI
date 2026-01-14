@@ -2248,6 +2248,12 @@ function setupIpcHandlers() {
         scanEnv[passwordEnvVar] = credentials.password;
         args.push('-PasswordEnvVar', passwordEnvVar);
       }
+      const onlineOnly = options.onlineOnly !== undefined ? Boolean(options.onlineOnly) : true;
+      args.push('-OnlineOnly', onlineOnly ? '$true' : '$false');
+
+      if (options.outputDirectory && typeof options.outputDirectory === 'string') {
+        args.push('-OutputDirectory', escapePowerShellString(options.outputDirectory));
+      }
       if (options.targetOUs && Array.isArray(options.targetOUs) && options.targetOUs.length > 0) {
         // SECURITY FIX: Escape each OU path to prevent command injection
         const escapedOUs = options.targetOUs

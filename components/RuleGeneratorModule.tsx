@@ -170,6 +170,22 @@ const RuleGeneratorModule: React.FC = () => {
       return;
     }
 
+    if (ruleType === 'Hash') {
+      // Hash rules require a computed file hash, which isn't available in the UI yet.
+      setToastMessage({ type: 'warning', message: 'Hash rules require a file hash. Please choose Publisher or Path.' });
+      return;
+    }
+
+    if (ruleType === 'Path' && selectedPublisher) {
+      setToastMessage({ type: 'warning', message: 'Path rules require a specific application with a valid path.' });
+      return;
+    }
+
+    if (ruleType === 'Path' && selectedApp && !selectedApp.path) {
+      setToastMessage({ type: 'warning', message: 'Selected application does not include a path. Please choose another item.' });
+      return;
+    }
+
     try {
       // Prepare rule parameters - must match RuleCreationOptions interface
       // Subject must be the full InventoryItem or TrustedPublisher object
