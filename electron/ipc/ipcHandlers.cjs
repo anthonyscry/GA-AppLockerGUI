@@ -2686,13 +2686,14 @@ function setupIpcHandlers() {
       }
 
       const safeOutputPath = escapePowerShellString(outputPath);
+      const localHostName = process.env.COMPUTERNAME || require('os').hostname();
       const targetSystems = Array.isArray(options.systems)
         ? options.systems
         : (typeof systemName === 'string' && systemName.length > 0 ? systemName.split(',') : []);
       const sanitizedSystems = targetSystems
         .filter(system => typeof system === 'string')
         .map(system => system.trim())
-        .map(system => (/^(local|localhost|\.)$/i.test(system) ? '.' : system))
+        .map(system => (/^(local|localhost|\.)$/i.test(system) ? localHostName : system))
         .filter(system => system.length > 0 && system.length <= 255)
         .map(system => escapePowerShellString(system));
       const systemsLiteral = sanitizedSystems.length > 0
@@ -2708,7 +2709,7 @@ function setupIpcHandlers() {
             $targetSystems = @($env:COMPUTERNAME)
           }
           $targetSystems = $targetSystems | ForEach-Object {
-            if ($_ -match '^(?i)(local|localhost)$') { $env:COMPUTERNAME } else { $_ }
+            if ($_ -match '^(?i)(local|localhost|\\.)$') { $env:COMPUTERNAME } else { $_ }
           }
 
           # Create output directory if needed
