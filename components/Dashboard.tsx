@@ -61,22 +61,34 @@ const Dashboard: React.FC = () => {
 
   // Calculate chart data from actual events (group by day)
   const chartData = useMemo(() => {
-    if (!events || events.length === 0) {
-      return [
-        { name: 'Mon', allowed: 0, blocked: 0 },
-        { name: 'Tue', allowed: 0, blocked: 0 },
-        { name: 'Wed', allowed: 0, blocked: 0 },
-        { name: 'Thu', allowed: 0, blocked: 0 },
-        { name: 'Fri', allowed: 0, blocked: 0 },
-      ];
+    const defaultData = [
+      { name: 'Mon', allowed: 0, blocked: 0 },
+      { name: 'Tue', allowed: 0, blocked: 0 },
+      { name: 'Wed', allowed: 0, blocked: 0 },
+      { name: 'Thu', allowed: 0, blocked: 0 },
+      { name: 'Fri', allowed: 0, blocked: 0 },
+    ];
+
+    if (!events || !Array.isArray(events) || events.length === 0) {
+      return defaultData;
     }
-    
+
     const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const dayCounts: Record<string, { allowed: number; blocked: number }> = {};
-    
+
     events.forEach((e: AppEvent) => {
+      // Validate timestamp exists and is a valid date
+      if (!e?.timestamp) return;
       const date = new Date(e.timestamp);
-      const dayName = days[date.getDay()];
+      // Check for Invalid Date (NaN)
+      if (isNaN(date.getTime())) {
+        console.warn('[Dashboard] Invalid timestamp encountered:', e.timestamp);
+        return;
+      }
+      const dayIndex = date.getDay();
+      const dayName = days[dayIndex];
+      if (!dayName) return; // Safety check for array bounds
+
       if (!dayCounts[dayName]) {
         dayCounts[dayName] = { allowed: 0, blocked: 0 };
       }
@@ -86,7 +98,7 @@ const Dashboard: React.FC = () => {
         dayCounts[dayName].allowed++;
       }
     });
-    
+
     // Return last 5 weekdays
     return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].map(day => ({
       name: day,

@@ -260,8 +260,23 @@ export class PolicyService {
       groupByPublisher?: boolean;
     } = {}
   ): Promise<{ success: boolean; outputPath?: string; error?: string }> {
-    logger.info('Batch generating rules', { itemCount: items.length, outputPath });
-    return this.repository.batchGenerateRules(items, outputPath, options);
+    // Validate items array
+    if (!Array.isArray(items)) {
+      logger.error('batchGenerateRules called with non-array items');
+      return { success: false, error: 'Invalid input: items must be an array' };
+    }
+    if (items.length === 0) {
+      logger.warn('batchGenerateRules called with empty items array');
+      return { success: false, error: 'No items provided for rule generation' };
+    }
+    // Filter out invalid items
+    const validItems = items.filter(item => item && typeof item === 'object' && item.name);
+    if (validItems.length === 0) {
+      logger.error('No valid items found in batch');
+      return { success: false, error: 'No valid items found in the provided array' };
+    }
+    logger.info('Batch generating rules', { itemCount: validItems.length, outputPath });
+    return this.repository.batchGenerateRules(validItems, outputPath, options);
   }
 
   /**
@@ -345,8 +360,25 @@ export class PolicyService {
       collectionType?: string;
     } = {}
   ): Promise<{ success: boolean; outputPath?: string; error?: string }> {
-    logger.info('Batch creating publisher rules', { publisherCount: publishers.length, outputPath });
-    return this.repository.batchCreatePublisherRules(publishers, outputPath, options);
+    // Validate publishers array
+    if (!Array.isArray(publishers)) {
+      logger.error('batchCreatePublisherRules called with non-array publishers');
+      return { success: false, error: 'Invalid input: publishers must be an array' };
+    }
+    if (publishers.length === 0) {
+      logger.warn('batchCreatePublisherRules called with empty publishers array');
+      return { success: false, error: 'No publishers provided for rule generation' };
+    }
+    // Filter and validate publisher strings
+    const validPublishers = publishers.filter(
+      p => typeof p === 'string' && p.trim().length > 0 && p.length <= 1024
+    );
+    if (validPublishers.length === 0) {
+      logger.error('No valid publishers found in batch');
+      return { success: false, error: 'No valid publisher names found in the provided array' };
+    }
+    logger.info('Batch creating publisher rules', { publisherCount: validPublishers.length, outputPath });
+    return this.repository.batchCreatePublisherRules(validPublishers, outputPath, options);
   }
 
   /**

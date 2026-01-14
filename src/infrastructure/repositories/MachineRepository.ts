@@ -68,14 +68,21 @@ export class MachineRepository implements IMachineRepository {
 
   private filterMachines(machines: MachineScan[], filter: MachineFilter): MachineScan[] {
     return machines.filter((machine) => {
-      const matchesSearch = !filter.searchQuery ||
-        machine.hostname.toLowerCase().includes(filter.searchQuery.toLowerCase());
+      // Null-safe property access to prevent crashes on undefined properties
+      const hostname = machine?.hostname || '';
+      const status = machine?.status || '';
+      const riskLevel = machine?.riskLevel || '';
+      const searchQuery = filter?.searchQuery?.toLowerCase() || '';
+      const ouPath = filter?.ouPath?.toLowerCase() || '';
+
+      const matchesSearch = !searchQuery ||
+        hostname.toLowerCase().includes(searchQuery);
       const matchesStatus = !filter.status || filter.status === 'All' ||
-        machine.status === filter.status;
+        status === filter.status;
       const matchesRisk = !filter.riskLevel || filter.riskLevel === 'All' ||
-        machine.riskLevel === filter.riskLevel;
-      const matchesOU = !filter.ouPath ||
-        machine.hostname.toLowerCase().includes(filter.ouPath.toLowerCase());
+        riskLevel === filter.riskLevel;
+      const matchesOU = !ouPath ||
+        hostname.toLowerCase().includes(ouPath);
       return matchesSearch && matchesStatus && matchesRisk && matchesOU;
     });
   }

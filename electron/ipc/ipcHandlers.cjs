@@ -1826,11 +1826,23 @@ function setupIpcHandlers() {
       const scanScriptPath = path.join(scriptsDir, 'Start-BatchScan.ps1');
 
       const args = [];
-      if (options.targetOUs && options.targetOUs.length > 0) {
-        args.push('-TargetOUs', options.targetOUs.join(','));
+      if (options.targetOUs && Array.isArray(options.targetOUs) && options.targetOUs.length > 0) {
+        // SECURITY FIX: Escape each OU path to prevent command injection
+        const escapedOUs = options.targetOUs
+          .filter(ou => typeof ou === 'string' && ou.length > 0 && ou.length <= 1024)
+          .map(ou => escapePowerShellString(ou));
+        if (escapedOUs.length > 0) {
+          args.push('-TargetOUs', escapedOUs.join(','));
+        }
       }
-      if (options.computerNames && options.computerNames.length > 0) {
-        args.push('-ComputerNames', options.computerNames.join(','));
+      if (options.computerNames && Array.isArray(options.computerNames) && options.computerNames.length > 0) {
+        // SECURITY FIX: Escape each computer name to prevent command injection
+        const escapedNames = options.computerNames
+          .filter(cn => typeof cn === 'string' && cn.length > 0 && cn.length <= 255)
+          .map(cn => escapePowerShellString(cn));
+        if (escapedNames.length > 0) {
+          args.push('-ComputerNames', escapedNames.join(','));
+        }
       }
 
       const result = await executePowerShellScript(scanScriptPath, args, {
