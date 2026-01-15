@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { PolicyPhase, InventoryItem, TrustedPublisher, MachineScan, MachineType, getMachineTypeFromOU, groupMachinesByOU, MachinesByType, PolicyRule } from '../src/shared/types';
+import { InventoryItem, TrustedPublisher } from '../src/shared/types';
 import {
   Archive,
   Search,
@@ -38,12 +38,14 @@ interface GeneratedRule {
   targetGroup: string;
   publisher?: string;
   path?: string;
+  hash?: string;
   xml?: string;
   createdAt: string;
 }
 
 const RuleGeneratorModule: React.FC = () => {
-  const { policy, machine } = useAppServices();
+  const { policy } = useAppServices();
+  const storageKey = 'applocker.generatedRules';
 
   // Generator State
   const [generatorTab, setGeneratorTab] = useState<'scanned' | 'trusted'>('trusted');
@@ -67,7 +69,7 @@ const RuleGeneratorModule: React.FC = () => {
 
   // Generated rules storage
   const [generatedRules, setGeneratedRules] = useState<GeneratedRule[]>([]);
-  const [showRulesPanel, setShowRulesPanel] = useState(false);
+  const [activePanel, setActivePanel] = useState<'builder' | 'generated'>('builder');
 
   // Toast notification state
   const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error' | 'warning'; message: string } | null>(null);
@@ -80,8 +82,30 @@ const RuleGeneratorModule: React.FC = () => {
     }
   }, [toastMessage]);
 
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(storageKey);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          setGeneratedRules(parsed);
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to load generated rules from storage:', error);
+    }
+  }, [storageKey]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(generatedRules));
+    } catch (error) {
+      console.warn('Failed to persist generated rules:', error);
+    }
+  }, [generatedRules, storageKey]);
+
   // Fetch inventory
-  const { data: inventory, loading: inventoryLoading, refetch: refetchInventory } = useAsync(
+  const { data: inventory, loading: inventoryLoading } = useAsync(
     () => policy.getInventory()
   );
 
@@ -212,7 +236,7 @@ const RuleGeneratorModule: React.FC = () => {
       };
 
       setGeneratedRules(prev => [...prev, newRule]);
-      setShowRulesPanel(true);
+      setActivePanel('generated');
       setToastMessage({ type: 'success', message: `Rule created for ${selectedApp?.name || selectedPublisher?.name}` });
       resetGenerator();
     } catch (error) {
@@ -265,32 +289,100 @@ const RuleGeneratorModule: React.FC = () => {
     }
   };
 
+  const normalizeRuleType = (value: string | undefined): GeneratedRule['type'] => {
+    const normalized = (value || '').toLowerCase();
+    if (normalized === 'path') return 'Path';
+    if (normalized === 'hash') return 'Hash';
+    return 'Publisher';
+  };
+
+  const normalizeRuleAction = (value: string | undefined): GeneratedRule['action'] => {
+    const normalized = (value || '').toLowerCase();
+    return normalized === 'deny' ? 'Deny' : 'Allow';
+  };
+
+  const parseRulesFromXml = (xmlText: string): GeneratedRule[] => {
+    if (typeof window === 'undefined' || !('DOMParser' in window)) return [];
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(xmlText, 'application/xml');
+    if (doc.querySelector('parsererror')) {
+      return [];
+    }
+
+    const serializer = new XMLSerializer();
+    const ruleNodes = Array.from(doc.querySelectorAll('FilePublisherRule, FilePathRule, FileHashRule'));
+
+    return ruleNodes.map((ruleNode, index) => {
+      const nodeName = ruleNode.nodeName;
+      const action = (ruleNode.getAttribute('Action') as 'Allow' | 'Deny') || 'Allow';
+      const name = ruleNode.getAttribute('Name') || `Imported Rule ${index + 1}`;
+      const id = ruleNode.getAttribute('Id') || `imported-rule-${Date.now()}-${index}`;
+
+      let type: GeneratedRule['type'] = 'Publisher';
+      let publisher: string | undefined;
+      let path: string | undefined;
+      let hash: string | undefined;
+
+      if (nodeName === 'FilePathRule') {
+        type = 'Path';
+        const condition = ruleNode.querySelector('FilePathCondition');
+        path = condition?.getAttribute('Path') || '';
+      } else if (nodeName === 'FileHashRule') {
+        type = 'Hash';
+        const condition = ruleNode.querySelector('FileHashCondition');
+        hash = condition?.getAttribute('Hash') || '';
+        path = condition?.getAttribute('SourceFileName') || '';
+      } else {
+        type = 'Publisher';
+        const condition = ruleNode.querySelector('FilePublisherCondition');
+        publisher = condition?.getAttribute('PublisherName') || '';
+      }
+
+      return {
+        id,
+        name,
+        type,
+        action,
+        targetGroup: APPLOCKER_GROUPS[0],
+        publisher,
+        path,
+        hash,
+        xml: serializer.serializeToString(ruleNode),
+        createdAt: new Date().toISOString()
+      };
+    });
+  };
+
   // Import rules from file
   const handleImportRules = async (file: File) => {
     try {
       const text = await file.text();
       let importedRules: GeneratedRule[] = [];
+      const fileName = file.name.toLowerCase();
 
-      if (file.name.endsWith('.json')) {
+      if (fileName.endsWith('.json')) {
         const data = JSON.parse(text);
         if (Array.isArray(data)) {
           importedRules = data.map((r: any, i: number) => ({
             id: r.id || `imported-rule-${Date.now()}-${i}`,
             name: r.name || 'Unknown',
-            type: r.type || 'Publisher',
-            action: r.action || 'Allow',
+            type: normalizeRuleType(r.type),
+            action: normalizeRuleAction(r.action),
             targetGroup: r.targetGroup || APPLOCKER_GROUPS[0],
             publisher: r.publisher,
             path: r.path,
+            hash: r.hash,
             xml: r.xml,
             createdAt: r.createdAt || new Date().toISOString()
           }));
         }
+      } else if (fileName.endsWith('.xml')) {
+        importedRules = parseRulesFromXml(text);
       }
 
       if (importedRules.length > 0) {
         setGeneratedRules(prev => [...prev, ...importedRules]);
-        setShowRulesPanel(true);
+        setActivePanel('generated');
         setToastMessage({ type: 'success', message: `Imported ${importedRules.length} rules` });
       } else {
         setToastMessage({ type: 'warning', message: 'No valid rules found in file' });
@@ -309,10 +401,10 @@ const RuleGeneratorModule: React.FC = () => {
   // Clear all rules
   const handleClearRules = () => {
     setGeneratedRules([]);
-    setShowRulesPanel(false);
+    setActivePanel('builder');
   };
 
-  if (inventoryLoading && publishersLoading) {
+  if (inventoryLoading || publishersLoading) {
     return <LoadingState message="Loading Rule Generator..." />;
   }
 
@@ -344,12 +436,36 @@ const RuleGeneratorModule: React.FC = () => {
           </h2>
           <p className="text-slate-500 text-xs font-medium">Create AppLocker rules from scan data or trusted vendors</p>
         </div>
-        <div className="flex items-center space-x-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center rounded-lg bg-slate-100 p-0.5">
+            <button
+              onClick={() => setActivePanel('builder')}
+              className={`px-3 py-2 rounded-md font-black text-[10px] uppercase tracking-widest transition-all min-h-[36px] ${
+                activePanel === 'builder'
+                  ? 'bg-white text-blue-600 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              Builder
+            </button>
+            <button
+              onClick={() => setActivePanel('generated')}
+              className={`px-3 py-2 rounded-md font-black text-[10px] uppercase tracking-widest transition-all min-h-[36px] flex items-center space-x-2 ${
+                activePanel === 'generated'
+                  ? 'bg-white text-blue-600 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <List size={12} />
+              <span>Generated ({generatedRules.length})</span>
+            </button>
+          </div>
+
           {/* Import Rules Button */}
           <label className="cursor-pointer">
             <input
               type="file"
-              accept=".json"
+              accept=".json,.xml"
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 if (file) handleImportRules(file);
@@ -362,21 +478,20 @@ const RuleGeneratorModule: React.FC = () => {
               <span>Import Rules</span>
             </div>
           </label>
-          {/* View Rules Button */}
-          <button
-            onClick={() => setShowRulesPanel(!showRulesPanel)}
-            className={`px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all flex items-center space-x-2 min-h-[36px] ${
-              generatedRules.length > 0
-                ? 'bg-blue-600 text-white hover:bg-blue-700'
-                : 'bg-slate-100 text-slate-500'
-            }`}
-          >
-            <List size={14} />
-            <span>Rules ({generatedRules.length})</span>
-          </button>
+
+          {generatedRules.length > 0 && (
+            <button
+              onClick={handleClearRules}
+              className="bg-red-600 text-white px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-red-700 transition-all flex items-center space-x-2 min-h-[36px]"
+            >
+              <Trash2 size={14} />
+              <span>Clear</span>
+            </button>
+          )}
         </div>
       </div>
 
+      {activePanel === 'builder' && (
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
           <div className="flex items-center space-x-3">
@@ -390,7 +505,7 @@ const RuleGeneratorModule: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex flex-col lg:flex-row" style={{ minHeight: '500px' }}>
+        <div className="flex flex-col lg:flex-row" style={{ minHeight: '420px' }}>
           {/* Left Panel: App/Publisher List */}
           <div className="w-full lg:w-1/2 border-r border-slate-100 flex flex-col bg-slate-50/30">
             <div className="p-4 space-y-3">
@@ -708,7 +823,7 @@ const RuleGeneratorModule: React.FC = () => {
             </div>
 
             {/* List */}
-            <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-1.5 max-h-[400px] custom-scrollbar">
+            <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-1.5 max-h-[320px] custom-scrollbar">
               {generatorTab === 'scanned' ? (
                 filteredInventory.length > 0 ? (
                   filteredInventory.map((item) => (
@@ -754,7 +869,7 @@ const RuleGeneratorModule: React.FC = () => {
           </div>
 
           {/* Right Panel: Rule Configuration */}
-          <div className="w-full lg:w-1/2 p-6 space-y-4 bg-white">
+          <div className="w-full lg:w-1/2 p-6 space-y-4 bg-white max-h-[420px] overflow-y-auto custom-scrollbar">
             <h4 className="font-black text-slate-900 text-sm uppercase tracking-tight flex items-center space-x-2">
               <CheckCircle size={16} className="text-green-600" />
               <span>Rule Configuration</span>
@@ -773,7 +888,7 @@ const RuleGeneratorModule: React.FC = () => {
                 <div>
                   <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1 block">Rule Type</label>
                   <div className="flex space-x-2">
-                    {(['Publisher', 'Path', 'Hash'] as const).map(type => (
+                    {(['Publisher', 'Hash', 'Path'] as const).map(type => (
                       <button
                         key={type}
                         onClick={() => setRuleType(type)}
@@ -846,9 +961,10 @@ const RuleGeneratorModule: React.FC = () => {
           </div>
         </div>
       </div>
+      )}
 
       {/* Generated Rules Panel */}
-      {showRulesPanel && (
+      {activePanel === 'generated' && (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden animate-in slide-in-from-bottom-4 duration-300">
           <div className="p-4 bg-slate-900 text-white flex items-center justify-between">
             <div className="flex items-center space-x-3">
@@ -877,7 +993,7 @@ const RuleGeneratorModule: React.FC = () => {
                 <span>Clear All</span>
               </button>
               <button
-                onClick={() => setShowRulesPanel(false)}
+                onClick={() => setActivePanel('builder')}
                 className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
               >
                 <X size={16} />

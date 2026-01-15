@@ -94,8 +94,14 @@ try {
         -Type String `
         -Value "v2.31|Action=Allow|Active=TRUE|Dir=In|Protocol=6|LPort=5985|App=System|Name=Windows Remote Management (HTTP-In)|"
 
+    Set-GPRegistryValue -Name $GPOName `
+        -Key "HKLM\SOFTWARE\Policies\Microsoft\WindowsFirewall\FirewallRules" `
+        -ValueName "WINRM-HTTPS-In-TCP" `
+        -Type String `
+        -Value "v2.31|Action=Allow|Active=TRUE|Dir=In|Protocol=6|LPort=5986|App=System|Name=Windows Remote Management (HTTPS-In)|"
+
     # Enable GPO (ensure it's not disabled)
-    $gpo.GpoStatus = "AllSettingsEnabled"
+    Set-GPO -Name $GPOName -GpoStatus AllSettingsEnabled | Out-Null
 
     # Get the domain root DN if no target specified
     if (-not $TargetOU) {
