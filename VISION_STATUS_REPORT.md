@@ -8,7 +8,7 @@
 
 ## 📋 Your Vision
 
-> "Scan AD for hosts, then scan the hosts for artifacts related to AppLocker, for the app to ingest those artifacts seamlessly to automatically create rules based on the best practices and security playbook, then merge all rules from various by workstation, member server, or domain controller to create a policy and apply to those OUs in audit mode depending on phases."
+> "Scan AD for hosts, then scan the hosts for artifacts related to AppLocker, for the app to ingest those artifacts seamlessly to automatically create rules based on the best practices and security playbook, then merge all rules from various by workstation, member server, or domain controller to create a policy and apply to those OUs in audit mode depending on phases. Provide a one-click workflow to import scan artifacts and auto-generate rules from the imported data using AppLocker best-practice logic."
 
 ---
 
@@ -92,6 +92,7 @@
 - ✅ Hash rules as fallback (secure for unsigned)
 - ✅ Path rules avoided (too restrictive)
 - ✅ Batch rule generation
+- ✅ One-click rule generation from imported scan artifacts
 - ✅ Publisher grouping & aggregation
 - ✅ Duplicate detection
 - ✅ Rule template library
